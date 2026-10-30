@@ -41,6 +41,10 @@
     <button id="evready">fire ready</button>
     <button id="evgo">fire go</button>
     <button id="destroy">destroy+render</button>
+    <button id="replay">replay (last 2 s @ 0.5x)</button>
+    <button id="diag">diag: off</button>
+    <button id="pred">predicted: off</button>
+    <button id="sv">sv: infer</button>
   </div>
   <div id="info"></div>
 
@@ -66,6 +70,14 @@ let narrow = false;
 let latencyOn = false;
 let pointerWorld = null; // set by dragging, tests screenToWorld
 let sdForce = 0; // 0 = natural (stage 0, then 1 for the last second), 1 = force sd=1 in goal phase
+let diagOn = false;
+let predicted = false;
+let svForce = null; // null = omit snapshot.sv (view infers), else 'host' | 'guest'
+const diag = { fps: 60, frameMs: 4.2, rtt: 18, jitter: 2.4, kind: 'p2p', seq: 0, drops: 0 }; // mutated in place
+// Replay: a ring of the last 2 s of built snapshots (deep-enough copies) and the playback state.
+const REPLAY_SPAN = 2000, REPLAY_SPEED = 0.5;
+const recBuf = [];
+let rp = null; // { frames, t0 (ms of first frame), dur, pos (ms, replay clock), idx, cur }
 let guestLocal = null; // guest role: {x, y} world position passed as render()'s 4th argument
 
 function makeView() {
@@ -210,6 +222,10 @@ function frame(now) {
     snap = build(now);
     lastBuild = now;
     audio.onEvents(snap.ev, snap);
+    if (!rp) {
+      recBuf.push({ t: now, s: { ...snap, p: snap.p.slice(), m: snap.m.slice(), sc: snap.sc.slice(), rd: snap.rd.slice(), gw: snap.gw.slice(), ev: snap.ev.map((e) => ({ ...e })) } });
+      while (recBuf.length && recBuf[0].t < now - REPLAY_SPAN) recBuf.shift();
+    }
   }
   // Guest: the dragged mallet is passed as the local prediction (4th arg) while the
   // snapshot copy is deliberately delayed ~80 ms, like Wi-Fi lag. Host/solo ignore it.
@@ -220,7 +236,29 @@ function frame(now) {
     while (lagBuf.length > 1 && lagBuf[1].t <= now - 80) lagBuf.shift();
     snap.m[2] = lagBuf[0].x; snap.m[3] = lagBuf[0].y;
   } else lagBuf.length = 0;
-  view.render(snap, 0, now, local, { held, calibrating });
+  // Replay playback: a fresh shallow copy of each recorded snapshot as it comes up,
+  // exactly what main.js will do. The same copy is re-rendered until the next frame.
+  let replayUi = null;
+  let drawSnap = snap;
+  if (rp) {
+    rp.pos += (now - rp.last) * REPLAY_SPEED; rp.last = now;
+    if (rp.freeze != null) rp.pos = Math.min(rp.dur - 1, rp.freeze * rp.dur); // screenshots: park at a progress
+    if (rp.pos >= rp.dur) { rp = null; }
+    else {
+      let i = rp.idx;
+      while (i + 1 < rp.frames.length && rp.frames[i + 1].t - rp.t0 <= rp.pos) i++;
+      if (i !== rp.idx || !rp.cur) { rp.idx = i; rp.cur = { ...rp.frames[i].s }; }
+      drawSnap = rp.cur; local = null;
+      replayUi = { t: rp.pos / rp.dur, speed: REPLAY_SPEED };
+    }
+  }
+  if (svForce) drawSnap = drawSnap === snap ? (snap.sv = svForce, snap) : Object.assign(drawSnap, { sv: svForce });
+  if (diagOn) {
+    diag.fps = fps || 60; diag.frameMs = 3.5 + 1.5 * Math.sin(now / 400) + (Math.random() < 0.02 ? 14 : 0);
+    diag.rtt = 20 + 14 * Math.sin(now / 1300) + (Math.random() < 0.01 ? 90 : 0); diag.jitter = 2.5 + 2 * Math.abs(Math.sin(now / 900));
+    diag.seq = (diag.seq + 1) % 100000; if (Math.random() < 0.004) diag.drops++;
+  }
+  view.render(drawSnap, 0, now, local, { held, calibrating, replay: replayUi, diag: diagOn ? diag : null, predicted });
   frames++;
   if (now - fpsT > 500) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
   info.textContent = `role=${role} players=${players} mode=${mode}  fps=${fps}  phase=${phase} sd=${snap.sd} rd=${rd.join('')} held=${+held} calib=${+calibrating}  score=${sc[0]}-${sc[1]}  audio.muted=${audio.muted}`;
@@ -248,6 +286,15 @@ function jump(p) {
   else if (p === 'over') { wn = 'host'; sc[0] = 7; sc[1] = 3; lg = 'host'; setPhase('over', 5000, now); ev('over', W / 2, BOTTOM / 2, 1); }
 }
 for (const b of document.querySelectorAll('[data-phase]')) b.addEventListener('click', () => jump(b.dataset.phase));
+$('replay').onclick = () => startReplay();
+$('diag').onclick = () => { diagOn = !diagOn; $('diag').textContent = 'diag: ' + (diagOn ? 'on' : 'off'); $('diag').classList.toggle('on', diagOn); };
+$('pred').onclick = () => { predicted = !predicted; $('pred').textContent = 'predicted: ' + (predicted ? 'on' : 'off'); $('pred').classList.toggle('on', predicted); };
+$('sv').onclick = () => { svForce = svForce === null ? 'host' : svForce === 'host' ? 'guest' : null; $('sv').textContent = 'sv: ' + (svForce || 'infer'); $('sv').classList.toggle('on', !!svForce); };
+function startReplay() {
+  if (rp || recBuf.length < 3) return;
+  const frames = recBuf.slice();
+  rp = { frames, t0: frames[0].t, dur: frames[frames.length - 1].t - frames[0].t, pos: 0, idx: 0, cur: null, last: performance.now() };
+}
 $('hold').onclick = () => { hold = !hold; $('hold').textContent = 'hold phase: ' + (hold ? 'on' : 'off'); $('hold').classList.toggle('on', hold); };
 $('rdh').onclick = () => { rd[0] = rd[0] ? 0 : 1; if (rd[0]) ev('ready', 0, 0, 1, 'host'); syncRdButtons(); };
 $('rdg').onclick = () => { rd[1] = rd[1] ? 0 : 1; if (rd[1]) ev('ready', 0, 0, 1, 'guest'); syncRdButtons(); };
@@ -282,12 +329,14 @@ makeView();
   if (q.get('narrow')) { narrow = true; $('narrow').classList.add('on'); }
   if (q.get('held')) { held = true; $('held').classList.add('on'); }
   if (q.get('calib')) { calibrating = true; $('calib').classList.add('on'); }
+  if (q.get('diag')) { diagOn = true; $('diag').textContent = 'diag: on'; $('diag').classList.add('on'); }
+  if (q.get('predicted')) { predicted = true; $('pred').textContent = 'predicted: on'; $('pred').classList.add('on'); }
   if (q.get('hold')) { hold = true; $('hold').classList.add('on'); }
   if (q.get('phase')) jump(q.get('phase'));
   if (q.get('rd')) { const r = q.get('rd'); rd[0] = +r[0] || 0; rd[1] = +r[1] || 0; syncRdButtons(); }
   if (q.get('phase') === 'play' && q.get('hold')) { puck.vx = puck.vy = 0; }
 }
-window.__test = { get view() { return view; }, setManual: (b) => { manual = !!b; }, build: (over, now) => Object.assign(build(now || performance.now()), over || {}),  audio, createFx, fire: ev, jump: (p) => { phase = p; phaseEnd = performance.now() + 4000; if (p === 'over') { wn = 'host'; sc[0] = 7; } if (p === 'goal') { lg = 'host'; } } };
+window.__test = { startReplay, freezeReplay: (p) => { if (rp) rp.freeze = p; }, stopReplay: () => { rp = null; }, get replaying() { return !!rp; }, get recorded() { return recBuf.length; }, setDiag: (b) => { diagOn = !!b; }, setPredicted: (b) => { predicted = !!b; }, get view() { return view; }, setManual: (b) => { manual = !!b; }, build: (over, now) => Object.assign(build(now || performance.now()), over || {}),  audio, createFx, fire: ev, jump: (p) => { phase = p; phaseEnd = performance.now() + 4000; if (p === 'over') { wn = 'host'; sc[0] = 7; } if (p === 'goal') { lg = 'host'; } } };
 requestAnimationFrame(frame);
 </script>
 </body>

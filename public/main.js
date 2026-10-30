@@ -12,9 +12,12 @@
 // seam gap during 'ready' (a calibration ring is drawn on both screens).
 // Messages added on top of the relay: {t:'ready'} (guest pressed down),
 // {t:'calib', on:0|1} (host -> guest: draw the calibration ring).
+//
+// Networking goes through ./transport.js: 'p2p' (WebRTC data channel, works
+// from static hosting, no computer needed) or 'ws' (the optional Node server).
 
-import { connect } from './net.js';
-import { createSim } from './sim.js';
+import { createTransport } from './transport.js';
+import { createSim, predictMalletHit, advancePuck, physOf } from './sim.js';
 import { createView } from './view.js';
 
 const $ = (id) => document.getElementById(id);
@@ -37,11 +40,14 @@ const DEFAULTS = {
   botLevel: 'medium',
   gap: 16,
   sound: true,
+  conn: 'auto', // 'auto' | 'p2p' | 'ws' (see pickKind)
+  diag: false, // diagnostics panel (fps, rtt, jitter...) in the pause menu
 };
 const MODES = ['classic', 'bumpers', 'ice', 'heavy', 'mines'];
 const PLAYS = ['duo', 'bot', 'pass'];
 const BOT_LEVELS = ['easy', 'medium', 'hard', 'impossible'];
 const TARGETS = [5, 7, 11];
+const CONNS = ['auto', 'p2p', 'ws'];
 
 function sanitize(s) {
   const out = { ...DEFAULTS, ...(s && typeof s === 'object' ? s : {}) };
@@ -55,6 +61,8 @@ function sanitize(s) {
   out.gap = Math.max(0, Math.min(60, Math.round(Number(out.gap))));
   if (!Number.isFinite(out.gap)) out.gap = DEFAULTS.gap;
   out.sound = out.sound !== false;
+  if (!CONNS.includes(out.conn)) out.conn = DEFAULTS.conn;
+  out.diag = out.diag === true;
   return out;
 }
 
@@ -75,7 +83,9 @@ function saveSettings() {
 function loadSession() {
   try {
     const s = JSON.parse(sessionStorage.getItem(SESSION_KEY));
-    if (s && (s.role === 'host' || s.role === 'guest') && /^[A-Z]{4}$/.test(s.code)) return s;
+    if (s && (s.role === 'host' || s.role === 'guest') && /^[A-Z]{4}$/.test(s.code)) {
+      return { role: s.role, code: s.code, kind: s.kind === 'p2p' || s.kind === 'ws' ? s.kind : '' };
+    }
   } catch {
     /* ignore */
   }
@@ -83,7 +93,9 @@ function loadSession() {
 }
 function saveSession() {
   try {
-    if (intent && tableCode) sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role: intent.role, code: tableCode }));
+    if (intent && tableCode) {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role: intent.role, code: tableCode, kind: trKind || '' }));
+    }
   } catch {
     /* ignore */
   }
@@ -132,15 +144,24 @@ function applySound() {
 
 // --- app state --------------------------------------------------------------
 
-let net = null;
+let tr = null; // the transport (also used table-less to watch for nearby tables)
+let trKind = null; // 'p2p' | 'ws': kind of `tr`
 let netState = 'idle'; // 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed'
-let intent = null; // {role:'host'|'guest', code?:string}: what this device is doing at a table
-let tableCode = null; // the table we are seated at (set once the server confirms)
+let intent = null; // {role:'host'|'guest', code?:string, kind?:string}: what this device is doing at a table
+let tableCode = null; // the table we are seated at (set once host() / join() resolved)
 let peerPresent = false; // the other iPad is connected right now
-let resuming = false; // page load found a stored table; waiting for the server's answer
-let lastRx = 0;
-let rtt = null;
-let rttAt = 0;
+let pendingPair = false; // peer event arrived before host() / join() resolved
+let resuming = false; // page load found a stored table; waiting for it to be reclaimed
+let connectStart = 0; // when the current connection attempt began (slow-connect hint)
+let trGen = 0; // bumped whenever `tr` is replaced; stale callbacks check it
+let sessionGen = 0; // bumped whenever a connection attempt is started or cancelled
+let nearby = []; // tables announced by other iPads, newest first
+let watchingNearby = false;
+let nearbyGen = 0;
+let announceKey = '';
+let connecting = false; // host() / join() is in flight
+
+let serverProbe = null;
 
 let role = null; // view role: 'host' | 'guest' | 'solo'
 let gamePlay = null; // 'duo' | 'bot' | 'pass' for the running game
@@ -182,6 +203,7 @@ function setStatus(msg) {
 function showScreen(name) {
   for (const id of ['play', 'setup', 'wait']) $('screen-' + id).classList.toggle('hidden', id !== name);
   $('lobby').scrollTop = 0;
+  syncNearby();
 }
 
 let toastTimer = null;
@@ -200,7 +222,14 @@ function showLobby(screen) {
   menuOpen = false;
   showScreen(screen || 'play');
   startLobbyBg();
+  syncNearby();
 }
+
+const CONN_HINTS = {
+  auto: 'Uses this server when the page came from one, otherwise a direct connection between the iPads.',
+  p2p: 'The iPads talk to each other directly. Needs internet to find each other, works from any host.',
+  ws: 'Plays through the computer running the Node server this page came from. No internet needed.',
+};
 
 function refreshUI() {
   for (const seg of document.querySelectorAll('[data-seg]')) {
@@ -221,6 +250,8 @@ function refreshUI() {
   $('panel-options').classList.toggle('hidden', joining);
   $('field-bot').classList.toggle('hidden', play !== 'bot');
   $('field-gap').classList.toggle('hidden', !duo);
+  $('field-conn').classList.toggle('hidden', !duo || modeChange);
+  $('conn-hint').textContent = CONN_HINTS[settings.conn] || '';
   $('panel-join').classList.toggle('hidden', !joining);
   $('actions').classList.toggle('hidden', joining);
   $('btn-primary').textContent = modeChange ? 'Start new match' : duo ? 'Host a table' : play === 'bot' ? 'Play vs bot' : 'Start game';
@@ -230,6 +261,8 @@ function refreshUI() {
   $('gap-value').textContent = settings.gap + ' mm';
   $('calib-value').textContent = settings.gap + ' mm';
   $('m-sound').textContent = 'Sound: ' + (settings.sound ? 'on' : 'off');
+  $('m-diag').textContent = 'Diagnostics: ' + (settings.diag ? 'on' : 'off');
+  syncNearby();
 }
 
 // Segmented controls (mode cards, first-to, bot level, host/join tabs).
@@ -241,6 +274,7 @@ document.addEventListener('click', (e) => {
     settings[key] = key === 'target' ? Number(raw) : raw;
     settings = sanitize(settings);
     saveSettings();
+    if (key === 'conn') stopNearby(); // watch again on the newly chosen kind
     refreshUI();
     setStatus('');
     return;
@@ -351,11 +385,6 @@ $('btn-primary').addEventListener('click', () => {
   else if (settings.play === 'duo') startHosting();
   else startLocal(settings.play);
 });
-$('btn-join-auto').addEventListener('click', () => {
-  unlockAudio();
-  clearJoinError();
-  startJoining('');
-});
 $('btn-join-code').addEventListener('click', submitCode);
 $('btn-wait-cancel').addEventListener('click', () => leaveTable('', settings.play === 'duo' ? 'setup' : 'play'));
 $('btn-conn-leave').addEventListener('click', () => leaveTable('', 'play'));
@@ -363,28 +392,42 @@ $('btn-conn-leave').addEventListener('click', () => leaveTable('', 'play'));
 // --- waiting screen ---------------------------------------------------------
 
 let qrFor = '';
-// When this page was opened as localhost the QR code would be useless on the
-// other iPad, so ask the server for its LAN address.
-let baseUrl = location.origin;
-if (['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
-  fetch('/info')
-    .then((r) => r.json())
-    .then((info) => {
-      if (info && Array.isArray(info.urls) && typeof info.urls[0] === 'string') {
-        baseUrl = info.urls[0];
-        qrFor = '';
-        if (intent && !running) renderWait();
-      }
-    })
-    .catch(() => {
-      /* keep location.origin */
-    });
+// The join link is this very page (query and hash dropped), so it also works
+// from a sub-path such as https://user.github.io/two-ipad-air-hockey/. When the
+// page was opened as localhost on the Node server the QR code would be useless
+// on the other iPad, so there we swap in the server's LAN address.
+let baseOverride = '';
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+function joinBase() {
+  const u = new URL(location.href);
+  u.search = '';
+  u.hash = '';
+  return baseOverride ? baseOverride + u.pathname : u.href;
+}
+if (LOCAL_HOSTS.includes(location.hostname)) {
+  probeServer().then((isServer) => {
+    if (!isServer) return;
+    fetch('/info')
+      .then((r) => r.json())
+      .then((info) => {
+        if (info && Array.isArray(info.urls) && typeof info.urls[0] === 'string') {
+          baseOverride = info.urls[0];
+          qrFor = '';
+          if (intent && !running) renderWait();
+        }
+      })
+      .catch(() => {
+        /* keep location.href */
+      });
+  });
 }
 function renderQr(code) {
-  if (qrFor === code) return;
-  qrFor = code;
-  const url = code ? `${baseUrl}/?join=${code}` : '';
-  $('wait-url').textContent = code ? baseUrl : '';
+  const base = joinBase();
+  const key = code ? code + '|' + base + '|' + trKind : '';
+  if (qrFor === key) return;
+  qrFor = key;
+  const url = code ? `${base}?join=${code}${trKind ? '&via=' + trKind : ''}` : '';
+  $('wait-url').textContent = code ? base : '';
   $('wait-code-inline').textContent = code || '';
   const box = $('wait-qr');
   box.innerHTML = '';
@@ -403,20 +446,23 @@ function renderQr(code) {
 function renderWait() {
   if (!intent) return;
   const host = intent.role === 'host';
+  const slow = !tableCode && connectStart && performance.now() - connectStart > 10000;
+  const slowNote = slow ? ' Still trying. Direct play needs an internet connection to find the other iPad.' : '';
   $('wait-code').textContent = tableCode || '';
   $('wait-share').classList.toggle('hidden', !(host && tableCode));
   renderQr(host ? tableCode || '' : '');
+  $('wait-kind').textContent = trKind === 'ws' ? 'Via this server' : trKind === 'p2p' ? 'Direct connection' : '';
   let title;
   let text = '';
   if (host) {
     title = 'Waiting for the other iPad';
-    if (!tableCode) text = netState === 'open' ? 'Opening a table…' : 'Connecting…';
-    else if (netState !== 'open') text = 'Reconnecting…';
+    if (!tableCode) text = (netState === 'open' ? 'Opening a table…' : 'Connecting…') + slowNote;
+    else if (netState === 'reconnecting') text = 'Reconnecting…';
     else text = 'Lay the iPads flat, top edge against top edge, in portrait.';
   } else {
     title = tableCode ? 'Joined table ' + tableCode : 'Looking for a table…';
-    if (netState !== 'open') text = tableCode ? 'Reconnecting…' : 'Connecting…';
-    else if (!tableCode) text = intent.code ? 'Joining ' + intent.code + '…' : 'Looking for the open table…';
+    if (!tableCode) text = (intent.code ? 'Joining ' + intent.code + '…' : 'Looking for the table…') + slowNote;
+    else if (netState === 'reconnecting') text = 'Reconnecting…';
     else if (!peerPresent) text = 'The host iPad is not connected right now. Waiting for it to come back…';
     else text = 'Waiting for the host to start…';
   }
@@ -435,7 +481,7 @@ function updateOverlays() {
   };
   if (!intent || !(running || resuming)) {
     overlay.classList.add('hidden');
-  } else if (netState !== 'open') {
+  } else if (netState === 'reconnecting' || netState === 'closed') {
     show('Reconnecting…', 'Lost the connection. Trying again automatically.');
   } else if (resuming) {
     show('Reconnecting…', tableCode ? `Getting back to table ${tableCode}.` : 'Getting back to your table.');
@@ -445,47 +491,207 @@ function updateOverlays() {
     overlay.classList.add('hidden');
   }
   if (!running) renderWait();
+  syncAnnounce();
 }
 
 // --- networking -------------------------------------------------------------
+//
+// One transport object (./transport.js) carries everything. Its kind is picked
+// per session: 'ws' when this page is served by our Node server, else 'p2p'.
+// Reconnection, the heartbeat and the round-trip time live inside the
+// transport; the game only reacts to onPeer / onState / onMessage.
 
-function openNet() {
-  closeNet();
-  netState = 'connecting';
-  net = connect({
-    onOpen: handleOpen,
-    onMessage,
-    onClose: handleClose,
-    onState: (s) => {
-      netState = s;
-      updateOverlays();
-    },
+const APP_ID = 'two-ipad-air-hockey';
+/** Is this page served by our Node server? (GET /healthz answers JSON with `tables`.) */
+function probeServer() {
+  if (serverProbe) return serverProbe;
+  serverProbe = (async () => {
+    if (!/^https?:$/.test(location.protocol)) return false;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 1500);
+    try {
+      const res = await fetch('/healthz', { cache: 'no-store', signal: ctl.signal });
+      if (!res.ok) return false;
+      const j = await res.json();
+      return !!j && typeof j === 'object' && typeof j.tables === 'number';
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+  return serverProbe;
+}
+probeServer(); // start early so 'Auto' never waits at the first tap
+
+async function pickKind() {
+  if (settings.conn === 'p2p') return 'p2p';
+  if (settings.conn === 'ws') return 'ws';
+  return (await probeServer()) ? 'ws' : 'p2p';
+}
+
+function makeTransport(kind) {
+  const gen = ++trGen;
+  const live = () => gen === trGen;
+  trKind = kind;
+  tr = createTransport({
+    kind,
+    appId: APP_ID,
+    onMessage: (m) => live() && onMessage(m),
+    onPeer: (ev) => live() && onPeer(ev),
+    onState: (st) => live() && onTransportState(st),
+    onNearby: (list) => live() && setNearby(list),
   });
+  return tr;
 }
 
-function closeNet() {
-  if (net) net.close();
-  net = null;
+function closeTransport() {
+  trGen++;
+  const t = tr;
+  tr = null;
+  trKind = null;
   netState = 'idle';
-  rtt = null;
+  watchingNearby = false;
+  nearbyGen++;
+  announceKey = '';
+  if (t) {
+    try {
+      t.close();
+    } catch {
+      /* ignore */
+    }
+  }
+  setNearby([]);
 }
 
-function handleOpen() {
-  lastRx = performance.now();
-  if (!intent) return;
-  if (intent.role === 'host') {
-    // With a code this reclaims our table; without one it opens a new table.
-    net.send(tableCode ? { t: 'host', code: tableCode } : { t: 'host' });
-  } else {
-    net.send({ t: 'join', code: tableCode || intent.code || '', rejoin: !!tableCode });
+function sendNet(msg) {
+  try {
+    return !!tr && tr.send(msg) !== false;
+  } catch {
+    return false;
   }
 }
 
-function handleClose() {
-  peerPresent = false;
-  setLatency(null);
+function onTransportState(st) {
+  netState = st;
+  // While host() / join() is pending a 'closed' just precedes its rejection,
+  // which carries the friendly message; afterwards it means the table is gone.
+  if (st === 'closed' && intent && !connecting) {
+    leaveTable((tr && tr.reason) || 'The table was closed.', running ? 'play' : 'setup');
+    return;
+  }
   updateOverlays();
 }
+
+// --- nearby tables ("Tables near you")
+
+function nearbyWanted() {
+  return (
+    !intent &&
+    !$('lobby').classList.contains('hidden') &&
+    !$('screen-setup').classList.contains('hidden') &&
+    settings.play === 'duo' &&
+    settings.duoRole === 'join' &&
+    !modeChange
+  );
+}
+
+/** Start / stop watching to match what is on screen. Cheap to call often. */
+async function syncNearby() {
+  if (!nearbyWanted()) {
+    if (watchingNearby) stopNearby(true);
+    return;
+  }
+  if (watchingNearby) return;
+  watchingNearby = true;
+  const my = ++nearbyGen;
+  const kind = await pickKind();
+  if (my !== nearbyGen || !watchingNearby || intent) return;
+  if (!tr || trKind !== kind) {
+    closeTransport();
+    makeTransport(kind);
+    watchingNearby = true;
+    nearbyGen = my;
+  }
+  try {
+    tr.watchNearby(true);
+  } catch {
+    /* no nearby support: the list just stays empty */
+  }
+}
+
+/** Stop watching. `release` also closes the table-less transport. */
+function stopNearby(release) {
+  watchingNearby = false;
+  nearbyGen++;
+  if (tr) {
+    try {
+      tr.watchNearby(false);
+    } catch {
+      /* ignore */
+    }
+    if (release && !intent) closeTransport();
+  }
+  setNearby([]);
+}
+
+function setNearby(list) {
+  const seen = new Set();
+  nearby = [];
+  for (const e of Array.isArray(list) ? list : []) {
+    const code = e && typeof e.code === 'string' ? e.code.trim().toUpperCase() : '';
+    if (!/^[A-Z]{4}$/.test(code) || seen.has(code) || code === tableCode) continue;
+    seen.add(code);
+    nearby.push({ code, mode: MODES.includes(e.mode) ? e.mode : '', since: Number(e.since) || 0 });
+  }
+  nearby.sort((a, b) => b.since - a.since);
+  renderNearby();
+}
+
+function renderNearby() {
+  const ul = $('nearby-list');
+  ul.textContent = '';
+  for (const e of nearby) {
+    const li = document.createElement('li');
+    li.className = 'nearby-row';
+    const code = document.createElement('span');
+    code.className = 'nearby-code';
+    code.textContent = e.code;
+    const mode = document.createElement('span');
+    mode.className = 'nearby-mode';
+    mode.textContent = e.mode;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cta cta-blue';
+    btn.textContent = 'Join';
+    btn.setAttribute('aria-label', 'Join table ' + e.code);
+    btn.addEventListener('click', () => {
+      unlockAudio();
+      clearJoinError();
+      startJoining(e.code);
+    });
+    li.append(code, mode, btn);
+    ul.append(li);
+  }
+  $('nearby-empty').classList.toggle('hidden', nearby.length > 0);
+}
+
+/** Tell nearby iPads about our table while we are hosting and nobody has joined. */
+function syncAnnounce() {
+  if (!tr) return;
+  const want = !!(intent && intent.role === 'host' && tableCode && !peerPresent);
+  const mode = running && cfg ? cfg.mode : settings.mode;
+  const key = want ? tableCode + '|' + mode : '';
+  if (key === announceKey) return;
+  announceKey = key;
+  try {
+    tr.announce(want ? { code: tableCode, mode, players: 'duo' } : null);
+  } catch {
+    /* ignore */
+  }
+}
+
+// --- session
 
 function startHosting() {
   beginSession('host', '');
@@ -493,31 +699,123 @@ function startHosting() {
   renderWait();
 }
 
-function startJoining(code) {
+function startJoining(code, kind) {
   setStatus('');
-  beginSession('guest', code);
+  beginSession('guest', code, kind);
   showScreen('wait');
   renderWait();
 }
 
-function beginSession(sessionRole, code) {
+function beginSession(sessionRole, code, kind) {
   stopGame();
   clearSession();
-  intent = { role: sessionRole, code: code || '' };
+  stopNearby(false); // keep the transport if it is the right kind
+  intent = { role: sessionRole, code: code || '', kind: kind || '' };
   tableCode = null;
   peerPresent = false;
+  pendingPair = false;
   resuming = false;
   everPaired = false;
   calibDone = false;
-  openNet();
+  connectSession();
+}
+
+/** Open (or reuse) the transport and take the seat: host() or join(). */
+async function connectSession() {
+  const my = ++sessionGen;
+  const wantRole = intent.role;
+  const resume = resuming;
+  const wanted = tableCode || intent.code || '';
+  connectStart = performance.now();
+  connecting = true;
+  netState = 'connecting';
+  updateOverlays();
+  const kind = intent.kind || (await pickKind());
+  if (my !== sessionGen || !intent) return;
+  if (!tr || trKind !== kind) {
+    closeTransport();
+    makeTransport(kind);
+  }
+  netState = 'connecting';
+  const t = tr;
+  renderWait();
+  try {
+    let res;
+    if (wantRole === 'host') res = await t.host(wanted || undefined);
+    else if (wanted) res = await t.join(wanted, resume ? { rejoin: true } : undefined);
+    else throw new Error('No table with that code');
+    if (my !== sessionGen || t !== tr) return;
+    connecting = false;
+    tableReady(typeof res === 'string' && /^[A-Za-z]{4}$/.test(res) ? res.toUpperCase() : wanted);
+  } catch (err) {
+    if (my !== sessionGen || t !== tr) return;
+    connecting = false;
+    connectFailed(err, wantRole, wanted, resume);
+  }
+}
+
+function tableReady(code) {
+  tableCode = code;
+  resuming = false;
+  saveSession();
+  if (tr && tr.peerPresent) {
+    pendingPair = true;
+    peerPresent = true;
+  }
+  if (pendingPair && peerPresent) {
+    pendingPair = false;
+    pairUp(false);
+  }
+  updateOverlays();
+}
+
+function connectFailed(err, wantRole, tried, resume) {
+  const m = String((err && err.message) || err || '');
+  const gone = /no table|not found|no longer/i.test(m);
+  const full = /full/i.test(m);
+  if (resume) {
+    leaveTable(gone || full ? 'That table is gone. Host or join a new one.' : 'Could not get back to your table.', 'play');
+    return;
+  }
+  if (wantRole === 'guest') {
+    // Wrong or stale code: stay on the join form and say so in friendly words.
+    let text;
+    if (gone) text = tried ? `No table with code ${tried}. Check the code on the host iPad.` : 'No table found.';
+    else if (full) text = 'That table already has two iPads.';
+    else if (trKind === 'ws') text = 'Could not reach the server. Check that it is running and try again.';
+    else text = 'Could not connect. Check your internet connection and try again.';
+    leaveTable('', 'setup');
+    settings.play = 'duo';
+    settings.duoRole = 'join';
+    refreshUI();
+    showJoinError(text, tried);
+    return;
+  }
+  leaveTable(
+    trKind === 'ws'
+      ? 'Could not reach the server. Check that it is running and try again.'
+      : 'Could not open a table. Check your internet connection and try again.',
+    'setup',
+  );
 }
 
 function leaveTable(message, screen) {
-  if (net && intent) net.send({ t: 'leave' });
-  closeNet();
+  sessionGen++; // cancel a connection attempt that is still in flight
+  connecting = false;
+  trGen++; // and ignore anything the transport says while we leave
+  if (tr && intent) {
+    try {
+      tr.announce(null);
+      tr.leave();
+    } catch {
+      /* ignore */
+    }
+  }
+  closeTransport();
   intent = null;
   tableCode = null;
   peerPresent = false;
+  pendingPair = false;
   resuming = false;
   everPaired = false;
   modeChange = false;
@@ -528,58 +826,64 @@ function leaveTable(message, screen) {
   setStatus(message || '');
 }
 
-function onMessage(msg) {
-  lastRx = performance.now();
+/** The other iPad is (back) at the table. */
+function onPeer(ev) {
   if (!intent) return;
+  if (ev === 'left') {
+    peerPresent = false;
+    pendingPair = false;
+    guestTs = null;
+    setLatency(null);
+    pointers.clear();
+    updateOverlays();
+    return;
+  }
+  if (ev !== 'joined' && ev !== 'rejoined') return;
+  const was = peerPresent;
+  peerPresent = true;
+  if (!tableCode) {
+    pendingPair = true; // host() / join() has not resolved yet
+    return;
+  }
+  pairUp(was);
+}
+
+function pairUp(wasPresent) {
+  guestTs = null;
+  seqPrev = skPrev = -1; // a fresh connection: do not count the gap as drops
+  if (!wasPresent) toast(everPaired ? 'Other iPad reconnected' : 'Other iPad connected');
+  everPaired = true;
+  if (intent.role === 'host') {
+    if (sim && gamePlay === 'duo' && running) {
+      sendNet({ t: 'config', cfg }); // resume, score intact
+      calibSent = false; // re-announce the calibration ring if it is open
+    } else startAsHost();
+  }
+  updateOverlays();
+}
+
+function onMessage(msg) {
+  if (!intent || !msg) return;
   switch (msg.t) {
-    case 'hosted': // we have a table (new, or reclaimed after a drop)
-      tableCode = msg.code;
-      resuming = false;
-      peerPresent = false; // 'paired' follows if the guest is still there
-      saveSession();
-      updateOverlays();
-      break;
-
-    case 'joined':
-      tableCode = msg.code;
-      resuming = false;
-      peerPresent = false; // 'paired' follows when the host is there
-      saveSession();
-      updateOverlays();
-      break;
-
-    case 'guest-joined':
-      break; // 'paired' is what we act on
-
-    case 'paired':
-      peerPresent = true;
-      guestTs = null;
-      toast(everPaired ? 'Other iPad reconnected' : 'Other iPad connected');
-      everPaired = true;
-      if (intent.role === 'host') {
-        if (sim && gamePlay === 'duo' && running) {
-          net.send({ t: 'config', cfg }); // resume, score intact
-          calibSent = false; // re-announce the calibration ring if it is open
-        } else startAsHost();
-      }
-      updateOverlays();
-      break;
-
     case 'config':
       if (!msg.cfg || !Number.isFinite(msg.cfg.W) || !Number.isFinite(msg.cfg.H)) break;
       if (intent.role === 'guest') startAsGuest(msg.cfg);
       break;
 
-    case 's':
-      audio.onEvents(msg.ev || [], msg);
+    case 's': {
+      const t = performance.now();
+      noteArrival(msg, t); // jitter, seq gaps, history, replay buffer, goal detection
+      dropPredictedHit(msg, t); // the host's copy of a hit we already showed
+      if (rp.st !== 2) audio.onEvents(msg.ev || [], msg); // silent during an instant replay
       // Two snapshots between frames: carry the unrendered one's events over so
       // the view (which consumes events per snapshot object) still sees them.
       if (lastSnapshot && lastSnapshot !== lastRendered && lastSnapshot.ev && lastSnapshot.ev.length) {
         msg.ev = lastSnapshot.ev.concat(msg.ev || []).slice(-64);
       }
       lastSnapshot = msg;
-      lastSnapshotAt = performance.now();
+      lastSnapshotAt = t;
       break;
+    }
 
     case 'input': {
       if (!sim || intent.role !== 'host') break;
@@ -605,77 +909,14 @@ function onMessage(msg) {
     case 'restart':
       if (sim && intent.role === 'host' && !modeChange) sim.restart(); // not while the host is picking a new mode
       break;
-
-    case 'ping':
-      if (net) net.send({ t: 'pong', c: msg.c });
-      break;
-
-    case 'pong': {
-      const now = performance.now();
-      const raw = now - msg.c;
-      if (raw >= 0 && raw < 10000) {
-        rtt = rtt == null ? raw : rtt * 0.6 + raw * 0.4;
-        rttAt = now;
-        setLatency(Math.round(rtt));
-      }
-      break;
-    }
-
-    case 'peer-left':
-      peerPresent = false;
-      guestTs = null;
-      setLatency(null);
-      rtt = null;
-      pointers.clear();
-      updateOverlays();
-      break;
-
-    case 'closed':
-      leaveTable(msg.m || 'The table was closed.', 'play');
-      break;
-
-    case 'error': {
-      const wasInTable = running || resuming;
-      const joining = intent.role === 'guest' && !wasInTable;
-      const tried = intent.code || '';
-      if (joining) {
-        // Wrong or stale code: stay on the join form and say so in friendly words.
-        const friendly = {
-          'no-table': tried ? `No table with code ${tried}. Check the code on the host iPad.` : 'No table found.',
-          full: 'That table already has two iPads.',
-          'none-open': 'No table is waiting yet. Host one on the other iPad first.',
-          multiple: 'Several tables are open. Type the code shown on the host iPad.',
-        };
-        leaveTable('', 'setup');
-        settings.play = 'duo';
-        settings.duoRole = 'join';
-        refreshUI();
-        showJoinError(friendly[msg.code] || msg.m || 'Could not join that table.', tried);
-        break;
-      }
-      leaveTable(msg.m || 'Something went wrong.', wasInTable ? 'play' : 'setup');
-      break;
-    }
   }
 }
 
-// Ping the other iPad every 2 s to measure round-trip time.
+// Latency readout in the corner, from the transport's own ping/pong.
 setInterval(() => {
-  if (!intent || !net || !net.isOpen || !peerPresent) return;
-  const now = performance.now();
-  net.send({ t: 'ping', c: now });
-  if (rttAt && now - rttAt > 7000) {
-    rtt = null;
-    setLatency(null);
-  }
-}, 2000);
-
-// Watchdog: a socket that is "open" but silent is dead (iPad slept). Any
-// message counts, including the server's 15 s {t:'hb'}; paired we also get
-// pings every 2 s, so 5 s of silence is enough then.
-setInterval(() => {
-  if (!intent || !net || !net.isOpen) return;
-  if (performance.now() - lastRx > (peerPresent ? 5000 : 40000)) net.reset();
+  if (intent && !running) renderWait(); // refreshes the slow-connect hint
+  if (!tr || !intent || !peerPresent || tr.rtt == null || !Number.isFinite(tr.rtt)) return setLatency(null);
+  setLatency(Math.round(tr.rtt));
 }, 1000);
 
 // --- game start / stop ------------------------------------------------------
@@ -723,13 +964,14 @@ function startAsHost() {
   lastSnapshot = null;
   guestTs = null;
   calibSent = false;
-  net.send({ t: 'config', cfg });
+  sendNet({ t: 'config', cfg });
   beginPlay();
 }
 
 function startAsGuest(c) {
   if (running && role === 'guest' && cfg) {
     if (JSON.stringify(cfg) === JSON.stringify(c)) {
+      seqPrev = skPrev = -1; // resumed: the gap while away is not packet loss
       updateOverlays(); // same table, just resumed
       return;
     }
@@ -759,7 +1001,7 @@ function rebuildView() {
   view = createView(canvas, role, cfg);
   viewKey = key;
   if (view.resize) view.resize();
-  setLatency(gamePlay === 'duo' && rtt != null ? Math.round(rtt) : null);
+  setLatency(gamePlay === 'duo' && tr && tr.rtt != null ? Math.round(tr.rtt) : null);
 }
 
 // --- seam gap calibration (two-iPad host, phase 'ready') ----------------------
@@ -797,7 +1039,7 @@ function applyGap() {
   }
   cfg.G = G; // the sim already did this in place; harmless if so
   rebuildView();
-  if (net) net.send({ t: 'config', cfg });
+  sendNet({ t: 'config', cfg });
 }
 
 /** Show / hide the host's calibration bar and tell the guest to draw the ring. */
@@ -806,8 +1048,8 @@ function syncCalib(ph) {
   const want = role === 'host' && gamePlay === 'duo' && ph === 'ready' && !calibDone && !modeChange && peerPresent;
   $('calib').classList.toggle('hidden', !want);
   ui.calibrating = role === 'host' ? want : role === 'guest' ? calibRemote && ph === 'ready' : false;
-  if (role === 'host' && net && peerPresent && calibSent !== want) {
-    if (net.send({ t: 'calib', on: want ? 1 : 0 })) calibSent = want;
+  if (role === 'host' && tr && peerPresent && calibSent !== want) {
+    if (sendNet({ t: 'calib', on: want ? 1 : 0 })) calibSent = want;
   }
 }
 
@@ -840,7 +1082,7 @@ function syncOver(ph, now) {
 $('over-rematch').addEventListener('click', () => requestRestart());
 $('over-change').addEventListener('click', openChangeMode);
 $('over-ask').addEventListener('click', () => {
-  if (net) net.send({ t: 'restart' });
+  sendNet({ t: 'restart' });
   const b = $('over-ask');
   b.disabled = true;
   b.textContent = 'Asked. Waiting for the host\u2026';
@@ -889,14 +1131,18 @@ function applyModeChange() {
   guestTs = null;
   calibSent = false;
   refreshUI();
-  if (net && peerPresent) net.send({ t: 'config', cfg });
+  if (peerPresent) sendNet({ t: 'config', cfg });
   beginPlay();
 }
 
 function startLocal(play) {
   stopGame();
-  closeNet();
+  sessionGen++;
+  connecting = false;
+  closeTransport();
   intent = null;
+  tableCode = null;
+  peerPresent = false;
   cfg = buildCfg(play);
   sim = createSim(cfg);
   role = 'solo';
@@ -923,6 +1169,10 @@ function beginPlay() {
   pendingEv = [];
   prevPhase = null;
   overSince = 0;
+  replayReset();
+  rbClear();
+  resetDiag();
+  resetGuestFeel();
   running = true;
   lastFrame = performance.now();
   requestWakeLock();
@@ -945,6 +1195,10 @@ function stopGame() {
   pendingInput = null;
   pendingEv = [];
   pointers.clear();
+  replayReset();
+  rbClear();
+  resetGuestFeel();
+  ui.diag = null;
   modeChange = false;
   overShown = false;
   calibSent = false;
@@ -977,7 +1231,7 @@ function currentPhase() {
 
 function requestRestart() {
   if (sim) sim.restart();
-  else if (net) net.send({ t: 'restart' });
+  else if (tr) sendNet({ t: 'restart' });
   calibSent = false;
 }
 
@@ -1016,14 +1270,15 @@ canvas.addEventListener('pointerdown', (e) => {
     pointers.clear(); // one finger at a time: the newest wins
   }
   pointers.set(e.pointerId, { side, x: wx, y: wy });
+  if (role === 'guest') feedMal(wx, wy, evTime(e, performance.now()), true);
   moveMallet(side, wx, wy, true);
 
   // Pressing down on your own half is how you say "ready".
   if (ph === 'ready') {
     if (sim) {
       if (typeof sim.setReady === 'function') sim.setReady(side);
-    } else if (net) {
-      net.send({ t: 'ready' });
+    } else if (tr) {
+      sendNet({ t: 'ready' });
     }
   }
 });
@@ -1032,9 +1287,22 @@ canvas.addEventListener('pointermove', (e) => {
   if (!running) return;
   const p = pointers.get(e.pointerId);
   if (!p) return;
-  const [wx, wy] = view.screenToWorld(e.clientX, e.clientY);
+  // Coalesced events carry every touch sample since the last event: the last one
+  // is the freshest position, the last two give the mallet velocity.
+  const co = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
+  const n = co ? co.length : 0;
+  const last = n ? co[n - 1] : e;
+  const [wx, wy] = view.screenToWorld(last.clientX, last.clientY);
   p.x = wx;
   p.y = wy;
+  if (role === 'guest') {
+    const nowP = performance.now();
+    if (n >= 2) {
+      const [px, py] = view.screenToWorld(co[n - 2].clientX, co[n - 2].clientY);
+      feedMal(px, py, evTime(co[n - 2], nowP), !mal.ok);
+    }
+    feedMal(wx, wy, evTime(last, nowP), false);
+  }
   moveMallet(p.side, wx, wy);
 });
 
@@ -1057,6 +1325,489 @@ document.addEventListener(
   { passive: false },
 );
 
+// --- feel: diagnostics, instant replay, guest hit prediction ------------------------
+//
+// Guest view of the puck, per frame:
+//   live        advancePuck(latest.p, age) with real friction and rail bounces,
+//               never more than 120 ms past the snapshot (no linear extrapolation)
+//   predicted   when the local mallet would touch the displayed puck within the
+//               next frame, show predictMalletHit's result at once and keep
+//               advancing it locally until the host catches up (see renderGuest)
+//   replay      after a goal, the last ~2 s of snapshots at half speed (tickReplay)
+// The view dedupes events by snapshot object and by shared p+m arrays, so a new
+// host snapshot is handed to render() as the original object exactly once (its
+// `ev` fires), and every later frame gets a shallow copy with a NEW `p` and
+// `ev: []`.
+
+const NO_EV = [];
+const PRED_MS = 250; // a prediction lives at most this long without host confirmation
+const MAX_MALLET_SPEED = 3200; // px/s, same cap as the sim
+
+// ---- diagnostics (ring buffers and scalars only: nothing allocates per frame) ----
+
+const diag = { fps: 0, frameMs: 0, rtt: null, jitter: 0, kind: 'local', seq: 0, drops: 0 };
+const FPS_CAP = 512;
+const fpsTs = new Float64Array(FPS_CAP);
+let fpsHead = 0;
+let fpsCount = 0;
+const FT_N = 60;
+const frameDts = new Float32Array(FT_N);
+let ftIdx = 0;
+let ftCount = 0;
+const arrIv = new Float32Array(60); // guest: snapshot inter-arrival times (ms)
+let arrIdx = 0;
+let arrCount = 0;
+let lastArrival = 0;
+let diagAt = 0;
+let seqPrev = -1;
+let skPrev = -1;
+let rateSkips = 0; // host: frames not sent on purpose (rate limit)
+const hist = [null, null, null, null]; // guest: last 4 snapshots...
+const histAt = new Float64Array(4); // ...and when they arrived
+let histN = 0;
+
+function resetDiag() {
+  fpsHead = fpsCount = ftIdx = ftCount = arrIdx = arrCount = 0;
+  lastArrival = 0;
+  diagAt = 0;
+  seqPrev = skPrev = -1;
+  rateSkips = 0;
+  histN = 0;
+  hist.fill(null);
+  diag.drops = 0;
+  diag.seq = 0;
+}
+
+function stdev(arr, n) {
+  if (n < 2) return 0;
+  let sum = 0;
+  let sq = 0;
+  for (let i = 0; i < n; i++) {
+    sum += arr[i];
+    sq += arr[i] * arr[i];
+  }
+  const mean = sum / n;
+  return Math.sqrt(Math.max(0, sq / n - mean * mean));
+}
+
+function diagFrame(now, rawMs, seq) {
+  fpsTs[fpsHead] = now;
+  fpsHead = (fpsHead + 1) % FPS_CAP;
+  if (fpsCount < FPS_CAP) fpsCount++;
+  while (fpsCount > 1 && now - fpsTs[(fpsHead - fpsCount + FPS_CAP) % FPS_CAP] > 1000) fpsCount--;
+  if (rawMs > 0) {
+    frameDts[ftIdx] = Math.min(250, rawMs);
+    ftIdx = (ftIdx + 1) % FT_N;
+    if (ftCount < FT_N) ftCount++;
+  }
+  if (!settings.diag) {
+    ui.diag = null;
+    return;
+  }
+  diag.seq = seq | 0;
+  if (now - diagAt >= 250) {
+    diagAt = now;
+    diag.fps = fpsCount;
+    let sum = 0;
+    for (let i = 0; i < ftCount; i++) sum += frameDts[i];
+    diag.frameMs = ftCount ? sum / ftCount : 0;
+    diag.jitter = role === 'guest' ? stdev(arrIv, arrCount) : stdev(frameDts, ftCount);
+    diag.rtt = tr && peerPresent && tr.rtt != null && Number.isFinite(tr.rtt) ? tr.rtt : null;
+    diag.kind = gamePlay === 'duo' ? trKind || 'p2p' : 'local';
+  }
+  ui.diag = diag;
+}
+
+/** Guest, per received snapshot: jitter, seq gaps, history, replay buffer, goals. */
+function noteArrival(msg, t) {
+  if (lastArrival > 0) {
+    const iv = t - lastArrival;
+    if (iv < 2000) {
+      arrIv[arrIdx] = iv;
+      arrIdx = (arrIdx + 1) % arrIv.length;
+      if (arrCount < arrIv.length) arrCount++;
+    }
+  }
+  lastArrival = t;
+  if (typeof msg.seq === 'number') {
+    const sk = typeof msg.sk === 'number' ? msg.sk : 0;
+    if (seqPrev >= 0 && msg.seq > seqPrev + 1) {
+      const intended = skPrev >= 0 ? Math.max(0, sk - skPrev) : 0;
+      diag.drops += Math.max(0, msg.seq - seqPrev - 1 - intended);
+    }
+    seqPrev = msg.seq;
+    skPrev = sk;
+  }
+  hist[histN & 3] = msg;
+  histAt[histN & 3] = t;
+  histN++;
+  rbPush(msg);
+  noteGoal(msg);
+}
+
+// ---- instant replay ----------------------------------------------------------------
+//
+// A ring buffer keeps the last ~3.6 s of snapshots (host: its own sim.snapshot()
+// results; guest: the received ones), keyed by sim time `ts`, so the replay is
+// smooth whatever the network jitter. When a 'goal' event is seen and the match
+// is not over, wait RP_WAIT s (the goal flash), then play [goal - 2.0 s,
+// goal + 0.2 s] at half speed: 4.4 s of real time. The host / solo sim is frozen
+// while it plays (the 1.6 s goal pause + 1 s serve countdown resume afterwards),
+// which also stops snapshots from changing for the guest.
+
+const RB_CAP = 640;
+const RB_KEEP_S = 3.6;
+const RP_WAIT = 0.9;
+const RP_PRE = 2.0;
+const RP_POST = 0.2;
+const RP_SPEED = 0.5;
+const rbSnap = new Array(RB_CAP).fill(null);
+const rbTs = new Float64Array(RB_CAP);
+let rbHead = 0;
+let rbCount = 0;
+// st: 0 idle, 1 waiting for the goal flash, 2 playing
+const rp = { st: 0, wait: 0, goalTs: 0, clip: null, gi: 0, hold: null, k: 0, t0: 0, dur: 0, el: 0 };
+const replayUi = { t: 0, speed: RP_SPEED };
+
+function rbClear() {
+  rbSnap.fill(null);
+  rbHead = rbCount = 0;
+}
+const rbIdx = (i) => (rbHead - rbCount + i + RB_CAP) % RB_CAP;
+
+function rbPush(snap) {
+  const ts = snap.ts;
+  if (!Number.isFinite(ts)) return;
+  if (rbCount) {
+    const last = rbTs[(rbHead - 1 + RB_CAP) % RB_CAP];
+    if (ts === last) return; // frozen host: the same moment again
+    if (ts < last - 0.5) rbClear(); // a fresh sim restarted the clock
+  }
+  rbSnap[rbHead] = snap;
+  rbTs[rbHead] = ts;
+  rbHead = (rbHead + 1) % RB_CAP;
+  if (rbCount < RB_CAP) rbCount++;
+  while (rbCount > 1) {
+    const ti = rbIdx(0);
+    if (ts - rbTs[ti] <= RB_KEEP_S) break;
+    rbSnap[ti] = null;
+    rbCount--;
+  }
+}
+
+function replayReset() {
+  rp.st = 0;
+  rp.clip = null;
+  rp.hold = null;
+  ui.replay = null;
+}
+
+/** Look at a freshly produced / received snapshot for a goal that deserves a replay. */
+function noteGoal(snap) {
+  if (rp.st !== 0 || snap.ph === 'over') return;
+  const ev = snap.ev;
+  if (!ev || !ev.length) return;
+  for (let i = 0; i < ev.length; i++) {
+    if (ev[i] && ev[i].k === 'goal') {
+      rp.st = 1;
+      rp.wait = RP_WAIT;
+      rp.goalTs = snap.ts;
+      return;
+    }
+  }
+}
+
+/** Cut [goal - 2 s, goal + 0.2 s] out of the ring buffer (null when too little is there). */
+function buildClip(goalTs) {
+  let gi = -1;
+  for (let i = rbCount - 1; i >= 0; i--) {
+    if (rbTs[rbIdx(i)] <= goalTs + 1e-6) {
+      gi = i;
+      break;
+    }
+  }
+  if (gi < 1) return null;
+  // Start at the oldest snapshot of the unbroken stretch of 'play' before the goal.
+  let s = gi;
+  while (s > 0 && rbTs[rbIdx(s - 1)] >= goalTs - RP_PRE && rbSnap[rbIdx(s - 1)].ph === 'play') s--;
+  if (s >= gi) return null;
+  let e = gi;
+  while (e + 1 < rbCount && rbTs[rbIdx(e + 1)] <= goalTs + RP_POST) e++;
+  const clip = [];
+  for (let i = s; i <= e; i++) clip.push(rbSnap[rbIdx(i)]);
+  return clip.length >= 3 ? { clip, gi: gi - s } : null;
+}
+
+/**
+ * Advance the replay state machine by dt and return the snapshot copy to draw
+ * while a replay is playing, else null. `livePhase` is the live phase: a
+ * restart or rematch cancels the replay.
+ */
+function tickReplay(dt, livePhase) {
+  if (rp.st === 0) return null;
+  if (livePhase !== 'goal' && livePhase !== 'play') {
+    replayReset();
+    return null;
+  }
+  if (rp.st === 1) {
+    if (!paused) rp.wait -= dt;
+    if (rp.wait > 0) return null;
+    const c = buildClip(rp.goalTs);
+    if (!c) {
+      replayReset();
+      return null;
+    }
+    rp.clip = c.clip;
+    rp.gi = c.gi;
+    const last = c.clip[Math.max(0, c.gi - 1)].p;
+    rp.hold = [last[0], last[1], 0, 0]; // the puck stays in the net
+    rp.t0 = c.clip[0].ts;
+    rp.dur = c.clip[c.clip.length - 1].ts - rp.t0;
+    rp.k = 0;
+    rp.el = 0;
+    if (!(rp.dur > 0.2)) {
+      replayReset();
+      return null;
+    }
+    rp.st = 2;
+    pred.active = false;
+  } else if (!paused) {
+    rp.el += dt;
+  }
+  const media = rp.t0 + rp.el * RP_SPEED;
+  if (media >= rp.t0 + rp.dur) {
+    replayReset();
+    return null;
+  }
+  replayUi.t = (rp.el * RP_SPEED) / rp.dur;
+  return replayFrame(media);
+}
+
+/** A copy of the buffered snapshots around `media` with NEW p / m arrays and no events. */
+function replayFrame(media) {
+  const clip = rp.clip;
+  const n = clip.length;
+  let k = rp.k;
+  while (k < n - 2 && clip[k + 1].ts <= media) k++;
+  rp.k = k;
+  const a = clip[k];
+  const b = clip[k + 1];
+  const span = b.ts - a.ts;
+  const f = span > 1e-6 ? clamp((media - a.ts) / span, 0, 1) : 0;
+  const gi = rp.gi;
+  const pa = k < gi ? a.p : rp.hold;
+  const pb = k + 1 < gi ? b.p : rp.hold;
+  const p = [pa[0], pa[1], pa[2], pa[3]];
+  if (Math.hypot(pb[0] - pa[0], pb[1] - pa[1]) < cfg.W * 0.5) {
+    for (let i = 0; i < 4; i++) p[i] = pa[i] + (pb[i] - pa[i]) * f;
+  }
+  const ma = a.m;
+  const mb = b.m;
+  const m = [ma[0], ma[1], ma[2], ma[3]];
+  if (Math.hypot(mb[0] - ma[0], mb[1] - ma[1]) < cfg.W * 0.5 && Math.hypot(mb[2] - ma[2], mb[3] - ma[3]) < cfg.W * 0.5) {
+    for (let i = 0; i < 4; i++) m[i] = ma[i] + (mb[i] - ma[i]) * f;
+  }
+  return { ...a, p, m, ev: NO_EV };
+}
+
+// ---- guest hit prediction ------------------------------------------------------------
+
+const pred = { active: false, p: null, t0: 0, seq0: 0, v0x: 0, v0y: 0, hitAt: -1e9 };
+const suppress = []; // predicted hits whose host copy has not arrived yet: {x, y, t}
+const mal = { x: 0, y: 0, vx: 0, vy: 0, t: 0, ok: false }; // guest finger as a mallet (world px, px/s)
+const predSnap = { p: null, g: 0, gw: null }; // scratch argument of predictMalletHit
+const predMallet = { x: 0, y: 0, vx: 0, vy: 0 };
+const localM = { x: 0, y: 0 };
+const predStats = { hits: 0, suppressed: 0, confirmed: 0, timeouts: 0 }; // for window.__dbg()
+
+function resetGuestFeel() {
+  pred.active = false;
+  pred.p = null;
+  pred.hitAt = -1e9;
+  suppress.length = 0;
+  mal.ok = false;
+  mal.vx = mal.vy = 0;
+}
+
+/** Feed the local mallet model one finger sample (world coordinates), clamped like the sim. */
+function feedMal(wx, wy, t, jump) {
+  const x = clamp(wx, cfg.malletR, cfg.W - cfg.malletR);
+  const y = clamp(wy, cfg.malletR, cfg.H - cfg.malletR);
+  if (!jump && mal.ok) {
+    const dtS = clamp((t - mal.t) / 1000, 0.004, 0.05);
+    let vx = (x - mal.x) / dtS;
+    let vy = (y - mal.y) / dtS;
+    const sp = Math.hypot(vx, vy);
+    if (sp > MAX_MALLET_SPEED) {
+      vx *= MAX_MALLET_SPEED / sp;
+      vy *= MAX_MALLET_SPEED / sp;
+    }
+    mal.vx = mal.vx * 0.5 + vx * 0.5; // same smoothing as the sim's setMallet
+    mal.vy = mal.vy * 0.5 + vy * 0.5;
+  } else {
+    mal.vx = mal.vy = 0;
+  }
+  mal.x = x;
+  mal.y = y;
+  mal.t = t;
+  mal.ok = true;
+}
+
+/** Event timestamp on the performance.now() clock (falls back for odd values). */
+function evTime(e, nowPerf) {
+  const t = e.timeStamp;
+  return Number.isFinite(t) && Math.abs(t - nowPerf) < 5000 ? t : nowPerf;
+}
+
+/** Remove from an arriving snapshot the 'hit' event we already showed locally. */
+function dropPredictedHit(msg, t) {
+  if (!suppress.length) return;
+  for (let i = suppress.length - 1; i >= 0; i--) if (t - suppress[i].t > PRED_MS) suppress.splice(i, 1);
+  const ev = msg.ev;
+  if (!suppress.length || !ev || !ev.length || !cfg) return;
+  const lim = 2 * cfg.puckR;
+  let kept = null;
+  for (let i = 0; i < ev.length; i++) {
+    const e = ev[i];
+    let dup = false;
+    if (e && e.k === 'hit') {
+      for (let j = 0; j < suppress.length; j++) {
+        if (Math.hypot(e.x - suppress[j].x, e.y - suppress[j].y) <= lim) {
+          suppress.splice(j, 1); // one host hit cancels one predicted hit
+          predStats.suppressed++;
+          dup = true;
+          break;
+        }
+      }
+    }
+    if (dup && !kept) kept = ev.slice(0, i);
+    else if (!dup && kept) kept.push(e);
+  }
+  if (kept) msg.ev = kept;
+}
+
+/** Is the host's puck close enough to ours (and past the hit) to hand control back? */
+function predConfirmed(auth) {
+  const pp = pred.p;
+  if (Math.hypot(auth[0] - pp[0], auth[1] - pp[1]) > 2 * cfg.puckR) return false;
+  // A snapshot made before the host saw the hit still has the old velocity.
+  const dvTot = Math.hypot(pp[2] - pred.v0x, pp[3] - pred.v0y);
+  if (dvTot > 150 && Math.hypot(auth[2] - pred.v0x, auth[3] - pred.v0y) < 0.25 * dvTot) return false;
+  return true;
+}
+
+function renderGuest(latest, now, dt) {
+  const first = latest !== lastRendered; // a snapshot the view has not seen yet
+  const playing = latest.ph === 'play';
+
+  const rpSnap = tickReplay(dt, latest.ph);
+  if (rpSnap) {
+    ui.replay = replayUi;
+    ui.predicted = false;
+    view.render(rpSnap, 0, now, null, ui); // not lastRendered: events of live snapshots are carried over
+    return;
+  }
+  ui.replay = null;
+
+  // The local mallet: the clamped finger while one is down.
+  let hasLocal = false;
+  for (const p of pointers.values()) {
+    localM.x = clamp(p.x, cfg.malletR, cfg.W - cfg.malletR);
+    localM.y = clamp(p.y, cfg.malletR, cfg.H - cfg.malletR);
+    hasLocal = true;
+    break;
+  }
+  const k = Math.pow(0.001, dt); // finger velocity decays between samples, like in the sim
+  mal.vx *= k;
+  mal.vy *= k;
+
+  if (!playing) {
+    pred.active = false;
+    ui.predicted = false;
+    view.render(latest, 0, now, hasLocal ? localM : null, ui);
+    lastRendered = latest;
+    return;
+  }
+
+  const ageS = Math.min(0.12, (now - lastSnapshotAt) / 1000);
+
+  // 1. Has the host caught up with a predicted hit?
+  let auth = null;
+  if (pred.active) {
+    if (now - pred.t0 >= PRED_MS) {
+      pred.active = false;
+      predStats.timeouts++;
+    } else if (first && latest.seq > pred.seq0) {
+      auth = advancePuck(latest.p, cfg, ageS);
+      if (predConfirmed(auth)) {
+        pred.active = false;
+        predStats.confirmed++;
+      }
+    }
+  }
+
+  // 2. The puck as it is shown right now.
+  let bp;
+  if (pred.active) bp = pred.p = advancePuck(pred.p, cfg, dt);
+  else bp = auth || advancePuck(latest.p, cfg, ageS);
+
+  // 3. Would the local mallet hit it within the next frame?
+  let hitEv = null;
+  if (hasLocal) {
+    predMallet.x = localM.x;
+    predMallet.y = localM.y;
+    predMallet.vx = mal.vx;
+    predMallet.vy = mal.vy;
+    predSnap.p = bp;
+    predSnap.g = latest.g;
+    predSnap.gw = latest.gw;
+    const hit = predictMalletHit(predSnap, cfg, 'guest', predMallet, clamp(dt, 0.008, 0.034));
+    if (hit) {
+      const dv = Math.hypot(hit[2] - bp[2], hit[3] - bp[3]);
+      if (!pred.active) {
+        pred.v0x = bp[2];
+        pred.v0y = bp[3];
+      }
+      pred.active = true;
+      pred.p = hit;
+      pred.t0 = now;
+      pred.seq0 = latest.seq;
+      bp = hit;
+      // Strength like the sim's: approach speed along the normal over 2000 px/s.
+      const s = Math.min(1, dv / ((1 + physOf(cfg.mode).mallet) * 2000));
+      if (s > 0.03 && now - pred.hitAt > 80) {
+        let nx = hit[0] - predMallet.x;
+        let ny = hit[1] - predMallet.y;
+        const d = Math.hypot(nx, ny) || 1;
+        nx /= d;
+        ny /= d;
+        const hx = Math.round((hit[0] - nx * cfg.puckR) * 10) / 10;
+        const hy = Math.round((hit[1] - ny * cfg.puckR) * 10) / 10;
+        hitEv = { k: 'hit', x: hx, y: hy, s: Math.round(s * 100) / 100 };
+        pred.hitAt = now;
+        predStats.hits++;
+        suppress.push({ x: hx, y: hy, t: now });
+        if (suppress.length > 4) suppress.shift();
+        audio.onEvents([hitEv], latest);
+      }
+    }
+  }
+
+  // 4. What to hand to the view.
+  let disp;
+  if (pred.active) {
+    const ev0 = first && latest.ev ? latest.ev : NO_EV;
+    disp = { ...latest, p: bp, ev: hitEv ? ev0.concat(hitEv) : ev0 };
+  } else if (first) {
+    disp = latest; // the original object, once: its events fire exactly once
+  } else {
+    disp = { ...latest, p: bp, ev: NO_EV };
+  }
+  ui.predicted = pred.active;
+  view.render(disp, 0, now, hasLocal ? localM : null, ui);
+  lastRendered = latest;
+}
+
 // --- frame loop -------------------------------------------------------------
 
 let lastFrame = 0;
@@ -1072,18 +1823,24 @@ function frame() {
   }
   requestAnimationFrame(frame);
   const now = performance.now();
-  const dt = Math.min(0.05, Math.max(0, (now - lastFrame) / 1000));
+  const rawMs = now - lastFrame;
+  const dt = Math.min(0.05, Math.max(0, rawMs / 1000));
   lastFrame = now;
 
   try {
     if (sim) {
       // Host (duo) or local sim (bot / pass).
-      const frozen = paused || (role === 'host' && !peerPresent);
+      // Instant replay: while it plays the sim is frozen (so the serve waits for
+      // the end of the replay) and only the replay is drawn.
+      const rpSnap = tickReplay(dt, sim.state.phase);
+      const frozen = paused || (role === 'host' && !peerPresent) || !!rpSnap;
       if (!frozen) sim.step(dt, now);
       const snap = sim.snapshot();
       lastSnapshot = snap;
-      audio.onEvents(snap.ev || [], snap);
+      if (!rpSnap) audio.onEvents(snap.ev || [], snap);
       trackPhase(snap.ph, now);
+      if (!frozen) rbPush(snap);
+      if (!rpSnap) noteGoal(snap);
 
       if (role === 'host') {
         if (snap.ev && snap.ev.length) {
@@ -1092,43 +1849,40 @@ function frame() {
         }
         if (!peerPresent) {
           pendingEv = [];
-        } else if (now - lastSend >= 15 && net.bufferedAmount < 64 * 1024) {
+        } else if (now - lastSend < 15) {
+          rateSkips++; // 120 Hz display: every other frame is skipped on purpose
+        } else if ((tr.bufferedAmount || 0) < 64 * 1024) {
           // Stream at ~60 Hz even on 120 Hz displays, without dropping events.
-          net.send({ ...snap, ev: pendingEv });
+          // `sk` = frames skipped on purpose so far: the guest subtracts them
+          // from the seq gaps it counts as drops.
+          sendNet({ ...snap, ev: pendingEv, sk: rateSkips });
           pendingEv = [];
           lastSend = now;
         }
       }
       ui.held = pointers.size > 0;
+      ui.predicted = false;
+      ui.replay = rpSnap ? replayUi : null;
       syncCalib(snap.ph);
       syncOver(snap.ph, now);
-      view.render(snap, 0, now, null, ui);
+      diagFrame(now, rawMs, snap.seq);
+      view.render(rpSnap || snap, 0, now, null, ui);
     } else {
       // Guest.
-      if (pendingInput && net && now - lastInputSend >= 15) {
+      if (pendingInput && tr && now - lastInputSend >= 15) {
         const msg = { t: 'input', x: pendingInput.x, y: pendingInput.y, ts: pendingInput.ts };
         if (pendingInput.j) msg.j = 1;
-        net.send(msg);
+        sendNet(msg);
         pendingInput = null;
         lastInputSend = now;
       }
       if (lastSnapshot) {
         trackPhase(lastSnapshot.ph, now);
-        const age = Math.min(0.12, (now - lastSnapshotAt) / 1000);
-        // Predicted local mallet: the clamped finger position while one is down.
-        let local = null;
-        for (const p of pointers.values()) {
-          local = {
-            x: clamp(p.x, cfg.malletR, cfg.W - cfg.malletR),
-            y: clamp(p.y, cfg.malletR, cfg.H - cfg.malletR),
-          };
-          break;
-        }
         ui.held = pointers.size > 0;
         syncCalib(lastSnapshot.ph);
         syncOver(lastSnapshot.ph, now);
-        view.render(lastSnapshot, lastSnapshot.ph === 'play' ? age : 0, now, local, ui);
-        lastRendered = lastSnapshot;
+        diagFrame(now, rawMs, lastSnapshot.seq);
+        renderGuest(lastSnapshot, now, dt);
       }
     }
   } catch (err) {
@@ -1159,6 +1913,7 @@ function refreshMenu() {
   $('m-fs').textContent = fsActive() ? 'Exit fullscreen' : 'Fullscreen';
   $('m-restart').textContent = 'Restart';
   $('m-sound').textContent = 'Sound: ' + (settings.sound ? 'on' : 'off');
+  $('m-diag').textContent = 'Diagnostics: ' + (settings.diag ? 'on' : 'off');
   const showCode = duo && !!tableCode;
   $('menu-code').classList.toggle('hidden', !showCode);
   $('menu-code-val').textContent = showCode ? tableCode : '';
@@ -1215,6 +1970,11 @@ $('m-sound').addEventListener('click', () => {
   settings.sound = !settings.sound;
   saveSettings();
   applySound();
+  refreshUI();
+});
+$('m-diag').addEventListener('click', () => {
+  settings.diag = !settings.diag;
+  saveSettings();
   refreshUI();
 });
 $('m-leave').addEventListener('click', () => {
@@ -1375,9 +2135,8 @@ function releaseWakeLock() {
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  lastRx = performance.now(); // give a returning tab a moment before the watchdog judges it
   if (running) requestWakeLock();
-  if (net) net.nudge();
+  if (tr && typeof tr.nudge === 'function') tr.nudge(); // optional: reconnect right away
 });
 
 window.addEventListener('orientationchange', () => {
@@ -1401,7 +2160,8 @@ if (!fsRequest || navigator.standalone === true) $('m-fs').classList.add('hidden
     settings.play = 'duo';
     settings.duoRole = 'join';
     refreshUI();
-    startJoining(joinCode);
+    const via = params.get('via');
+    startJoining(joinCode, via === 'p2p' || via === 'ws' ? via : '');
     return;
   }
   if (params.has('join')) history.replaceState(null, '', location.pathname);
@@ -1409,10 +2169,10 @@ if (!fsRequest || navigator.standalone === true) $('m-fs').classList.add('hidden
   const session = loadSession();
   if (session) {
     // The page was reloaded (or the iPad slept) while seated at a table.
-    intent = { role: session.role, code: session.code };
+    intent = { role: session.role, code: session.code, kind: session.kind };
     tableCode = session.code;
     resuming = true;
-    openNet();
+    connectSession();
     showScreen('wait');
     renderWait();
     updateOverlays();
@@ -1428,15 +2188,40 @@ window.__dbg = () => ({
   running,
   paused,
   ui: { ...ui, calibRemote, calibDone, modeChange, overShown },
+  feel: {
+    replay: { st: rp.st, wait: rp.wait, el: rp.el, dur: rp.dur, clip: rp.clip ? rp.clip.length : 0, buffered: rbCount },
+    pred: { active: pred.active, suppress: suppress.length, ...predStats },
+    diag: { ...diag },
+    hist: histN,
+  },
   pointers: [...pointers].map(([id, p]) => ({ id, side: p.side, x: p.x, y: p.y })),
   net: {
-    state: netState,
-    ws: net ? net.state : null,
-    code: tableCode,
+    kind: tr ? tr.kind || trKind : null,
+    state: tr ? tr.state : netState,
+    rtt: tr && tr.rtt != null ? Math.round(tr.rtt) : null,
+    code: tr ? tr.code || tableCode : tableCode,
     intent: intent && { ...intent },
     peerPresent,
+    transportPeer: tr ? !!tr.peerPresent : null,
     resuming,
-    rtt: rtt == null ? null : Math.round(rtt),
-    attempts: net ? net.attempts : 0,
+    setting: settings.conn,
+    nearby: nearby.map((n) => ({ ...n })),
   },
 });
+
+// --- offline / home-screen support ------------------------------------------
+// Service workers need a secure context: https, or localhost for development.
+if (
+  'serviceWorker' in navigator &&
+  (location.protocol === 'https:' || LOCAL_HOSTS.includes(location.hostname))
+) {
+  const registerSw = () =>
+    navigator.serviceWorker
+      .register('sw.js')
+      .then((reg) => reg.update())
+      .catch(() => {
+        /* offline support is optional */
+      });
+  if (document.readyState === 'complete') registerSw();
+  else window.addEventListener('load', registerSw);
+}

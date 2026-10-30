@@ -45,6 +45,11 @@ const TRAIL_N = 32;
 const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', heavy: 'Heavy', mines: 'Mines' };
 const MSG_PHASES = { ready: 1, countdown: 1, goal: 1, over: 1 };
 const NO_UI = { held: false, calibrating: false };
+const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+const REPLAY_RED = '#ff3b3b';
+const BAR_MS = 200; // replay letterbox slide time
+const DIAG_ROWS = 7;
+const DIAG_LABELS = ['fps', 'frame', 'rtt', 'jitter', 'link', 'seq', 'drops'];
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const easeOutBack = (p) => {
@@ -206,6 +211,8 @@ export function createView(canvas, role, cfg) {
     map.ky = ky;
     map.scale = scale;
     map.dpr = dpr;
+    rpBar = clamp(screenH * 0.07, 30, 78);
+    rpZoom = 1 - (2 * rpBar) / screenH;
     glowH = Math.max(26, rh * 0.05);
     seamR = Math.max(60, rw * 0.3);
   }
@@ -216,6 +223,7 @@ export function createView(canvas, role, cfg) {
     buildSprites();
     buildGradients();
     buildBg();
+    buildReplayLayers();
   }
 
   // --- offscreen helpers --------------------------------------------------------
@@ -1103,6 +1111,32 @@ export function createView(canvas, role, cfg) {
   let uiNow = NO_UI;
   let gA = 1; // alpha multiplier for message text (phase transitions)
 
+  // Instant replay treatment (ui.replay): letterbox bars, REPLAY badge, progress line.
+  let replayOn = false;
+  let rpK = 0; // 0..1 slide progress of the bars (eased when drawn)
+  let rpT = 0; // last replay progress 0..1 (kept while the bars slide out)
+  let rpSpeed = 1;
+  let rpBar = 40; // bar height in px (set in layout)
+  let rpZoom = 1; // world zoom while the bars are in, so goals stay visible
+  let vignette = null; // screen-sized dark-edge overlay, built on resize
+  let grain = null; // tiled noise pattern
+  let grainPat = null;
+  let grainSeed = 0;
+  let grainT = 0;
+  // Predicted-hit ring (ui.predicted).
+  let predK = 0;
+  // Diagnostics panel (ui.diag): cached strings so the steady state does not allocate.
+  const diagStr = new Array(DIAG_ROWS).fill('');
+  const diagNum = new Array(DIAG_ROWS).fill(NaN);
+  const diagCol = new Array(DIAG_ROWS).fill('#ffffff');
+  let diagKind = '';
+  // Identity of the last distinct snapshot. A shallow copy of a snapshot shares the
+  // same p/m arrays, so copies count as the same snapshot.
+  let curP = null;
+  let curM = null;
+  let liveP = null; // p/m of the last non-replay snapshot
+  let liveM = null;
+
   const trX = new Float64Array(TRAIL_N);
   const trY = new Float64Array(TRAIL_N);
   const trT = new Float64Array(TRAIL_N);
@@ -1142,8 +1176,9 @@ export function createView(canvas, role, cfg) {
     }
     const sc = snap.sc || [0, 0];
     if (lastSc0 >= 0) {
-      if (sc[0] !== lastSc0) popT[0] = now;
-      if (sc[1] !== lastSc1) popT[1] = now;
+      // During a replay the score may step backwards; only pop on a real increase.
+      if (replayOn ? sc[0] > lastSc0 : sc[0] !== lastSc0) popT[0] = now;
+      if (replayOn ? sc[1] > lastSc1 : sc[1] !== lastSc1) popT[1] = now;
     }
     lastSc0 = sc[0];
     lastSc1 = sc[1];
@@ -1166,7 +1201,14 @@ export function createView(canvas, role, cfg) {
       mvInit = true;
     }
 
-    const ev = snap.ev;
+    // Events of a live snapshot are consumed once: coming back from a replay to the
+    // very snapshot (or a shallow copy of it) that was live before must not re-fire.
+    const seenLive = snap.p === liveP && snap.m === liveM;
+    if (!replayOn) {
+      liveP = snap.p;
+      liveM = snap.m;
+    }
+    const ev = seenLive ? null : snap.ev;
     if (ev && ev.length) {
       const n = Math.min(ev.length, 16);
       for (let i = 0; i < n; i++) {
@@ -1175,10 +1217,12 @@ export function createView(canvas, role, cfg) {
         fx.onEvent(e, now, snap);
         if (e.k === 'bumper' && snap.ob) markObstacle(snap.ob, e, now, 'bumper', bumperFlashT);
         else if (e.k === 'mine' && snap.ob) markObstacle(snap.ob, e, now, 'mine', mineFlashT);
-        else if (e.k === 'go') goT = now;
+        else if (e.k === 'go' && !replayOn) goT = now;
       }
     }
     curSnap = snap;
+    curP = snap.p;
+    curM = snap.m;
   }
 
   function markObstacle(ob, e, now, kind, arr) {
@@ -1891,7 +1935,8 @@ export function createView(canvas, role, cfg) {
   // screen they run from the seam edge into the rink when we receive, and towards
   // the seam when we serve; solo shows them crossing the centre.
   function drawServeHint(snap, now) {
-    const recvHost = snap.p[1] > H + G / 2;
+    // snap.sv is the side receiving the serve; older snapshots: infer from the puck.
+    const recvHost = snap.sv === 'host' || snap.sv === 'guest' ? snap.sv === 'host' : snap.p[1] > H + G / 2;
     const col = recvHost ? HOST_COL : GUEST_COL;
     const cycle = 1.3;
     const ph = ((now / 1000) % cycle) / cycle;
@@ -2163,6 +2208,212 @@ export function createView(canvas, role, cfg) {
     ctx.textAlign = 'center';
   }
 
+  // --- replay / diagnostics / predicted ----------------------------------------
+
+  let diagFont = '';
+  let diagSz = 11;
+  let predDash = NO_DASH;
+
+  function buildReplayLayers() {
+    // Vignette at half resolution (it is smooth), stretched when drawn.
+    const vw = Math.max(2, Math.round(screenW / 2));
+    const vh = Math.max(2, Math.round(screenH / 2));
+    if (!vignette) vignette = document.createElement('canvas');
+    vignette.width = vw;
+    vignette.height = vh;
+    const c = vignette.getContext('2d');
+    const g = c.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.25, vw / 2, vh / 2, Math.hypot(vw, vh) * 0.55);
+    g.addColorStop(0, 'rgba(0,0,10,0)');
+    g.addColorStop(0.65, 'rgba(0,0,10,0.28)');
+    g.addColorStop(1, 'rgba(0,0,10,0.72)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, vw, vh);
+    if (!grain) {
+      grain = document.createElement('canvas');
+      grain.width = 128;
+      grain.height = 128;
+      const gc = grain.getContext('2d');
+      const id = gc.createImageData(128, 128);
+      const r = rng(777);
+      for (let i = 0; i < 128 * 128; i++) {
+        const v = r() < 0.5 ? 255 : 0;
+        id.data[i * 4] = v;
+        id.data[i * 4 + 1] = v;
+        id.data[i * 4 + 2] = v;
+        id.data[i * 4 + 3] = r() * 46;
+      }
+      gc.putImageData(id, 0, 0);
+      grainPat = ctx.createPattern(grain, 'repeat');
+    }
+    diagSz = clamp(11 * u, 10, 13);
+    diagFont = `600 ${Math.round(diagSz * 10) / 10}px ${MONO}`;
+    const pr = puckR * scale * 1.6;
+    predDash = [pr * 0.42, pr * 0.3];
+  }
+
+  // Letterbox bars, vignette, grain, REPLAY badge and a progress line. Drawn in plain
+  // screen space (transform dpr) after the (zoomed) world.
+  function drawBadge(bh, e) {
+    const cy = bh / 2;
+    const fs = clamp(rpBar * 0.34, 11, 17);
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+    const a = clamp((e - 0.55) / 0.45, 0, 1);
+    if (a <= 0) return;
+    ctx.globalAlpha = a;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const x0 = 16 + fs * 0.7;
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(glowRed, x0, cy, fs * (1.5 + pulse * 0.7), a * (0.35 + 0.45 * pulse));
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = a * (0.65 + 0.35 * pulse);
+    ctx.fillStyle = REPLAY_RED;
+    ctx.beginPath();
+    ctx.arc(x0, cy, fs * (0.3 + 0.05 * pulse), 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = a;
+    ctx.font = font(fs, 800);
+    ctx.fillStyle = '#ffffff';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = Math.round(fs * 0.16) + 'px';
+    ctx.fillText('REPLAY', x0 + fs * 0.75, cy + 0.5);
+    const tw = ctx.measureText('REPLAY').width;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    ctx.globalAlpha = a * 0.55;
+    ctx.font = font(fs * 0.85, 700);
+    ctx.fillText(rpSpeed.toFixed(rpSpeed < 1 ? 1 : 0).replace(/\.0$/, '') + '×', x0 + fs * 0.75 + tw + fs * 0.8, cy + 0.5);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+  }
+
+  function drawReplay(now, e) {
+    const bh = rpBar * e;
+    ctx.globalAlpha = e;
+    ctx.drawImage(vignette, 0, 0, screenW, screenH);
+    // film grain: a tiny noise tile, re-seated at a random offset ~24 times a second
+    if (grainPat) {
+      if (now - grainT > 42) {
+        grainT = now;
+        grainSeed = (grainSeed * 1103515245 + 12345) >>> 0;
+      }
+      const gx = grainSeed % 128;
+      const gy = (grainSeed >>> 8) % 128;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, gx, gy);
+      ctx.globalAlpha = e * 0.5;
+      ctx.fillStyle = grainPat;
+      ctx.fillRect(-gx, -gy, canvas.width, canvas.height);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    // bars
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, screenW, bh + 0.5);
+    ctx.fillRect(0, screenH - bh - 0.5, screenW, bh + 0.5);
+    // progress line along the bottom bar
+    const ly = screenH - bh;
+    const lh = 3;
+    const px0 = 0;
+    ctx.globalAlpha = 0.9 * e;
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.fillRect(px0, ly, screenW, lh);
+    ctx.fillStyle = REPLAY_RED;
+    ctx.fillRect(px0, ly, screenW * rpT, lh);
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(glowRed, screenW * rpT, ly + lh / 2, 14, e * 0.9);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    // badge (and a mirrored one for the player across the table in pass & play)
+    drawBadge(bh, e);
+    if (solo && players === 'pass') {
+      ctx.save();
+      ctx.translate(screenW, screenH);
+      ctx.rotate(Math.PI);
+      drawBadge(bh, e);
+      ctx.restore();
+    }
+  }
+
+  function fmtDiag(i, v, digits, suffix, col) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) {
+      if (diagNum[i] !== -1) {
+        diagNum[i] = -1;
+        diagStr[i] = '–';
+        diagCol[i] = '#ffffff';
+      }
+      return;
+    }
+    const q = Math.round(v * digits);
+    if (q === diagNum[i]) return;
+    diagNum[i] = q;
+    diagStr[i] = (digits > 1 ? (q / digits).toFixed(digits === 10 ? 1 : 2) : String(q)) + suffix;
+    diagCol[i] = col;
+  }
+
+  function drawDiag(d) {
+    const fps = d.fps;
+    const rtt = d.rtt;
+    fmtDiag(0, fps, 1, '', fps >= 50 ? GOOD : fps >= 30 ? '#ffd36b' : '#ff6b6b');
+    fmtDiag(1, d.frameMs, 10, ' ms', d.frameMs <= 20 ? '#ffffff' : d.frameMs <= 34 ? '#ffd36b' : '#ff6b6b');
+    fmtDiag(2, rtt, 1, ' ms', rtt < 40 ? GOOD : rtt < 90 ? '#ffd36b' : '#ff6b6b');
+    fmtDiag(3, d.jitter, 10, ' ms', d.jitter < 6 ? '#ffffff' : d.jitter < 15 ? '#ffd36b' : '#ff6b6b');
+    const kind = typeof d.kind === 'string' ? d.kind : '';
+    if (kind !== diagKind) {
+      diagKind = kind;
+      diagStr[4] = kind || '–';
+      diagNum[4] = 0;
+    }
+    diagCol[4] = kind === 'p2p' ? GOOD : kind === 'ws' ? '#ffd36b' : '#9fb8e8';
+    fmtDiag(5, d.seq, 1, '', '#ffffff');
+    fmtDiag(6, d.drops, 1, '', d.drops > 0 ? '#ff6b6b' : '#ffffff');
+
+    const sz = diagSz;
+    const lh = sz * 1.5;
+    const pad = sz * 0.7;
+    const pw = sz * 0.62 * 17 + pad * 2;
+    const ph = lh * DIAG_ROWS + pad * 2 - (lh - sz) * 0.5;
+    const x1 = rx + rw - 10;
+    const y0 = solo ? ry + rh - 10 - ph : ry + 144 * u;
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#04081a';
+    ctx.beginPath();
+    rrPath(ctx, x1 - pw, y0, pw, ph, sz * 0.6, sz * 0.6);
+    ctx.fill();
+    ctx.globalAlpha = 0.14;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.font = diagFont;
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < DIAG_ROWS; i++) {
+      const yy = y0 + pad + lh * (i + 0.5) - (lh - sz) * 0.25;
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(DIAG_LABELS[i], x1 - pw + pad, yy);
+      ctx.textAlign = 'right';
+      ctx.globalAlpha = 0.92;
+      ctx.fillStyle = diagCol[i];
+      ctx.fillText(diagStr[i], x1 - pad, yy);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+  }
+
+  function drawPredRing(sx, sy, pr, now) {
+    const pulse = 0.5 + 0.5 * Math.sin(now / 300);
+    ctx.save();
+    ctx.setLineDash(predDash);
+    ctx.lineDashOffset = -now / 70;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#bfe9ff';
+    ctx.lineWidth = Math.max(1.4, pr * 0.07);
+    ctx.globalAlpha = predK * (0.22 + 0.12 * pulse);
+    ctx.beginPath();
+    ctx.arc(sx, sy, pr * (1.55 + 0.05 * pulse), 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // --- frame --------------------------------------------------------------------
 
   /**
@@ -2172,16 +2423,45 @@ export function createView(canvas, role, cfg) {
    * localMallet: {x, y} in WORLD coordinates or null. For the guest role only, the
    * guest's own mallet is drawn there instead of at the (lagging) snapshot position;
    * host and solo ignore it.
-   * ui: optional { held, calibrating }. held = the local finger is on the canvas,
-   * calibrating = the host is adjusting the seam gap.
+   * ui: optional {
+   *   held:        the local finger is on the canvas,
+   *   calibrating: the host is adjusting the seam gap,
+   *   replay:      { t: 0..1, speed } | null. Instant replay of old snapshots: letterbox
+   *                bars, REPLAY badge, progress line, vignette + grain, no HUD messages.
+   *                Events in replayed snapshots spark but never re-fire once the live
+   *                snapshot returns. Bars slide out when it goes back to null.
+   *   diag:        { fps, frameMs, rtt, jitter, kind: 'p2p'|'ws'|'local', seq, drops } | null.
+   *                Small monospace panel under the opponent score (bottom-right in solo).
+   *   predicted:   true while the guest shows a locally predicted hit the host has not
+   *                confirmed: a faint dashed ring around the puck.
+   * }
+   * snapshot.sv ('host'|'guest') is the side receiving the serve (serve arrow).
    */
   function render(snap, puckExtrapolate = 0, now = performance.now(), localMallet = null, ui = null) {
     if (destroyed || !snap || !snap.p || !snap.m || !bg || !spr) return; // also a no-op after destroy()
     const dt = lastNow < 0 ? 0.016 : clamp((now - lastNow) / 1000, 0, 0.1);
     lastNow = now;
     uiNow = ui || NO_UI;
-    if (snap !== curSnap) newSnap(snap, now);
-    fx.setRain(snap.ph === 'over' && (solo || snap.wn === role));
+    const rp = uiNow.replay || null;
+    if (!!rp !== replayOn) {
+      replayOn = !!rp;
+      // Entering or leaving a replay: drop stale message fades, trail and particles.
+      outSnap = null;
+      trCount = 0;
+      fx.reset();
+    }
+    if (rp) {
+      rpT = clamp(Number(rp.t) || 0, 0, 1);
+      rpSpeed = rp.speed > 0 ? rp.speed : 1;
+    }
+    rpK = clamp(rpK + ((replayOn ? 1 : -1) * dt) / (BAR_MS / 1000), 0, 1);
+    const rpE = rpK * rpK * (3 - 2 * rpK);
+    const z = rpE > 0 ? 1 - (1 - rpZoom) * rpE : 1;
+    const zx = rpE > 0 ? (screenW * (1 - z)) / 2 : 0;
+    const zy = rpE > 0 ? (screenH * (1 - z)) / 2 : 0;
+    // A shallow copy of the snapshot we already processed (same p/m arrays) is not new.
+    if (snap !== curSnap && !(curSnap && snap.p === curP && snap.m === curM)) newSnap(snap, now);
+    fx.setRain(!replayOn && snap.ph === 'over' && (solo || snap.wn === role));
     fx.update(now);
     heldK.v += ((uiNow.held ? 1 : 0) - heldK.v) * (1 - Math.exp(-dt * 14));
 
@@ -2193,14 +2473,20 @@ export function createView(canvas, role, cfg) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
-    if (shaking) {
+    if (rpE > 0) {
+      // Replay: the whole world is scaled down a little so the goals sit between the bars.
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(z, 0, 0, z, (zx + shx * z) * dpr, (zy + shy * z) * dpr);
+      ctx.drawImage(bg, 0, 0);
+    } else if (shaking) {
       ctx.fillStyle = BG;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(bg, Math.round(shx * dpr), Math.round(shy * dpr));
     } else {
       ctx.drawImage(bg, 0, 0);
     }
-    ctx.setTransform(dpr, 0, 0, dpr, shx * dpr, shy * dpr);
+    ctx.setTransform(dpr * z, 0, 0, dpr * z, (zx + shx * z) * dpr, (zy + shy * z) * dpr);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
@@ -2290,6 +2576,8 @@ export function createView(canvas, role, cfg) {
       ctx.globalAlpha = dim;
       drawSprite(spr.puck, sx, sy);
       ctx.globalAlpha = 1;
+      predK += ((uiNow.predicted ? 1 : 0) - predK) * (1 - Math.exp(-dt * 12));
+      if (predK > 0.02) drawPredRing(sx, sy, pr, now);
     }
 
     if (role !== 'guest') drawMallet('host', 0, now);
@@ -2319,16 +2607,24 @@ export function createView(canvas, role, cfg) {
       drawMallet('guest', 2, now, local);
     }
 
-    drawMessages(s, now, false);
+    if (!replayOn) drawMessages(s, now, false);
     fx.draw(ctx, map, now);
 
-    drawModeLabel(now);
-    drawMessages(s, now, true);
+    if (!replayOn) {
+      drawModeLabel(now);
+      drawMessages(s, now, true);
+    }
 
     ctx.restore();
 
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(dpr * z, 0, 0, dpr * z, zx * dpr, zy * dpr);
     drawLatency();
+    if (uiNow.diag) drawDiag(uiNow.diag);
+
+    if (rpE > 0) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawReplay(now, rpE);
+    }
   }
 
   // --- mapping API --------------------------------------------------------------
@@ -2386,6 +2682,11 @@ export function createView(canvas, role, cfg) {
     free(glowRed);
     free(glowGreen);
     free(glowBlack);
+    free(vignette);
+    free(grain);
+    vignette = null;
+    grain = null;
+    grainPat = null;
     fx.reset();
   }
 

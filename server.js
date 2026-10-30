@@ -1,5 +1,9 @@
 // Pairing + relay server for the two-iPad air hockey game.
 //
+// OPTIONAL self-host path. The game also runs as plain static files with a
+// direct WebRTC connection between the iPads (see README); use this server
+// when you want play to stay on a LAN without internet.
+//
 // Serves ./public over HTTP and runs a WebSocket endpoint on the same port.
 // Two devices form a "table": the host creates one and gets a 4-letter code,
 // the guest joins with that code (or auto-joins the only open table). After
@@ -21,6 +25,7 @@
 //   {t:'peer-left', reason:'host'|'guest'}
 //   {t:'closed', m}                the table is gone (host left / timed out)
 //   {t:'error', code, m}           code: no-table | full | none-open | multiple
+// (public/transport.js, kind 'ws', is the client for this protocol.)
 // Only s / input / config / restart / ready / calib / ping / pong are relayed to the peer untouched;
 // the server also sends {t:'hb'} to every socket each heartbeat.
 
@@ -47,6 +52,12 @@ function lanUrls() {
     for (const a of list || []) if (a.family === 'IPv4' && !a.internal) urls.push(`http://${a.address}:${PORT}`);
   }
   return urls;
+}
+
+/** http://<hostname>.local:<port>, which iPads on the same Wi-Fi can usually resolve via Bonjour. */
+function mdnsUrl() {
+  const name = os.hostname().replace(/\.local\.?$/i, '');
+  return name ? `http://${name}.local:${PORT}` : null;
 }
 
 const MIME = {
@@ -237,7 +248,7 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/info') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify({ urls: lanUrls(), port: PORT }));
+    return res.end(JSON.stringify({ urls: lanUrls(), mdns: mdnsUrl(), port: PORT }));
   }
 
   let file;
@@ -334,5 +345,8 @@ server.listen(PORT, () => {
   console.log('Two iPad Air Hockey');
   console.log(`  Local:   http://localhost:${PORT}`);
   for (const u of lanUrls()) console.log(`  On iPad: ${u}`);
-  console.log('Open the "On iPad" URL in Safari on both iPads (same Wi-Fi as this Mac).');
+  const mdns = mdnsUrl();
+  if (mdns) console.log(`  Or:      ${mdns}  (by name, Bonjour)`);
+  console.log('Open one of the "On iPad" URLs in Safari on both iPads (same Wi-Fi as this computer).');
+  console.log('This server is optional: the page also works as plain static files over WebRTC.');
 });

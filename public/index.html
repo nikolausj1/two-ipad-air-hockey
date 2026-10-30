@@ -138,8 +138,22 @@
           <button type="button" class="switch" role="switch" data-toggle="sound" aria-checked="true" aria-label="Sound"><i></i></button>
         </div>
 
+        <div class="field" id="field-conn">
+          <h3 class="label">Connection</h3>
+          <div class="seg seg-wide seg-conn" data-seg="conn">
+            <button type="button" data-v="auto">Auto</button>
+            <button type="button" data-v="p2p">Direct<small>works anywhere</small></button>
+            <button type="button" data-v="ws">This server</button>
+          </div>
+          <p id="conn-hint" class="hint left"></p>
+        </div>
+
         <div id="panel-join" class="panel-join">
-          <button id="btn-join-auto" class="cta cta-blue" type="button">Join the open table</button>
+          <div class="nearby" id="nearby">
+            <h3 class="label">Tables near you</h3>
+            <ul id="nearby-list" class="nearby-list" aria-live="polite"></ul>
+            <p id="nearby-empty" class="nearby-empty">No tables nearby yet. Host one on the other iPad.</p>
+          </div>
           <div class="or"><span>or type the code</span></div>
           <div class="code-row">
             <input id="code-input" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="text" />
@@ -165,10 +179,11 @@
           <div class="share-text">
             <p class="muted">On the other iPad scan the QR code, or open</p>
             <p id="wait-url" class="url"></p>
-            <p class="muted">and tap <strong>Two iPads</strong> &rsaquo; <strong>Join a table</strong>, code <strong id="wait-code-inline"></strong>.</p>
+            <p class="muted">then tap <strong>Two iPads</strong> &rsaquo; <strong>Join a table</strong>. This table shows up under <em>Tables near you</em> on the same Wi-Fi, or type the code <strong id="wait-code-inline"></strong>.</p>
           </div>
         </div>
         <p id="wait-text" class="muted center"></p>
+        <p id="wait-kind" class="kind-note center" aria-label="Connection type"></p>
         <p class="status" id="status-wait" role="status"></p>
         <div class="actions"><button id="btn-wait-cancel" class="ghost" type="button">Cancel</button></div>
       </section>
@@ -243,6 +258,7 @@
         <button id="m-restart" type="button">Restart</button>
         <button id="m-fs" type="button">Fullscreen</button>
         <button id="m-sound" type="button">Sound: on</button>
+        <button id="m-diag" type="button">Diagnostics: off</button>
         <button id="m-leave" class="danger" type="button">Leave table</button>
       </div>
     </div>

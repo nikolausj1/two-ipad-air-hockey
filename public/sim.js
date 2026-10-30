@@ -26,7 +26,8 @@ export const MODES = ['classic', 'bumpers', 'ice', 'heavy', 'mines'];
 
 // Per-mode physics. fric = fraction of puck speed kept after one second of
 // sliding, wall = rail restitution, mallet = mallet restitution, max = puck
-// speed cap (px/s).
+// speed cap (px/s). Everything the pure helpers below (predictMalletHit,
+// advancePuck) need lives here, keyed by cfg.mode.
 export const MODE_PHYS = {
   classic: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   bumpers: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
@@ -63,6 +64,198 @@ const MINE_LAYOUTS = {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+/** Physics constants for a mode (classic when the mode is unknown). */
+export function physOf(mode) {
+  return MODE_PHYS[mode] || MODE_PHYS.classic;
+}
+
+// --- shared collision math (pure; used by the sim, predictMalletHit, advancePuck)
+
+/** Friction for dt seconds, then the speed cap. Mutates p {x,y,vx,vy}. */
+function frictionStep(p, phys, dt) {
+  const k = Math.pow(phys.fric, dt);
+  p.vx *= k;
+  p.vy *= k;
+  const speed = Math.hypot(p.vx, p.vy);
+  if (speed > phys.max) {
+    p.vx *= phys.max / speed;
+    p.vy *= phys.max / speed;
+  }
+}
+
+/** Rail bounces for the puck. g = {puckR, W, bottom}. `mouth(x, side)` says
+ *  whether x is inside the goal mouth on side 'guest' (top) or 'host' (bottom).
+ *  `onWall(vn)` is called with the impact speed of every rail bounce. Returns
+ *  the side that was scored on ('guest' | 'host') when the puck fully entered
+ *  a goal mouth, else null. */
+function railBounce(p, g, phys, mouth, onWall) {
+  const { puckR, W, bottom } = g;
+  // Side rails.
+  if (p.x < puckR) {
+    p.x = puckR;
+    if (p.vx < 0) onWall(-p.vx);
+    p.vx = Math.abs(p.vx) * phys.wall;
+  } else if (p.x > W - puckR) {
+    p.x = W - puckR;
+    if (p.vx > 0) onWall(p.vx);
+    p.vx = -Math.abs(p.vx) * phys.wall;
+  }
+  // End rails and goals.
+  if (p.y < puckR) {
+    if (mouth(p.x, 'guest')) {
+      if (p.y < -puckR) return 'guest';
+    } else {
+      p.y = puckR;
+      if (p.vy < 0) onWall(-p.vy);
+      p.vy = Math.abs(p.vy) * phys.wall;
+    }
+  } else if (p.y > bottom - puckR) {
+    if (mouth(p.x, 'host')) {
+      if (p.y > bottom + puckR) return 'host';
+    } else {
+      p.y = bottom - puckR;
+      if (p.vy > 0) onWall(p.vy);
+      p.vy = -Math.abs(p.vy) * phys.wall;
+    }
+  }
+  return null;
+}
+
+const HIT = { vn: 0, nx: 0, ny: 0 }; // scratch result of malletHit (read immediately)
+
+/** Puck vs mallet: push out, slide along rails if shoved through one, reflect
+ *  the relative velocity along the normal (mallet has infinite mass) with the
+ *  mode's mallet restitution, clamp to the mode's max speed. Mutates p
+ *  {x,y,vx,vy}. Returns null when the circles do not overlap, otherwise the
+ *  shared HIT scratch {vn, nx, ny} (vn < 0 means a velocity response was
+ *  applied; vn is the pre-impact approach speed along the normal). */
+function malletHit(p, m, role, g, phys, mouth) {
+  const { puckR, malletR, W, bottom } = g;
+  let dx = p.x - m.x;
+  let dy = p.y - m.y;
+  let dist = Math.hypot(dx, dy);
+  const minDist = puckR + malletR;
+  if (dist >= minDist) return null;
+  let nx;
+  let ny;
+  if (dist < 1e-6) {
+    nx = 0;
+    ny = role === 'host' ? -1 : 1; // away from the mallet's own goal
+    dist = 0;
+  } else {
+    nx = dx / dist;
+    ny = dy / dist;
+  }
+  // Push the puck out of the mallet.
+  p.x = m.x + nx * minDist;
+  p.y = m.y + ny * minDist;
+  // If that shoved the puck through a rail, slide it along the rail instead.
+  dx = p.x - m.x;
+  dy = p.y - m.y;
+  const sgnY = dy >= 0 ? 1 : -1;
+  const sgnX = dx >= 0 ? 1 : -1;
+  if (p.x < puckR) {
+    p.x = puckR;
+    p.y = m.y + sgnY * Math.sqrt(Math.max(0, minDist * minDist - (p.x - m.x) ** 2));
+  } else if (p.x > W - puckR) {
+    p.x = W - puckR;
+    p.y = m.y + sgnY * Math.sqrt(Math.max(0, minDist * minDist - (p.x - m.x) ** 2));
+  }
+  if (p.y < puckR && !mouth(p.x, 'guest')) {
+    p.y = puckR;
+    p.x = m.x + sgnX * Math.sqrt(Math.max(0, minDist * minDist - (p.y - m.y) ** 2));
+  } else if (p.y > bottom - puckR && !mouth(p.x, 'host')) {
+    p.y = bottom - puckR;
+    p.x = m.x + sgnX * Math.sqrt(Math.max(0, minDist * minDist - (p.y - m.y) ** 2));
+  }
+  p.x = clamp(p.x, puckR, W - puckR);
+  // Reflect the relative velocity along the normal.
+  const rvx = p.vx - m.vx;
+  const rvy = p.vy - m.vy;
+  const vn = rvx * nx + rvy * ny;
+  if (vn < 0) {
+    p.vx -= (1 + phys.mallet) * vn * nx;
+    p.vy -= (1 + phys.mallet) * vn * ny;
+    const sp = Math.hypot(p.vx, p.vy);
+    if (sp > phys.max) {
+      p.vx *= phys.max / sp;
+      p.vy *= phys.max / sp;
+    }
+  }
+  HIT.vn = vn;
+  HIT.nx = nx;
+  HIT.ny = ny;
+  return HIT;
+}
+
+const mouthFor = (W, gw) => (x, side) => Math.abs(x - W / 2) < (side === 'guest' ? gw[1] : gw[0]) / 2;
+const NO_MOUTH = () => false;
+
+/**
+ * Pure: would the local mallet touch the puck within `dtSeconds`?
+ *   snap  snapshot object ({p:[x,y,vx,vy], g?, gw?}); only p (and optionally
+ *         g = seam gap, gw = goal widths) are read
+ *   cfg   {puckR, malletR, W, H, G, mode}
+ *   role  'guest' | 'host' (only picks the push-out direction when the circles
+ *         are exactly concentric)
+ *   mallet {x, y, vx, vy} in world coordinates, at time 0; it is moved along
+ *         its own velocity during the sweep, like the puck
+ * Returns null when there is no contact; otherwise a NEW puck state
+ * [x, y, vx, vy] right after the first contact, computed with the same
+ * response the sim uses (push out, restitution, speed cap).
+ */
+export function predictMalletHit(snap, cfg, role, mallet, dtSeconds) {
+  const sp = snap && snap.p;
+  if (!sp || !mallet) return null;
+  const phys = physOf(cfg.mode);
+  const Gp = typeof snap.g === 'number' ? snap.g : cfg.G;
+  const g = { puckR: cfg.puckR, malletR: cfg.malletR, W: cfg.W, bottom: 2 * cfg.H + Gp };
+  const gw = snap.gw || [cfg.goalW, cfg.goalW];
+  const mouth = cfg.goalW || snap.gw ? mouthFor(cfg.W, gw) : NO_MOUTH;
+  const mvx = mallet.vx || 0;
+  const mvy = mallet.vy || 0;
+  const dt = Math.max(0, dtSeconds || 0);
+  // Relative sweep distance decides how finely to sample (half a puck radius).
+  const rel = Math.hypot(sp[2] - mvx, sp[3] - mvy) * dt;
+  const steps = clamp(Math.ceil(rel / (cfg.puckR * 0.5)), 1, 24);
+  const p = { x: 0, y: 0, vx: sp[2], vy: sp[3] };
+  const m = { x: 0, y: 0, vx: mvx, vy: mvy };
+  for (let i = 0; i <= steps; i++) {
+    const t = (dt * i) / steps;
+    p.x = sp[0] + sp[2] * t;
+    p.y = sp[1] + sp[3] * t;
+    m.x = mallet.x + mvx * t;
+    m.y = mallet.y + mvy * t;
+    if (malletHit(p, m, role, g, phys, mouth)) return [p.x, p.y, p.vx, p.vy];
+  }
+  return null;
+}
+
+/**
+ * Pure: advance a puck [x, y, vx, vy] by `dtSeconds` with the mode's friction
+ * and rail bounces (no goals, no mallets, no obstacles; the end rails are
+ * solid). cfg needs {puckR, W, H, G, mode}. Returns a NEW [x, y, vx, vy]. Uses
+ * the same per-step code as the sim, in sub-steps of at most 1/240 s.
+ */
+export function advancePuck(pArr, cfg, dtSeconds) {
+  const phys = physOf(cfg.mode);
+  const g = { puckR: cfg.puckR, W: cfg.W, bottom: 2 * cfg.H + cfg.G };
+  const p = { x: pArr[0], y: pArr[1], vx: pArr[2], vy: pArr[3] };
+  const dt = dtSeconds > 0 ? dtSeconds : 0;
+  const n = clamp(Math.ceil(dt * 240 - 1e-9), 1, 1200);
+  const h = dt / n;
+  const noop = () => {};
+  if (dt > 0) {
+    for (let i = 0; i < n; i++) {
+      frictionStep(p, phys, h);
+      p.x += p.vx * h;
+      p.y += p.vy * h;
+      railBounce(p, g, phys, NO_MOUTH, noop);
+    }
+  }
+  return [p.x, p.y, p.vx, p.vy];
+}
+
 /** Events of a snapshot, same call for host and guest renderers. */
 export function eventsOf(snap) {
   return (snap && snap.ev) || [];
@@ -85,6 +278,7 @@ export function createSim(cfg, opts = {}) {
   const seamTop = H; // where the guest half ends
   let seamBottom = H + G; // where the host half starts
   let bottom = 2 * H + G;
+  const geom = { puckR, malletR, W, bottom }; // shared-helper geometry; bottom follows setGap()
 
   const state = {
     phase: PHASE.READY,
@@ -105,6 +299,7 @@ export function createSim(cfg, opts = {}) {
   };
 
   let events = [];
+  let seq = 0;
   let lastTick = Infinity;
   let seamStill = 0;
 
@@ -295,58 +490,10 @@ export function createSim(cfg, opts = {}) {
 
   function collideMallet(m, role) {
     const p = state.puck;
-    let dx = p.x - m.x;
-    let dy = p.y - m.y;
-    let dist = Math.hypot(dx, dy);
-    const minDist = puckR + malletR;
-    if (dist >= minDist) return;
-    let nx;
-    let ny;
-    if (dist < 1e-6) {
-      nx = 0;
-      ny = role === 'host' ? -1 : 1; // away from the mallet's own goal
-      dist = 0;
-    } else {
-      nx = dx / dist;
-      ny = dy / dist;
-    }
-    // Push the puck out of the mallet.
-    p.x = m.x + nx * minDist;
-    p.y = m.y + ny * minDist;
-    // If that shoved the puck through a rail, slide it along the rail instead.
-    dx = p.x - m.x;
-    dy = p.y - m.y;
-    const sgnY = dy >= 0 ? 1 : -1;
-    const sgnX = dx >= 0 ? 1 : -1;
-    if (p.x < puckR) {
-      p.x = puckR;
-      p.y = m.y + sgnY * Math.sqrt(Math.max(0, minDist * minDist - (p.x - m.x) ** 2));
-    } else if (p.x > W - puckR) {
-      p.x = W - puckR;
-      p.y = m.y + sgnY * Math.sqrt(Math.max(0, minDist * minDist - (p.x - m.x) ** 2));
-    }
-    if (p.y < puckR && !inMouth(p.x, 'guest')) {
-      p.y = puckR;
-      p.x = m.x + sgnX * Math.sqrt(Math.max(0, minDist * minDist - (p.y - m.y) ** 2));
-    } else if (p.y > bottom - puckR && !inMouth(p.x, 'host')) {
-      p.y = bottom - puckR;
-      p.x = m.x + sgnX * Math.sqrt(Math.max(0, minDist * minDist - (p.y - m.y) ** 2));
-    }
-    p.x = clamp(p.x, puckR, W - puckR);
-    // Reflect the relative velocity along the normal; the mallet has infinite mass.
-    const rvx = p.vx - m.vx;
-    const rvy = p.vy - m.vy;
-    const vn = rvx * nx + rvy * ny;
-    if (vn < 0) {
-      p.vx -= (1 + phys.mallet) * vn * nx;
-      p.vy -= (1 + phys.mallet) * vn * ny;
-      const sp = Math.hypot(p.vx, p.vy);
-      if (sp > MAX_PUCK_SPEED) {
-        p.vx *= MAX_PUCK_SPEED / sp;
-        p.vy *= MAX_PUCK_SPEED / sp;
-      }
-      const s = Math.min(1, -vn / 2000);
-      if (s > 0.03) emit('hit', p.x - nx * puckR, p.y - ny * puckR, s);
+    const hit = malletHit(p, m, role, geom, phys, inMouth);
+    if (hit && hit.vn < 0) {
+      const s = Math.min(1, -hit.vn / 2000);
+      if (s > 0.03) emit('hit', p.x - hit.nx * puckR, p.y - hit.ny * puckR, s);
     }
   }
 
@@ -387,46 +534,13 @@ export function createSim(cfg, opts = {}) {
 
   function stepPuck(dt) {
     const p = state.puck;
-    const k = Math.pow(phys.fric, dt);
-    p.vx *= k;
-    p.vy *= k;
-    const speed = Math.hypot(p.vx, p.vy);
-    if (speed > MAX_PUCK_SPEED) {
-      p.vx *= MAX_PUCK_SPEED / speed;
-      p.vy *= MAX_PUCK_SPEED / speed;
-    }
+    frictionStep(p, phys, dt);
     p.x += p.vx * dt;
     p.y += p.vy * dt;
 
-    // Side rails.
-    if (p.x < puckR) {
-      p.x = puckR;
-      if (p.vx < 0) wallBounce(-p.vx);
-      p.vx = Math.abs(p.vx) * phys.wall;
-    } else if (p.x > W - puckR) {
-      p.x = W - puckR;
-      if (p.vx > 0) wallBounce(p.vx);
-      p.vx = -Math.abs(p.vx) * phys.wall;
-    }
-
-    // End rails and goals.
-    if (p.y < puckR) {
-      if (inMouth(p.x, 'guest')) {
-        if (p.y < -puckR) return goal('guest');
-      } else {
-        p.y = puckR;
-        if (p.vy < 0) wallBounce(-p.vy);
-        p.vy = Math.abs(p.vy) * phys.wall;
-      }
-    } else if (p.y > bottom - puckR) {
-      if (inMouth(p.x, 'host')) {
-        if (p.y > bottom + puckR) return goal('host');
-      } else {
-        p.y = bottom - puckR;
-        if (p.vy > 0) wallBounce(p.vy);
-        p.vy = -Math.abs(p.vy) * phys.wall;
-      }
-    }
+    // Rails and goals.
+    const scoredOn = railBounce(p, geom, phys, inMouth, wallBounce);
+    if (scoredOn) return goal(scoredOn);
 
     // Mallets first, obstacles last, so a mallet can never shove the puck
     // into a bumper and keep it there with energy gained from the squeeze.
@@ -599,6 +713,7 @@ export function createSim(cfg, opts = {}) {
     cfg.G = newG;
     seamBottom = H + G;
     bottom = 2 * H + G;
+    geom.bottom = bottom;
     // The host's half slides down with the gap; keep the mallet at the same
     // place relative to the host's own goal, then clamp it into the half.
     const mh = state.mallets.host;
@@ -637,6 +752,9 @@ export function createSim(cfg, opts = {}) {
     }));
     return {
       t: 's',
+      seq: ++seq,
+      ts: Math.round(state.time * 1000) / 1000,
+      sv: state.serveTo,
       p: [r(p.x), r(p.y), r(p.vx), r(p.vy)],
       m: [r(mh.x), r(mh.y), r(mg.x), r(mg.y)],
       sc: [state.score.host, state.score.guest],

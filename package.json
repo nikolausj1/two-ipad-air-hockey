@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "qrcode-generator": "^2.0.4",
+    "trystero": "^0.26.0",
     "ws": "^8.18.0"
   }
 }

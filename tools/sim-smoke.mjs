@@ -1,6 +1,6 @@
 // Headless smoke test for public/sim.js + public/bot.js.
 // Run: node tools/sim-smoke.mjs
-import { createSim, PHASE, MODES, eventsOf } from '../public/sim.js';
+import { createSim, PHASE, MODES, MODE_PHYS, eventsOf, predictMalletHit, advancePuck } from '../public/sim.js';
 
 const W = 1024;
 const H = 768;
@@ -383,6 +383,134 @@ console.log('\nsetMallet jump does not launch the puck');
   sim.setMallet('host', W / 2, bottom - 60, 1032, true);
   sim.setMallet('host', W / 2, H + G + 20, 1048); // long step without the flag: auto-jump
   check(Math.hypot(st.puck.vx, st.puck.vy) === 0, 'long step must not fire the puck');
+}
+
+// ---- snapshot seq / ts / sv --------------------------------------------------
+console.log('\nSnapshot seq, ts, sv');
+{
+  const sim = createSim({ ...base, mode: 'classic', players: 'pass' }, { rng: rngFor(8) });
+  const a = sim.snapshot();
+  const b = sim.snapshot();
+  check(Number.isInteger(a.seq) && b.seq === a.seq + 1, `seq increments (${a.seq} -> ${b.seq})`);
+  check(a.ts === 0 && b.ts === 0, 'ts is 0 before any step');
+  check(a.sv === sim.state.serveTo && (a.sv === 'host' || a.sv === 'guest'), `sv is the serve side (${a.sv})`);
+  let now = 1000;
+  let prev = b;
+  let monotonic = true;
+  for (let i = 0; i < 90; i++) {
+    now += DT * 1000;
+    sim.step(DT, now);
+    const sn = sim.snapshot();
+    if (!(sn.seq === prev.seq + 1 && sn.ts >= prev.ts)) monotonic = false;
+    prev = sn;
+  }
+  check(monotonic, 'seq +1 and ts non-decreasing every frame');
+  check(Math.abs(prev.ts - 1.5) < 0.002, `ts tracks simulated time (${prev.ts})`);
+  check(Math.round(prev.ts * 1000) === prev.ts * 1000 || Math.abs(prev.ts * 1000 - Math.round(prev.ts * 1000)) < 1e-6, 'ts has 3 decimals');
+  console.log(`  seq ${a.seq}..${prev.seq}, ts ${prev.ts}, sv ${prev.sv}`);
+}
+
+// ---- predictMalletHit ----------------------------------------------------------
+console.log('\npredictMalletHit');
+for (const mode of ['classic', 'ice', 'heavy']) {
+  const cfg = { ...base, mode, players: 'pass' };
+  const sim = createSim(cfg, { rng: rngFor(6) });
+  const st = sim.state;
+  st.phase = PHASE.PLAY;
+  const p = st.puck;
+  p.x = W / 2;
+  p.y = H + G + 300;
+  p.vx = 0;
+  p.vy = 0;
+  const STEP = 20; // px per frame = 1200 px/s
+  let my = p.y + 80 + STEP * 10;
+  let now = 1000;
+  sim.setMallet('host', W / 2, my, now, true);
+  for (let i = 0; i < 10; i++) {
+    now += DT * 1000;
+    my -= STEP;
+    sim.setMallet('host', W / 2, my, now);
+  }
+  const mh = st.mallets.host;
+  check(Math.abs(mh.y - (p.y + 80)) < 1e-6, `${mode}: mallet staged 80 px below the puck`);
+  const snap = sim.snapshot();
+  const mallet = { x: mh.x, y: mh.y, vx: mh.vx, vy: mh.vy };
+  // Far away / too short a sweep / moving away: no contact.
+  const far = predictMalletHit(snap, cfg, 'host', { x: 100, y: bottom - 60, vx: 0, vy: 0 }, 0.05);
+  check(far === null, `${mode}: far mallet -> null`);
+  check(predictMalletHit(snap, cfg, 'host', { ...mallet, vy: 0 }, 0.001) === null, `${mode}: short dt, still mallet -> null`);
+  check(predictMalletHit(snap, cfg, 'host', { ...mallet, vy: 500 }, 0.05) === null, `${mode}: mallet moving away -> null`);
+  check(predictMalletHit(snap, cfg, 'host', mallet, 0.001) === null, `${mode}: 1 ms is too short to reach the puck`);
+  const pred = predictMalletHit(snap, cfg, 'host', mallet, DT);
+  check(pred !== null, `${mode}: mallet moving into puck -> hit`);
+  // Real sim: the same step.
+  now += DT * 1000;
+  my -= STEP;
+  sim.setMallet('host', W / 2, my, now);
+  const real = Math.hypot(p.vx, p.vy);
+  if (pred) {
+    const ps = Math.hypot(pred[2], pred[3]);
+    const err = Math.abs(ps - real) / real;
+    check(pred[3] < 0, `${mode}: predicted puck moves away from the host mallet (up)`);
+    check(err <= 0.05, `${mode}: predicted speed ${ps.toFixed(0)} vs sim ${real.toFixed(0)} (${(err * 100).toFixed(2)}%)`);
+    check(Math.hypot(pred[0] - p.x, pred[1] - p.y) <= 2, `${mode}: predicted puck position matches sim`);
+    check(ps <= MODE_PHYS[mode].max + 1e-6, `${mode}: predicted speed within cap`);
+    console.log(`  ${mode.padEnd(8)} predicted ${ps.toFixed(0)} px/s, sim ${real.toFixed(0)} px/s (${(err * 100).toFixed(2)}%)`);
+  }
+  // Pure: input snapshot untouched, a NEW array is returned.
+  check(snap.p[0] === r1(W / 2) && snap.p[2] === 0, `${mode}: snapshot not mutated`);
+}
+function r1(v) {
+  return Math.round(v * 10) / 10;
+}
+// A fast puck hitting a still guest mallet from below, and the speed cap.
+{
+  const cfg = { ...base, mode: 'heavy', players: 'pass' };
+  const snap = { p: [W / 2, 400, 0, -3000], g: G };
+  const out = predictMalletHit(snap, cfg, 'guest', { x: W / 2, y: 300, vx: 0, vy: -3000 }, 0.02);
+  check(out === null || Math.hypot(out[2], out[3]) <= MODE_PHYS.heavy.max + 1e-6, 'predicted hit respects the heavy cap');
+}
+
+// ---- advancePuck -----------------------------------------------------------------
+console.log('\nadvancePuck vs the sim\'s own free puck motion (1 s, no mallets/obstacles involved)');
+for (const [mode, v0] of [
+  ['classic', [700, 150]],
+  ['classic', [-1400, 240]],
+  ['ice', [900, -200]],
+  ['heavy', [1200, 100]],
+]) {
+  const cfg = { ...base, mode, players: 'pass' };
+  const sim = createSim(cfg, { rng: rngFor(2) });
+  const st = sim.state;
+  st.phase = PHASE.PLAY;
+  const p = st.puck;
+  p.x = W / 2 - 120;
+  p.y = bottom / 2;
+  [p.vx, p.vy] = v0;
+  const start = [p.x, p.y, p.vx, p.vy];
+  const pred = advancePuck(start, cfg, 1);
+  check(pred !== start && start[0] === W / 2 - 120 && start[2] === v0[0], `${mode}: advancePuck returns a new array`);
+  let now = 1000;
+  for (let i = 0; i < 60; i++) {
+    now += DT * 1000;
+    sim.step(DT, now);
+  }
+  const err = Math.hypot(pred[0] - p.x, pred[1] - p.y);
+  const verr = Math.hypot(pred[2] - p.vx, pred[3] - p.vy);
+  check(st.phase === PHASE.PLAY, `${mode}: no goal during the check`);
+  check(err <= 1, `${mode} ${JSON.stringify(v0)}: advancePuck off by ${err.toFixed(3)} px`);
+  check(verr <= 1, `${mode} ${JSON.stringify(v0)}: advancePuck velocity off by ${verr.toFixed(3)} px/s`);
+  console.log(`  ${mode.padEnd(8)} v0=${JSON.stringify(v0).padEnd(11)} pos err ${err.toFixed(4)} px, vel err ${verr.toFixed(4)} px/s`);
+}
+{
+  // Zero / negative dt returns the same state; a puck at a rail bounces back inside.
+  const cfg = { ...base, mode: 'classic' };
+  const same = advancePuck([100, 500, 10, 20], cfg, 0);
+  check(same.join() === '100,500,10,20', 'advancePuck dt=0 is identity');
+  const b = advancePuck([cfg.puckR + 1, 600, -900, 0], cfg, 0.1);
+  check(b[0] >= cfg.puckR && b[2] > 0, 'advancePuck bounces off the side rail');
+  const top = advancePuck([W / 2, cfg.puckR + 1, 0, -900], cfg, 0.1);
+  check(top[1] >= cfg.puckR && top[3] > 0, 'advancePuck treats the end rail as solid (no goals)');
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL OK');

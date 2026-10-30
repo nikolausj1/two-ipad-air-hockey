@@ -2,15 +2,16 @@
   "name": "Two iPad Air Hockey",
   "short_name": "Air Hockey",
   "description": "Air hockey across two iPads laid top edge to top edge.",
-  "start_url": "/",
-  "scope": "/",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
   "display": "fullscreen",
   "orientation": "portrait",
   "background_color": "#0b1020",
   "theme_color": "#0b1020",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
   ]
 }

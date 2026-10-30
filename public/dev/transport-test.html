@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transport test</title>
+<style>
+  :root { color-scheme: dark; --bg:#10151c; --fg:#e6edf3; --mut:#8b98a5; --line:#26313d; --acc:#4cc2ff; --ok:#5bd68a; --bad:#ff6b6b; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.4 -apple-system, system-ui, sans-serif; }
+  h1 { font-size:18px; margin:0 0 12px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
+  input, select, button { font:inherit; color:var(--fg); background:#18212b; border:1px solid var(--line); border-radius:8px; padding:7px 10px; }
+  button { cursor:pointer; } button:hover { border-color:var(--acc); }
+  input.code { width:5.5em; text-transform:uppercase; letter-spacing:.15em; }
+  input.msg { flex:1; min-width:12em; }
+  .stat { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:8px; margin:12px 0; }
+  .stat div { background:#18212b; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .stat b { display:block; font-size:11px; font-weight:600; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; }
+  .stat span { font-size:18px; font-variant-numeric:tabular-nums; }
+  #log { height:260px; overflow:auto; background:#0b0f14; border:1px solid var(--line); border-radius:8px; padding:8px; font:12px/1.5 ui-monospace, Menlo, monospace; white-space:pre-wrap; }
+  .err { color:var(--bad); } .ok { color:var(--ok); } .mut { color:var(--mut); }
+  table { border-collapse:collapse; width:100%; } td, th { text-align:left; padding:4px 8px; border-bottom:1px solid var(--line); font-size:13px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:16px 0 6px; }
+</style>
+</head>
+<body>
+<h1>Transport test</h1>
+
+<div class="row">
+  <label>kind <select id="kind"><option>p2p</option><option>ws</option></select></label>
+  <input id="code" class="code" maxlength="4" placeholder="CODE" autocomplete="off">
+  <button id="host">Host</button>
+  <button id="join">Join</button>
+  <button id="leave">Leave</button>
+  <button id="close">Close</button>
+</div>
+
+<div class="stat">
+  <div><b>state</b><span id="s-state">-</span></div>
+  <div><b>code</b><span id="s-code">-</span></div>
+  <div><b>peer present</b><span id="s-peer">-</span></div>
+  <div><b>rtt (ms)</b><span id="s-rtt">-</span></div>
+  <div><b>rx s / input</b><span id="s-rx">0 / 0</span></div>
+</div>
+
+<div class="row">
+  <input id="text" class="msg" placeholder='message text (sent as {t:"chat", text})'>
+  <button id="send">Send</button>
+  <button id="burst">60 Hz burst 5 s</button>
+</div>
+
+<h2>Nearby</h2>
+<div class="row">
+  <label><input type="checkbox" id="watch"> watch</label>
+  <label><input type="checkbox" id="announce"> announce my table</label>
+  <input id="mode" placeholder="mode" value="classic" style="width:7em">
+</div>
+<table><thead><tr><th>code</th><th>mode</th><th>players</th><th>since</th><th></th></tr></thead><tbody id="near"><tr><td colspan="5" class="mut">nothing yet</td></tr></tbody></table>
+
+<h2>Log</h2>
+<div id="log"></div>
+
+<script type="module">
+import { createTransport } from '../transport.js';
+
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+const t0 = performance.now();
+function log(text, cls) {
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = `[${((performance.now() - t0) / 1000).toFixed(2)}] ${text}`;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+  while (logEl.childNodes.length > 400) logEl.removeChild(logEl.firstChild);
+}
+
+let tx = null;
+let nearList = [];
+let rxS = 0, rxIn = 0, lastS = 0, maxGap = 0;
+
+function make() {
+  if (tx) { try { tx.close(); } catch {} }
+  tx = createTransport({
+    kind: $('kind').value,
+    appId: 'two-ipad-air-hockey-dev',
+    onMessage(m) {
+      if (m.t === 's') { rxS++; const n = performance.now(); if (lastS) maxGap = Math.max(maxGap, n - lastS); lastS = n; return; }
+      if (m.t === 'input') { rxIn++; return; }
+      log('rx ' + JSON.stringify(m));
+    },
+    onPeer(ev) { log('peer: ' + ev, ev === 'left' ? 'err' : 'ok'); },
+    onState(s) { log('state: ' + s, s === 'open' ? 'ok' : s === 'closed' ? 'mut' : ''); },
+    onNearby(list) { nearList = list; renderNear(); log('nearby: ' + JSON.stringify(list.map((e) => e.code + '/' + e.mode))); },
+  });
+  window.tx = tx;
+  if ($('watch').checked) tx.watchNearby(true);
+  return tx;
+}
+
+function renderNear() {
+  const tb = $('near');
+  tb.textContent = '';
+  if (!nearList.length) { tb.innerHTML = '<tr><td colspan="5" class="mut">nothing yet</td></tr>'; return; }
+  for (const e of nearList) {
+    const tr = document.createElement('tr');
+    const age = Math.max(0, Math.round((Date.now() - e.since) / 1000));
+    for (const v of [e.code, e.mode, e.players ?? '', age + ' s']) { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); }
+    const td = document.createElement('td'); const b = document.createElement('button'); b.textContent = 'Join'; b.onclick = () => { $('code').value = e.code; $('join').click(); }; td.appendChild(b); tr.appendChild(td);
+    tb.appendChild(tr);
+  }
+}
+
+$('host').onclick = async () => {
+  const t = make();
+  try { const c = await t.host($('code').value || undefined); $('code').value = c; log('hosting ' + c, 'ok'); syncAnnounce(); }
+  catch (e) { log('host failed: ' + e.message, 'err'); }
+};
+$('join').onclick = async () => {
+  const t = make();
+  const c = $('code').value;
+  log('joining ' + c + ' ...');
+  try { await t.join(c); log('joined ' + t.code, 'ok'); }
+  catch (e) { log('join failed: ' + e.message, 'err'); }
+};
+$('leave').onclick = () => { tx && tx.leave(); log('leave()'); };
+$('close').onclick = () => { tx && tx.close(); log('close()'); };
+$('send').onclick = () => {
+  const text = $('text').value;
+  const ok = tx && tx.send({ t: 'chat', text, at: Date.now() });
+  log('tx chat -> ' + ok);
+};
+$('text').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('send').click(); });
+$('burst').onclick = () => {
+  if (!tx) return;
+  rxS = rxIn = 0; lastS = 0; maxGap = 0;
+  let n = 0, sent = 0;
+  const kind = tx.kind;
+  log('burst: sending s + input at 60 Hz for 5 s');
+  const iv = setInterval(() => {
+    n++;
+    if (tx.send({ t: 's', n, p: [1, 2, 3, 4, 5, 6, 7, 8], ev: [], ts: performance.now() })) sent++;
+    tx.send({ t: 'input', x: n, y: n, ts: performance.now() });
+    if (n >= 300) {
+      clearInterval(iv);
+      setTimeout(() => log(`burst done (${kind}): sent ${sent} s-msgs; this tab received s=${rxS} input=${rxIn} maxGap=${maxGap.toFixed(0)}ms`), 1500);
+    }
+  }, 1000 / 60);
+};
+function syncAnnounce() {
+  if (!tx) return;
+  if ($('announce').checked && tx.code) tx.announce({ code: tx.code, mode: $('mode').value || 'classic', players: tx.peerPresent ? 2 : 1 });
+  else tx.announce(null);
+}
+$('announce').onchange = syncAnnounce;
+$('mode').onchange = syncAnnounce;
+$('watch').onchange = () => { if (!tx) make(); tx.watchNearby($('watch').checked); };
+$('code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
+
+setInterval(() => {
+  $('s-state').textContent = tx ? tx.state : '-';
+  $('s-code').textContent = (tx && tx.code) || '-';
+  $('s-peer').textContent = tx ? String(tx.peerPresent) : '-';
+  $('s-rtt').textContent = tx && tx.rtt != null ? tx.rtt : '-';
+  $('s-rx').textContent = rxS + ' / ' + rxIn;
+  if (nearList.length) renderNear();
+  if (tx && $('announce').checked && tx.code) syncAnnounce();
+}, 500);
+
+const q = new URLSearchParams(location.search);
+if (q.get('kind')) $('kind').value = q.get('kind');
+if (q.get('code')) $('code').value = q.get('code').toUpperCase();
+if (q.get('watch') === '1') { $('watch').checked = true; make().watchNearby(true); }
+if (q.get('auto') === 'host') $('host').click();
+if (q.get('auto') === 'join') $('join').click();
+</script>
+</body>
+</html>
