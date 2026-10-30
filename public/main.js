@@ -6,6 +6,12 @@
 //   bot   one device, local sim, the sim drives the guest mallet.
 //   pass  one device, local sim, two people each drag their own half.
 // 'solo' is the view role used for bot and pass (whole rink on one screen).
+//
+// Every match starts in the sim's 'ready' phase: each player presses down on
+// their own half, then the countdown runs. The two-iPad host can adjust the
+// seam gap during 'ready' (a calibration ring is drawn on both screens).
+// Messages added on top of the relay: {t:'ready'} (guest pressed down),
+// {t:'calib', on:0|1} (host -> guest: draw the calibration ring).
 
 import { connect } from './net.js';
 import { createSim } from './sim.js';
@@ -155,6 +161,13 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 let pendingEv = []; // host: events not yet delivered to the guest
 let overSince = 0;
 let prevPhase = null;
+let everPaired = false; // this table has had both iPads at least once (toast wording)
+let modeChange = false; // host/solo is in the setup screen between matches
+let calibDone = false; // host dismissed the seam-gap overlay for this table
+let calibSent = false; // host: last calib state sent to the guest
+let calibRemote = false; // guest: the host asked us to draw the calibration ring
+let overShown = false;
+const ui = { held: false, calibrating: false }; // handed to view.render each frame
 
 function setLatency(ms) {
   if (view && typeof view.setLatency === 'function') view.setLatency(ms);
@@ -171,11 +184,22 @@ function showScreen(name) {
   $('lobby').scrollTop = 0;
 }
 
+let toastTimer = null;
+function toast(text) {
+  const el = $('toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
 function showLobby(screen) {
   $('lobby').classList.remove('hidden');
   $('btn-menu').classList.add('hidden');
   $('menu').classList.add('hidden');
+  menuOpen = false;
   showScreen(screen || 'play');
+  startLobbyBg();
 }
 
 function refreshUI() {
@@ -199,9 +223,12 @@ function refreshUI() {
   $('field-gap').classList.toggle('hidden', !duo);
   $('panel-join').classList.toggle('hidden', !joining);
   $('actions').classList.toggle('hidden', joining);
-  $('btn-primary').textContent = duo ? 'Host a table' : play === 'bot' ? 'Play vs bot' : 'Start game';
-  $('setup-title').textContent = duo ? 'Two iPads' : play === 'bot' ? 'Solo vs bot' : 'Pass & play';
+  $('btn-primary').textContent = modeChange ? 'Start new match' : duo ? 'Host a table' : play === 'bot' ? 'Play vs bot' : 'Start game';
+  $('setup-title').textContent = modeChange ? 'Change mode' : duo ? 'Two iPads' : play === 'bot' ? 'Solo vs bot' : 'Pass & play';
+  $('btn-back').textContent = modeChange ? '\u2039 Cancel' : '\u2039 Back';
+  if (modeChange) $('duo-tabs').classList.add('hidden');
   $('gap-value').textContent = settings.gap + ' mm';
+  $('calib-value').textContent = settings.gap + ' mm';
   $('m-sound').textContent = 'Sound: ' + (settings.sound ? 'on' : 'off');
 }
 
@@ -228,16 +255,11 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Seam gap stepper with press-and-hold repeat.
-function bindStepper(id, delta) {
+// Seam gap stepper with press-and-hold repeat. `step` runs once per tick.
+function bindStepper(id, step) {
   const el = $(id);
   let delay = null;
   let repeat = null;
-  const step = () => {
-    settings.gap = Math.max(0, Math.min(60, settings.gap + delta));
-    saveSettings();
-    refreshUI();
-  };
   const stop = () => {
     clearTimeout(delay);
     clearInterval(repeat);
@@ -256,8 +278,16 @@ function bindStepper(id, delta) {
     if (e.detail === 0) step(); // keyboard activation
   });
 }
-bindStepper('gap-minus', -1);
-bindStepper('gap-plus', 1);
+const gapStep = (delta) => () => {
+  settings.gap = clamp(settings.gap + delta, 0, 60);
+  saveSettings();
+  refreshUI();
+};
+bindStepper('gap-minus', gapStep(-1));
+bindStepper('gap-plus', gapStep(1));
+// The same stepper on the in-game calibration bar also moves the live sim.
+bindStepper('calib-minus', () => adjustGap(-1));
+bindStepper('calib-plus', () => adjustGap(1));
 
 // Step 1 -> step 2.
 for (const card of document.querySelectorAll('[data-play]')) {
@@ -271,31 +301,62 @@ for (const card of document.querySelectorAll('[data-play]')) {
 }
 $('btn-back').addEventListener('click', () => {
   setStatus('');
+  clearJoinError();
+  if (modeChange) return cancelModeChange();
   showScreen('play');
 });
 
+function clearJoinError() {
+  const el = $('join-error');
+  el.classList.add('hidden');
+  el.textContent = '';
+  $('code-input').classList.remove('invalid');
+}
+function showJoinError(text, code) {
+  const el = $('join-error');
+  el.textContent = text;
+  el.classList.remove('hidden');
+  const input = $('code-input');
+  if (typeof code === 'string') input.value = code;
+  input.classList.remove('invalid');
+  void input.offsetWidth; // restart the shake animation
+  input.classList.add('invalid');
+  try {
+    input.focus();
+    input.select();
+  } catch {
+    /* ignore */
+  }
+}
+function submitCode() {
+  unlockAudio();
+  const code = $('code-input').value.trim().toUpperCase();
+  clearJoinError();
+  if (!/^[A-Z]{4}$/.test(code)) return showJoinError('Type the 4-letter code shown on the host iPad.');
+  $('code-input').blur();
+  startJoining(code);
+}
 $('code-input').addEventListener('input', (e) => {
-  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
+  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+  clearJoinError();
+  if (e.target.value.length === 4) submitCode(); // auto-join at 4 letters
 });
 $('code-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') $('btn-join-code').click();
+  if (e.key === 'Enter') submitCode();
 });
 
 $('btn-primary').addEventListener('click', () => {
   unlockAudio();
-  if (settings.play === 'duo') startHosting();
+  if (modeChange) applyModeChange();
+  else if (settings.play === 'duo') startHosting();
   else startLocal(settings.play);
 });
 $('btn-join-auto').addEventListener('click', () => {
   unlockAudio();
+  clearJoinError();
   startJoining('');
 });
-$('btn-join-code').addEventListener('click', () => {
-  unlockAudio();
-  const code = $('code-input').value.trim().toUpperCase();
-  if (!/^[A-Z]{4}$/.test(code)) return setStatus('Type the 4-letter code shown on the host iPad.');
-  startJoining(code);
-});
+$('btn-join-code').addEventListener('click', submitCode);
 $('btn-wait-cancel').addEventListener('click', () => leaveTable('', settings.play === 'duo' ? 'setup' : 'play'));
 $('btn-conn-leave').addEventListener('click', () => leaveTable('', 'play'));
 
@@ -323,7 +384,8 @@ function renderQr(code) {
   if (qrFor === code) return;
   qrFor = code;
   const url = code ? `${baseUrl}/?join=${code}` : '';
-  $('wait-url').textContent = url;
+  $('wait-url').textContent = code ? baseUrl : '';
+  $('wait-code-inline').textContent = code || '';
   const box = $('wait-qr');
   box.innerHTML = '';
   if (code && typeof qrcode === 'function') {
@@ -445,6 +507,8 @@ function beginSession(sessionRole, code) {
   tableCode = null;
   peerPresent = false;
   resuming = false;
+  everPaired = false;
+  calibDone = false;
   openNet();
 }
 
@@ -455,6 +519,8 @@ function leaveTable(message, screen) {
   tableCode = null;
   peerPresent = false;
   resuming = false;
+  everPaired = false;
+  modeChange = false;
   clearSession();
   stopGame();
   updateOverlays();
@@ -488,9 +554,13 @@ function onMessage(msg) {
     case 'paired':
       peerPresent = true;
       guestTs = null;
+      toast(everPaired ? 'Other iPad reconnected' : 'Other iPad connected');
+      everPaired = true;
       if (intent.role === 'host') {
-        if (sim && gamePlay === 'duo' && running) net.send({ t: 'config', cfg }); // resume, score intact
-        else startAsHost();
+        if (sim && gamePlay === 'duo' && running) {
+          net.send({ t: 'config', cfg }); // resume, score intact
+          calibSent = false; // re-announce the calibration ring if it is open
+        } else startAsHost();
       }
       updateOverlays();
       break;
@@ -524,8 +594,16 @@ function onMessage(msg) {
       break;
     }
 
+    case 'ready': // guest pressed down on its half
+      if (sim && intent.role === 'host' && typeof sim.setReady === 'function') sim.setReady('guest');
+      break;
+
+    case 'calib': // host: draw (or stop drawing) the seam-gap ring
+      if (intent.role === 'guest') calibRemote = msg.on === 1 || msg.on === true;
+      break;
+
     case 'restart':
-      if (sim && intent.role === 'host') sim.restart();
+      if (sim && intent.role === 'host' && !modeChange) sim.restart(); // not while the host is picking a new mode
       break;
 
     case 'ping':
@@ -558,6 +636,23 @@ function onMessage(msg) {
 
     case 'error': {
       const wasInTable = running || resuming;
+      const joining = intent.role === 'guest' && !wasInTable;
+      const tried = intent.code || '';
+      if (joining) {
+        // Wrong or stale code: stay on the join form and say so in friendly words.
+        const friendly = {
+          'no-table': tried ? `No table with code ${tried}. Check the code on the host iPad.` : 'No table found.',
+          full: 'That table already has two iPads.',
+          'none-open': 'No table is waiting yet. Host one on the other iPad first.',
+          multiple: 'Several tables are open. Type the code shown on the host iPad.',
+        };
+        leaveTable('', 'setup');
+        settings.play = 'duo';
+        settings.duoRole = 'join';
+        refreshUI();
+        showJoinError(friendly[msg.code] || msg.m || 'Could not join that table.', tried);
+        break;
+      }
       leaveTable(msg.m || 'Something went wrong.', wasInTable ? 'play' : 'setup');
       break;
     }
@@ -627,13 +722,23 @@ function startAsHost() {
   gamePlay = 'duo';
   lastSnapshot = null;
   guestTs = null;
+  calibSent = false;
   net.send({ t: 'config', cfg });
   beginPlay();
 }
 
 function startAsGuest(c) {
-  if (running && role === 'guest' && cfg && JSON.stringify(cfg) === JSON.stringify(c)) {
-    updateOverlays(); // same table, just resumed
+  if (running && role === 'guest' && cfg) {
+    if (JSON.stringify(cfg) === JSON.stringify(c)) {
+      updateOverlays(); // same table, just resumed
+      return;
+    }
+    // The host changed the seam gap or the mode: swap the geometry and view in
+    // place. No lobby, no pointer / phase reset, snapshots keep flowing.
+    cfg = c;
+    rebuildView();
+    lastRendered = null;
+    updateOverlays();
     return;
   }
   cfg = c;
@@ -642,6 +747,149 @@ function startAsGuest(c) {
   gamePlay = 'duo';
   lastSnapshot = null;
   lastRendered = null;
+  calibRemote = false;
+  beginPlay();
+}
+
+/** (Re)create the view when role or cfg changed; cheap no-op otherwise. */
+function rebuildView() {
+  const key = role + JSON.stringify(cfg);
+  if (view && viewKey === key) return;
+  if (view && view.destroy) view.destroy();
+  view = createView(canvas, role, cfg);
+  viewKey = key;
+  if (view.resize) view.resize();
+  setLatency(gamePlay === 'duo' && rtt != null ? Math.round(rtt) : null);
+}
+
+// --- seam gap calibration (two-iPad host, phase 'ready') ----------------------
+
+let gapTimer = null;
+let gapDirty = false;
+function adjustGap(delta) {
+  settings.gap = clamp(settings.gap + delta, 0, 60);
+  saveSettings();
+  refreshUI();
+  // Apply at most every 90 ms: re-creating the view is not free.
+  if (gapTimer) {
+    gapDirty = true;
+    return;
+  }
+  applyGap();
+  gapTimer = setTimeout(() => {
+    gapTimer = null;
+    if (gapDirty) {
+      gapDirty = false;
+      applyGap();
+    }
+  }, 90);
+}
+
+function applyGap() {
+  if (!sim || role !== 'host' || gamePlay !== 'duo') return;
+  const G = Math.round(settings.gap * PX_PER_MM);
+  if (cfg.G === G) return;
+  if (typeof sim.setGap !== 'function' || sim.setGap(G) === false) {
+    // Too late (the countdown began): show the gap that is really in force.
+    settings.gap = clamp(Math.round(cfg.G / PX_PER_MM), 0, 60);
+    refreshUI();
+    return;
+  }
+  cfg.G = G; // the sim already did this in place; harmless if so
+  rebuildView();
+  if (net) net.send({ t: 'config', cfg });
+}
+
+/** Show / hide the host's calibration bar and tell the guest to draw the ring. */
+function syncCalib(ph) {
+  if (role === 'host' && ph && ph !== 'ready') calibDone = true; // the match started: gap accepted, do not nag on rematches
+  const want = role === 'host' && gamePlay === 'duo' && ph === 'ready' && !calibDone && !modeChange && peerPresent;
+  $('calib').classList.toggle('hidden', !want);
+  ui.calibrating = role === 'host' ? want : role === 'guest' ? calibRemote && ph === 'ready' : false;
+  if (role === 'host' && net && peerPresent && calibSent !== want) {
+    if (net.send({ t: 'calib', on: want ? 1 : 0 })) calibSent = want;
+  }
+}
+
+$('calib-done').addEventListener('click', () => {
+  calibDone = true;
+  clearTimeout(gapTimer);
+  gapTimer = null;
+  if (gapDirty) {
+    gapDirty = false;
+    applyGap();
+  }
+});
+
+// --- post-match sheet ----------------------------------------------------------
+
+function syncOver(ph, now) {
+  const want = running && !modeChange && ph === 'over' && now - overSince > 700;
+  if (want === overShown) return;
+  overShown = want;
+  $('over').classList.toggle('hidden', !want);
+  if (want) {
+    const host = role !== 'guest';
+    $('over-host').classList.toggle('hidden', !host);
+    $('over-guest').classList.toggle('hidden', host);
+    $('over-ask').disabled = false;
+    $('over-ask').textContent = 'Ask for a rematch';
+  }
+}
+
+$('over-rematch').addEventListener('click', () => requestRestart());
+$('over-change').addEventListener('click', openChangeMode);
+$('over-ask').addEventListener('click', () => {
+  if (net) net.send({ t: 'restart' });
+  const b = $('over-ask');
+  b.disabled = true;
+  b.textContent = 'Asked. Waiting for the host\u2026';
+  setTimeout(() => {
+    b.disabled = false;
+    b.textContent = 'Ask for a rematch';
+  }, 3500);
+});
+
+/** Back to the setup screen between matches. In duo the table stays paired. */
+function openChangeMode() {
+  if (!running || role === 'guest') return;
+  if (gamePlay === 'duo') {
+    modeChange = true;
+    settings.play = 'duo';
+    settings.duoRole = 'host';
+    saveSettings();
+    refreshUI();
+    setStatus('');
+    $('over').classList.add('hidden');
+    overShown = false;
+    $('calib').classList.add('hidden');
+    showLobby('setup');
+  } else {
+    stopGame();
+    refreshUI();
+    showLobby('setup');
+  }
+}
+
+function cancelModeChange() {
+  modeChange = false;
+  refreshUI();
+  $('lobby').classList.add('hidden');
+  $('btn-menu').classList.remove('hidden');
+  pointers.clear();
+  wakeMenuBtn();
+}
+
+/** Host: fresh sim with the newly chosen options; the guest follows via config. */
+function applyModeChange() {
+  modeChange = false;
+  cfg = buildCfg('duo');
+  sim = createSim(cfg);
+  lastSnapshot = null;
+  guestTs = null;
+  calibSent = false;
+  refreshUI();
+  if (net && peerPresent) net.send({ t: 'config', cfg });
   beginPlay();
 }
 
@@ -658,17 +906,14 @@ function startLocal(play) {
 }
 
 function beginPlay() {
-  const key = role + JSON.stringify(cfg);
-  if (!view || viewKey !== key) {
-    if (view && view.destroy) view.destroy();
-    view = createView(canvas, role, cfg);
-    viewKey = key;
-  }
+  rebuildView();
   if (audio.setPerspective) audio.setPerspective(role);
   if (view.resize) view.resize();
-  setLatency(gamePlay === 'duo' && rtt != null ? Math.round(rtt) : null);
 
   $('lobby').classList.add('hidden');
+  $('over').classList.add('hidden');
+  overShown = false;
+  modeChange = false;
   $('btn-menu').classList.remove('hidden');
   $('menu').classList.add('hidden');
   menuOpen = false;
@@ -683,6 +928,7 @@ function beginPlay() {
   requestWakeLock();
   updateOverlays();
   updateRotateHint();
+  wakeMenuBtn();
   if (!loopActive) {
     loopActive = true;
     requestAnimationFrame(frame);
@@ -699,8 +945,14 @@ function stopGame() {
   pendingInput = null;
   pendingEv = [];
   pointers.clear();
+  modeChange = false;
+  overShown = false;
+  calibSent = false;
+  ui.held = ui.calibrating = false;
   $('btn-menu').classList.add('hidden');
   $('menu').classList.add('hidden');
+  $('over').classList.add('hidden');
+  $('calib').classList.add('hidden');
   releaseWakeLock();
   updateRotateHint();
 }
@@ -726,6 +978,7 @@ function currentPhase() {
 function requestRestart() {
   if (sim) sim.restart();
   else if (net) net.send({ t: 'restart' });
+  calibSent = false;
 }
 
 /** `jump` = first sample of a new touch: teleport the mallet, do not sweep. */
@@ -745,9 +998,11 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   const [wx, wy] = view.screenToWorld(e.clientX, e.clientY);
 
+  const ph = currentPhase();
+
   // After the final goal a tap starts a new match (ignore the first moments
   // so a frantic last swipe does not skip the result).
-  if (currentPhase() === 'over') {
+  if (ph === 'over') {
     if (performance.now() - overSince > 700) requestRestart();
     return;
   }
@@ -762,6 +1017,15 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   pointers.set(e.pointerId, { side, x: wx, y: wy });
   moveMallet(side, wx, wy, true);
+
+  // Pressing down on your own half is how you say "ready".
+  if (ph === 'ready') {
+    if (sim) {
+      if (typeof sim.setReady === 'function') sim.setReady(side);
+    } else if (net) {
+      net.send({ t: 'ready' });
+    }
+  }
 });
 
 canvas.addEventListener('pointermove', (e) => {
@@ -835,7 +1099,10 @@ function frame() {
           lastSend = now;
         }
       }
-      view.render(snap, 0, now, null);
+      ui.held = pointers.size > 0;
+      syncCalib(snap.ph);
+      syncOver(snap.ph, now);
+      view.render(snap, 0, now, null, ui);
     } else {
       // Guest.
       if (pendingInput && net && now - lastInputSend >= 15) {
@@ -857,7 +1124,10 @@ function frame() {
           };
           break;
         }
-        view.render(lastSnapshot, lastSnapshot.ph === 'play' ? age : 0, now, local);
+        ui.held = pointers.size > 0;
+        syncCalib(lastSnapshot.ph);
+        syncOver(lastSnapshot.ph, now);
+        view.render(lastSnapshot, lastSnapshot.ph === 'play' ? age : 0, now, local, ui);
         lastRendered = lastSnapshot;
       }
     }
@@ -870,6 +1140,7 @@ function frame() {
 function trackPhase(ph, now) {
   if (ph !== prevPhase) {
     if (ph === 'over') overSince = now;
+    if (ph !== 'ready') calibRemote = false;
     prevPhase = ph;
   }
 }
@@ -888,10 +1159,13 @@ function refreshMenu() {
   $('m-fs').textContent = fsActive() ? 'Exit fullscreen' : 'Fullscreen';
   $('m-restart').textContent = 'Restart';
   $('m-sound').textContent = 'Sound: ' + (settings.sound ? 'on' : 'off');
+  const showCode = duo && !!tableCode;
+  $('menu-code').classList.toggle('hidden', !showCode);
+  $('menu-code-val').textContent = showCode ? tableCode : '';
 }
 
 function openMenu() {
-  if (!running || menuOpen) return;
+  if (!running || menuOpen || modeChange) return;
   menuOpen = true;
   restartArmed = false;
   paused = gamePlay !== 'duo'; // a two-iPad game cannot pause the other iPad
@@ -953,6 +1227,122 @@ document.addEventListener('keydown', (e) => {
   }
 });
 for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(ev, refreshMenu);
+
+// --- menu button: fades while you play, wakes on any tap ------------------------
+
+let dimTimer = null;
+function wakeMenuBtn() {
+  const btn = $('btn-menu');
+  btn.classList.remove('dim');
+  clearTimeout(dimTimer);
+  dimTimer = setTimeout(() => {
+    if (running && !menuOpen) btn.classList.add('dim');
+  }, 3000);
+}
+document.addEventListener(
+  'pointerdown',
+  () => {
+    if (running) wakeMenuBtn();
+  },
+  true,
+);
+
+// --- how to play sheet -----------------------------------------------------------
+
+$('btn-howto').addEventListener('click', () => $('howto').classList.remove('hidden'));
+$('howto-close').addEventListener('click', () => $('howto').classList.add('hidden'));
+$('howto').addEventListener('click', (e) => {
+  if (e.target === $('howto')) $('howto').classList.add('hidden');
+});
+
+// --- lobby background: a few slow glowing dots ------------------------------------
+
+const lobbyBg = $('lobby-bg');
+const bgCtx = lobbyBg.getContext('2d');
+const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let bgDots = null;
+let bgSprites = null;
+let bgRaf = 0;
+let bgLast = 0;
+let bgW = 0;
+let bgH = 0;
+
+function makeGlowSprite(rgb) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, `rgba(${rgb},0.9)`);
+  grad.addColorStop(0.35, `rgba(${rgb},0.28)`);
+  grad.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  return c;
+}
+
+function resizeLobbyBg() {
+  bgW = lobbyBg.width = Math.max(1, Math.round(window.innerWidth / 2)); // low-res on purpose: it is all blur
+  bgH = lobbyBg.height = Math.max(1, Math.round(window.innerHeight / 2));
+}
+
+function initLobbyBg() {
+  if (bgDots) return;
+  bgSprites = [makeGlowSprite('79,209,255'), makeGlowSprite('255,122,69')];
+  resizeLobbyBg();
+  bgDots = [];
+  for (let i = 0; i < 22; i++) {
+    bgDots.push({
+      x: Math.random(),
+      y: Math.random(),
+      vx: (Math.random() - 0.5) * 0.018,
+      vy: (Math.random() - 0.5) * 0.018,
+      r: 14 + Math.random() * 34,
+      a: 0.18 + Math.random() * 0.3,
+      c: i % 2,
+      ph: Math.random() * 6.28,
+    });
+  }
+}
+
+function drawLobbyBg(now) {
+  const dt = Math.min(0.1, (now - bgLast) / 1000);
+  bgLast = now;
+  bgCtx.clearRect(0, 0, bgW, bgH);
+  bgCtx.globalCompositeOperation = 'lighter';
+  for (const d of bgDots) {
+    d.x += d.vx * dt;
+    d.y += d.vy * dt;
+    if (d.x < -0.05) d.x = 1.05;
+    else if (d.x > 1.05) d.x = -0.05;
+    if (d.y < -0.05) d.y = 1.05;
+    else if (d.y > 1.05) d.y = -0.05;
+    bgCtx.globalAlpha = d.a * (0.65 + 0.35 * Math.sin(now / 1800 + d.ph));
+    const r = d.r * 2;
+    bgCtx.drawImage(bgSprites[d.c], d.x * bgW - r, d.y * bgH - r, r * 2, r * 2);
+  }
+  bgCtx.globalAlpha = 1;
+}
+
+function lobbyBgFrame(now) {
+  bgRaf = 0;
+  // Paused whenever the lobby is hidden or the tab is in the background.
+  if ($('lobby').classList.contains('hidden') || document.visibilityState !== 'visible') return;
+  drawLobbyBg(now);
+  if (!reduceMotion) bgRaf = requestAnimationFrame(lobbyBgFrame);
+}
+
+function startLobbyBg() {
+  initLobbyBg();
+  if (bgRaf) return;
+  bgLast = performance.now();
+  bgRaf = requestAnimationFrame(lobbyBgFrame);
+}
+window.addEventListener('resize', () => {
+  if (bgDots) resizeLobbyBg();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !$('lobby').classList.contains('hidden')) startLobbyBg();
+});
 
 // --- wake lock / visibility -------------------------------------------------
 
@@ -1037,6 +1427,7 @@ window.__dbg = () => ({
   lastSnapshot,
   running,
   paused,
+  ui: { ...ui, calibRemote, calibDone, modeChange, overShown },
   pointers: [...pointers].map(([id, p]) => ({ id, side: p.side, x: p.x, y: p.y })),
   net: {
     state: netState,

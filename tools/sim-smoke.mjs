@@ -14,7 +14,7 @@ const base = {
   goalW: Math.round(W * 0.36),
   target: 7,
 };
-const bottom = 2 * H + G;
+let bottom = 2 * H + G;
 const DT = 1 / 60;
 const SECONDS = 20;
 
@@ -64,6 +64,11 @@ function run(name, cfgExtra, { hostMode = 'chase', serveTo = null, seed = 1 } = 
     sim.state.serveTo = serveTo;
     sim.state.puck.y = serveTo === 'host' ? H + G + H / 2 : H / 2;
   }
+  // Pre-match: every run starts in 'ready'; bot mode auto-readies the guest.
+  check(sim.state.phase === PHASE.READY, `${name}: starts in ready`);
+  sim.setReady('host');
+  sim.setReady('guest');
+  check(sim.state.phase === PHASE.COUNTDOWN, `${name}: both ready -> countdown`);
   const kinds = {};
   let nan = 0;
   let oob = 0;
@@ -123,6 +128,157 @@ function run(name, cfgExtra, { hostMode = 'chase', serveTo = null, seed = 1 } = 
   check((kinds.serve || 0) >= 1, `${name}: serve event`);
   return { sim, kinds, sc, goals, snap };
 }
+
+/** Run `sec` simulated seconds with no input; returns the event kinds seen. */
+function idle(sim, sec, t0 = 1000) {
+  const kinds = {};
+  let now = t0;
+  for (let i = 0; i < Math.round(sec / DT); i++) {
+    now += DT * 1000;
+    sim.step(DT, now);
+    for (const ev of eventsOf(sim.snapshot())) kinds[ev.k] = (kinds[ev.k] || 0) + 1;
+  }
+  return kinds;
+}
+
+// ---- ready phase -----------------------------------------------------------
+console.log('Ready phase');
+check(PHASE.READY === 'ready', 'PHASE.READY');
+for (const players of ['duo', 'pass', 'bot']) {
+  const sim = createSim({ ...base, mode: 'bumpers', players, botLevel: 'hard' }, { rng: rngFor(4) });
+  const st = sim.state;
+  check(st.phase === 'ready', `${players}: starts in ready`);
+  const guestAuto = players === 'bot';
+  check(sim.snapshot().rd.join() === `0,${guestAuto ? 1 : 0}`, `${players}: initial rd`);
+  check(sim.snapshot().ph === 'ready', `${players}: snapshot ph`);
+  const puck0 = { ...st.puck };
+  const bot0 = { x: st.mallets.guest.x, y: st.mallets.guest.y };
+  const evs = idle(sim, 2);
+  check(Object.keys(evs).length === 0, `${players}: events while nobody ready ${JSON.stringify(evs)}`);
+  check(st.phase === 'ready' && st.timer === 3, `${players}: stays ready`);
+  check(st.puck.x === puck0.x && st.puck.y === puck0.y && st.puck.vx === 0 && st.puck.vy === 0, `${players}: puck still`);
+  check(st.mallets.guest.x === bot0.x && st.mallets.guest.y === bot0.y, `${players}: guest mallet/bot does not move in ready`);
+  check(Math.abs(st.puck.y - (st.serveTo === 'host' ? H + G + H / 2 : H / 2)) < 1e-9, `${players}: puck at centre of receiver half`);
+  // Mallets move (and clamp) in ready, and do not collide with the puck.
+  sim.setMallet('host', st.puck.x, st.puck.y, 2000, true);
+  if (players !== 'bot') sim.setMallet('guest', st.puck.x, st.puck.y, 2000, true);
+  idle(sim, 0.5, 2000);
+  check(st.puck.vx === 0 && st.puck.vy === 0 && st.puck.x === puck0.x && st.puck.y === puck0.y, `${players}: no collision in ready`);
+  sim.setMallet('host', -500, -500, 2100, true);
+  const mh = st.mallets.host;
+  check(mh.x === base.malletR && mh.y === H + G + base.malletR, `${players}: host mallet clamped in ready`);
+  sim.setMallet('host', W / 2, bottom - H * 0.2, 2200, true);
+  // Only one side ready: still nothing for 2 s.
+  if (players === 'bot') {
+    check(sim.setReady('guest', false) === false || st.ready.guest === true, 'bot guest cannot unready');
+    check(st.ready.guest === true, 'bot guest stays ready');
+    check(sim.setReady('host') === true, 'bot: setReady host');
+    check(st.phase === 'countdown' && st.timer === 3, 'bot: host ready alone starts countdown');
+    const snap = sim.snapshot();
+    check(snap.ev.some((e) => e.k === 'ready' && e.by === 'host'), 'bot: ready event');
+    check(snap.ev.some((e) => e.k === 'go'), 'bot: go event');
+    check(snap.rd.join() === '1,1', 'bot: rd 1,1');
+  } else {
+    sim.setReady('host');
+    check(st.ready.host && !st.ready.guest, `${players}: host flag`);
+    const s1 = sim.snapshot();
+    check(s1.rd.join() === '1,0', `${players}: rd 1,0`);
+    check(s1.ev.some((e) => e.k === 'ready' && e.by === 'host'), `${players}: ready event host`);
+    sim.setReady('host'); // repeat: no second event
+    const evs2 = idle(sim, 2, 3000);
+    check(!evs2.countdown && !evs2.go && !evs2.serve && !evs2.ready, `${players}: no countdown with one side ready ${JSON.stringify(evs2)}`);
+    check(st.phase === 'ready', `${players}: still ready after 2 s`);
+    sim.setReady('host', false);
+    check(sim.snapshot().rd.join() === '0,0', `${players}: unready`);
+    sim.setReady('host');
+    sim.snapshot();
+    sim.setReady('guest');
+    check(st.phase === 'countdown' && st.timer === 3, `${players}: both ready -> countdown 3`);
+    const s2 = sim.snapshot();
+    check(s2.rd.join() === '1,1', `${players}: rd 1,1`);
+    check(s2.ev.some((e) => e.k === 'ready' && e.by === 'guest'), `${players}: ready event guest`);
+    check(s2.ev.some((e) => e.k === 'go'), `${players}: go event`);
+  }
+  // Countdown flows into play, and setReady/setGap are refused afterwards.
+  const evs3 = idle(sim, 3.2, 5000);
+  check(evs3.countdown >= 3 && evs3.serve === 1, `${players}: countdown+serve after ready ${JSON.stringify(evs3)}`);
+  check(st.phase === 'play', `${players}: play after countdown`);
+  check(sim.setReady('host', false) === false && st.ready.host, `${players}: setReady refused in play`);
+  // restart returns to ready
+  sim.restart();
+  check(st.phase === 'ready' && !st.ready.host && st.ready.guest === guestAuto, `${players}: restart -> ready`);
+  console.log(`  ${players.padEnd(5)} ok`);
+}
+
+// ---- setGap ------------------------------------------------------------------
+console.log('\nsetGap');
+for (const mode of MODES) {
+  for (const players of ['pass', 'bot']) {
+    const cfg = { ...base, mode, players, botLevel: 'medium' };
+    const sim = createSim(cfg, { rng: rngFor(9) });
+    const st = sim.state;
+    for (const g2 of [0, 12, 40, 90, 180, 24]) {
+      sim.setMallet('host', W * 0.3, bottom - H * 0.05, 100, true); // low in the host half
+      check(sim.setGap(g2) === true, `${mode}/${players}: setGap(${g2}) accepted`);
+      bottom = 2 * H + g2;
+      const sb = H + g2;
+      check(cfg.G === g2 && sim.cfg.G === g2, `${mode}: cfg.G updated`);
+      const pr = base.puckR;
+      const mr = base.malletR;
+      const p = st.puck;
+      check(p.x >= pr && p.x <= W - pr && p.y >= pr && p.y <= bottom - pr, `${mode} G=${g2}: puck inside rink`);
+      check(Math.abs(p.y - (st.serveTo === 'host' ? sb + H / 2 : H / 2)) < 1e-9 && p.vx === 0 && p.vy === 0, `${mode} G=${g2}: puck at receiver centre`);
+      const mh = st.mallets.host;
+      const mg = st.mallets.guest;
+      check(mh.y >= sb + mr - 1e-9 && mh.y <= bottom - mr + 1e-9 && mh.x >= mr && mh.x <= W - mr, `${mode} G=${g2}: host mallet inside host half (${mh.y})`);
+      check(mg.y >= mr && mg.y <= H - mr && mg.x >= mr && mg.x <= W - mr, `${mode} G=${g2}: guest mallet inside guest half`);
+      const snap = sim.snapshot();
+      check(snap.g === g2, `${mode}: snapshot g`);
+      for (const o of snap.ob) {
+        const hostSide = o.y > sb;
+        const guestSide = o.y < H;
+        check(hostSide || guestSide, `${mode} G=${g2}: obstacle in the seam gap`);
+        check(o.y - o.r > 0 && o.y + o.r < bottom && o.x - o.r > 0 && o.x + o.r < W, `${mode} G=${g2}: obstacle inside rink`);
+        check(Math.abs(o.y - (H + g2 / 2)) > H * 0.15, `${mode} G=${g2}: obstacle too close to seam`);
+        const mirror = snap.ob.find((q) => Math.abs(q.x - (W - o.x)) < 0.2 && Math.abs(q.y - (bottom - o.y)) < 0.2);
+        check(!!mirror, `${mode} G=${g2}: obstacle mirror`);
+      }
+      // Mallet clamps now follow the new bounds.
+      sim.setMallet('host', 5000, 99999, 200, true);
+      check(Math.abs(st.mallets.host.y - (bottom - mr)) < 1e-9, `${mode} G=${g2}: host clamp uses new bottom`);
+      sim.setMallet('host', -5, -99999, 300, true);
+      check(Math.abs(st.mallets.host.y - (sb + mr)) < 1e-9, `${mode} G=${g2}: host clamp uses new seam`);
+    }
+    // Play on with the final gap: nothing escapes, no NaN.
+    bottom = 2 * H + 24;
+    sim.setReady('host');
+    sim.setReady('guest');
+    check(st.phase === 'countdown', `${mode}: ready after setGap`);
+    const evs = idle(sim, 3.5, 7000);
+    check(st.phase === 'play' && evs.serve === 1, `${mode}: plays after setGap`);
+    check(sim.setGap(100) === false && cfg.G === 24, `${mode}/${players}: setGap refused in play`);
+    // Refused in countdown too, and with junk input.
+    sim.restart();
+    check(sim.setGap(NaN) === false && sim.setGap(-3) === false && sim.setGap('x') === false, 'setGap rejects junk');
+    sim.setReady('host');
+    sim.setReady('guest');
+    if (players === 'pass') check(st.phase === 'countdown' && sim.setGap(60) === false, `${mode}: setGap refused in countdown`);
+    bottom = 2 * H + G;
+  }
+}
+// Bot still plays correctly after a gap change (bot rebuilt with the new G).
+{
+  const cfg = { ...base, mode: 'classic', players: 'bot', botLevel: 'impossible' };
+  const sim = createSim(cfg, { rng: rngFor(3) });
+  sim.setGap(100);
+  sim.state.serveTo = 'guest';
+  sim.setReady('host');
+  idle(sim, 4, 1000);
+  const mg = sim.state.mallets.guest;
+  check(mg.y <= H - base.malletR + 1e-9 && mg.y >= base.malletR, 'bot stays in guest half after setGap');
+  console.log('  bot after setGap ok');
+}
+bottom = 2 * H + G;
 
 // ---- obstacle layouts ------------------------------------------------------
 console.log('Obstacle layouts');

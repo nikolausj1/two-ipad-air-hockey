@@ -25,6 +25,7 @@
 
   <!-- ===================== Lobby ===================== -->
   <div id="lobby" class="lobby">
+    <canvas id="lobby-bg" class="lobby-bg" aria-hidden="true"></canvas>
     <div class="lobby-inner">
       <header class="brand">
         <div class="puck-logo" aria-hidden="true"><i></i><i></i></div>
@@ -66,6 +67,7 @@
             <span>Two people, one iPad flat on the table. Each plays their own half.</span>
           </button>
         </div>
+        <button id="btn-howto" class="ghost howto-btn" type="button">How to play</button>
       </section>
 
       <!-- Step 2: options -->
@@ -143,6 +145,7 @@
             <input id="code-input" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="text" />
             <button id="btn-join-code" class="cta" type="button">Join</button>
           </div>
+          <p id="join-error" class="inline-error hidden" role="alert"></p>
           <p class="hint">The host iPad shows the 4-letter code, and a QR code you can scan with this iPad's camera.</p>
         </div>
 
@@ -155,13 +158,14 @@
       <!-- Waiting for the other iPad (host) / for the host (guest) -->
       <section id="screen-wait" class="screen hidden">
         <h2 id="wait-title" class="step-title">Waiting for the other iPad</h2>
+        <div class="pads pads-anim" aria-hidden="true"><i class="pad pad-a"></i><i class="pad pad-b"></i><i class="pad-puck"></i></div>
         <div id="wait-code" class="big-code" aria-live="polite"></div>
         <div id="wait-share" class="share">
           <div id="wait-qr" class="qr"></div>
           <div class="share-text">
             <p class="muted">On the other iPad scan the QR code, or open</p>
             <p id="wait-url" class="url"></p>
-            <p class="muted">and tap <strong>Two iPads</strong> &rsaquo; <strong>Join a table</strong>.</p>
+            <p class="muted">and tap <strong>Two iPads</strong> &rsaquo; <strong>Join a table</strong>, code <strong id="wait-code-inline"></strong>.</p>
           </div>
         </div>
         <p id="wait-text" class="muted center"></p>
@@ -187,9 +191,53 @@
     <span>Turn the iPad to portrait</span>
   </div>
 
+  <!-- Seam gap calibration (two-iPad host, before the match starts). -->
+  <div id="calib" class="calib hidden" role="group" aria-label="Seam gap">
+    <div class="calib-main">
+      <span class="calib-label">Seam gap</span>
+      <div class="stepper">
+        <button type="button" id="calib-minus" aria-label="Smaller gap">&#8722;</button>
+        <output id="calib-value">16 mm</output>
+        <button type="button" id="calib-plus" aria-label="Bigger gap">+</button>
+      </div>
+      <span class="calib-hint">Line up the ring across both screens</span>
+    </div>
+    <button id="calib-done" class="calib-done" type="button">Done</button>
+  </div>
+
+  <!-- After the final goal. A small sheet, not the lobby. -->
+  <div id="over" class="over-sheet hidden">
+    <div class="over-card">
+      <div id="over-host" class="over-row">
+        <button id="over-rematch" class="cta" type="button">Rematch</button>
+        <button id="over-change" type="button">Change mode</button>
+      </div>
+      <div id="over-guest" class="over-row over-col hidden">
+        <p class="muted">Waiting for the host</p>
+        <button id="over-ask" type="button">Ask for a rematch</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="howto" class="overlay hidden">
+    <div class="card">
+      <h2>How to play</h2>
+      <div class="pads" aria-hidden="true"><i class="pad pad-a"></i><i class="pad pad-b"></i><i class="pad-puck"></i></div>
+      <ol class="steps">
+        <li><b>Line up.</b> Lay two iPads flat in portrait, top edge against top edge. One iPad hosts, the other joins with the 4-letter code or QR.</li>
+        <li><b>Get ready.</b> The host can nudge the seam gap until the ring lines up across both screens. Then each player presses down on their own half.</li>
+        <li><b>Play.</b> Slide your mallet, hit the puck across the gap, and be first to the target score. One iPad works too: bot or pass &amp; play.</li>
+      </ol>
+      <button id="howto-close" class="cta" type="button">Got it</button>
+    </div>
+  </div>
+
   <div id="menu" class="overlay hidden">
     <div class="card">
       <h2 id="menu-title">Paused</h2>
+      <p id="menu-code" class="menu-code hidden">Table <b id="menu-code-val"></b></p>
       <div class="menu-list">
         <button id="m-resume" class="cta" type="button">Resume</button>
         <button id="m-restart" type="button">Restart</button>

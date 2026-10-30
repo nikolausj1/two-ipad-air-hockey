@@ -14,10 +14,17 @@
 //     screen x = X0 + kx * worldX      screen y = Y0 + ky * worldY
 // (kx, ky are negative for the guest), which lets every layer share it.
 //
-// Performance notes: the static rink (floor, grid, vignette, rails, seam) is
-// painted once into an offscreen canvas on resize. Puck, mallets and obstacles
-// are pre-rendered sprites. Per frame we only blit, draw a few sprites, strokes
-// and text, and the particle system from fx.js. No per-frame shadowBlur.
+// Layout: the rink rect (rx, ry, rw, rh) is the playing surface; a beveled metal
+// frame of width `fw` surrounds it on the sides and at the goal end(s). The seam
+// edge of a host/guest screen has no frame, only a bright hairline. Scale is
+// chosen so rink + frame fit the screen; the area outside is the "letterbox"
+// (vignetted gradient with slow floating bokeh).
+//
+// Performance notes: everything static (letterbox, ice, markings, frame, seam)
+// is painted once into an offscreen canvas on resize. Puck, mallets, bumpers,
+// mines, glows and goal rays are pre-rendered sprites. Per frame we only blit,
+// draw sprites, a few filled shapes, strokes and text, plus the particle system
+// from fx.js. No per-frame gradient creation for static parts and no shadowBlur.
 
 import { createFx } from './fx.js';
 
@@ -27,12 +34,17 @@ const GUEST_COL = '#4fd1ff';
 const HOST_RGB = '255,122,69';
 const GUEST_RGB = '79,209,255';
 const GOOD = '#7CFF9A';
-const BAD = '#ff6b6b';
-const BG = '#0b1020';
+const WIN_COL = '#ffd36b';
+const LOSE_COL = '#ff7b7b';
+const BG = '#04060d';
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, system-ui, sans-serif';
 const DASH = [5, 6];
 const NO_DASH = [];
+const NO_RD = [0, 0];
 const TRAIL_N = 32;
+const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', heavy: 'Heavy', mines: 'Mines' };
+const MSG_PHASES = { ready: 1, countdown: 1, goal: 1, over: 1 };
+const NO_UI = { held: false, calibrating: false };
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const easeOutBack = (p) => {
@@ -43,6 +55,20 @@ const easeOutBack = (p) => {
 };
 const easeOutCubic = (p) => 1 - Math.pow(1 - p, 3);
 
+// Rounded-rect subpath with separate top and bottom corner radii.
+function rrPath(c, x, y, w, h, rt, rb) {
+  c.moveTo(x + rt, y);
+  c.lineTo(x + w - rt, y);
+  if (rt) c.arcTo(x + w, y, x + w, y + rt, rt);
+  c.lineTo(x + w, y + h - rb);
+  if (rb) c.arcTo(x + w, y + h, x + w - rb, y + h, rb);
+  c.lineTo(x + rb, y + h);
+  if (rb) c.arcTo(x, y + h, x, y + h - rb, rb);
+  c.lineTo(x, y + rt);
+  if (rt) c.arcTo(x, y, x + rt, y, rt);
+  c.closePath();
+}
+
 export function createView(canvas, role, cfg) {
   const ctx = canvas.getContext('2d', { alpha: false });
   const { W, H, G, puckR, malletR } = cfg;
@@ -52,6 +78,8 @@ export function createView(canvas, role, cfg) {
   const players = cfg.players || 'duo';
   const bottomY = 2 * H + G;
   const solo = role === 'solo';
+  const fT = W * 0.03; // frame thickness in world units
+  const modeLabel = `${MODE_NAMES[mode] || mode} · first to ${target}`;
 
   // World y range visible on this screen.
   const visTop = role === 'host' ? H + G : 0;
@@ -85,16 +113,26 @@ export function createView(canvas, role, cfg) {
   let ry = 0;
   let rw = 1;
   let rh = 1;
+  let fw = 16; // frame width in px
+  let ri = 8; // inner corner radius
+  let ox = 0; // outer frame rect
+  let oy = 0;
+  let ow = 1;
+  let oh = 1;
+  let hasLetterbox = false;
   let X0 = 0;
   let kx = 1;
   let Y0 = 0;
   let ky = 1;
   let u = 1; // HUD unit: 1 at 820 px wide rink
+  let destroyed = false;
 
   let bg = null;
   let spr = null; // sprites, rebuilt on resize
   const bumperSprites = new Map();
+  const mineSprites = new Map();
   const goalGrad = {}; // local-space gradients per side, rebuilt on resize
+  let rays = null;
   let seamGrad = null;
   let seamR = 1;
   let glowH = 40;
@@ -104,6 +142,9 @@ export function createView(canvas, role, cfg) {
   const glowGuest = makeGlow(GUEST_RGB);
   const glowGold = makeGlow('255,210,80');
   const glowRed = makeGlow('255,60,50');
+  const glowGreen = makeGlow('80,255,150');
+  const glowBlack = makeGlow('0,0,0');
+  const bokehGlows = [glowWhite, glowHost, glowGuest];
 
   const map = { X0: 0, kx: 1, Y0: 0, ky: 1, scale: 1, dpr: 1 };
   const shk = [0, 0];
@@ -131,13 +172,22 @@ export function createView(canvas, role, cfg) {
     canvas.style.width = screenW + 'px';
     canvas.style.height = screenH + 'px';
 
-    scale = Math.min(screenW / W, screenH / visH);
+    // Rink + frame must fit. The seam edge of host/guest has no frame.
+    const needH = solo ? visH + 2 * fT : visH + fT;
+    scale = Math.min(screenW / (W + 2 * fT), screenH / needH);
+    fw = fT * scale;
+    ri = fw * 0.6;
     rw = W * scale;
     rh = visH * scale;
     rx = (screenW - rw) / 2;
     // Host/guest: anchor the seam edge (screen top) to the physical top edge of the
     // device and leave any slack at the bottom (goal end). Solo stays centred.
     ry = solo ? (screenH - rh) / 2 : 0;
+    ox = rx - fw;
+    ow = rw + 2 * fw;
+    oy = solo ? ry - fw : -80;
+    oh = ry + rh + fw - oy;
+    hasLetterbox = ox > 3 || oy + oh < screenH - 3 || (solo && oy > 3);
     if (role === 'guest') {
       kx = -scale;
       X0 = rx + rw;
@@ -149,7 +199,7 @@ export function createView(canvas, role, cfg) {
       ky = scale;
       Y0 = ry - visTop * scale;
     }
-    u = clamp(rw / 820, 0.5, 1.6);
+    u = clamp(rw / 820, 0.62, 1.6);
     map.X0 = X0;
     map.kx = kx;
     map.Y0 = Y0;
@@ -161,6 +211,7 @@ export function createView(canvas, role, cfg) {
   }
 
   function resize() {
+    if (destroyed) return;
     layout();
     buildSprites();
     buildGradients();
@@ -197,12 +248,12 @@ export function createView(canvas, role, cfg) {
     return cv;
   }
 
-  function discShadow(c, cx, cy, r, blur, ox, oy, alpha) {
+  function discShadow(c, cx, cy, r, blur, ox_, oy_, alpha) {
     c.save();
     c.shadowColor = `rgba(0,0,0,${alpha})`;
     c.shadowBlur = blur * dpr;
-    c.shadowOffsetX = ox * dpr;
-    c.shadowOffsetY = oy * dpr;
+    c.shadowOffsetX = ox_ * dpr;
+    c.shadowOffsetY = oy_ * dpr;
     c.fillStyle = '#000';
     c.beginPath();
     c.arc(cx, cy, r, 0, TAU);
@@ -211,45 +262,80 @@ export function createView(canvas, role, cfg) {
   }
 
   function makePuck(r) {
-    const pad = Math.ceil(r * 0.7) + 2;
+    const pad = Math.ceil(r * 0.3) + 3;
     return makeSprite((r + pad) * 2, (c, cx, cy) => {
-      discShadow(c, cx, cy, r, r * 0.55, r * 0.16, r * 0.3, 0.6);
-      let g = c.createRadialGradient(cx - r * 0.3, cy - r * 0.35, r * 0.05, cx, cy, r * 1.05);
+      // outer bevel: bright top-left, deep bottom-right
+      let g = c.createLinearGradient(cx - r * 0.8, cy - r * 0.8, cx + r * 0.8, cy + r * 0.8);
       g.addColorStop(0, '#ffffff');
-      g.addColorStop(0.35, '#e6ebfa');
-      g.addColorStop(0.75, '#a9b3d6');
-      g.addColorStop(1, '#6f7ba3');
+      g.addColorStop(0.28, '#d9e1f6');
+      g.addColorStop(0.58, '#6874a0');
+      g.addColorStop(1, '#171c38');
       c.fillStyle = g;
       c.beginPath();
       c.arc(cx, cy, r, 0, TAU);
       c.fill();
-      // rim
-      g = c.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-      g.addColorStop(0, 'rgba(255,255,255,0.95)');
-      g.addColorStop(0.5, 'rgba(160,172,210,0.4)');
-      g.addColorStop(1, 'rgba(40,50,90,0.85)');
+      // crisp outline
+      c.strokeStyle = 'rgba(8,12,34,0.8)';
+      c.lineWidth = 1;
+      c.beginPath();
+      c.arc(cx, cy, r - 0.5, 0, TAU);
+      c.stroke();
+      // flat top face, slightly cooler than the bevel
+      const fr = r * 0.74;
+      g = c.createRadialGradient(cx - fr * 0.4, cy - fr * 0.45, fr * 0.05, cx, cy, fr * 1.15);
+      g.addColorStop(0, '#f5f8ff');
+      g.addColorStop(0.45, '#cdd6ee');
+      g.addColorStop(0.85, '#8d9acb');
+      g.addColorStop(1, '#6f7cae');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(cx, cy, fr, 0, TAU);
+      c.fill();
+      // chamfer between face and bevel (inverse lighting)
+      g = c.createLinearGradient(cx - fr, cy - fr, cx + fr, cy + fr);
+      g.addColorStop(0, 'rgba(30,40,95,0.8)');
+      g.addColorStop(0.5, 'rgba(30,40,95,0.1)');
+      g.addColorStop(1, 'rgba(255,255,255,0.9)');
       c.strokeStyle = g;
-      c.lineWidth = Math.max(1.2, r * 0.1);
+      c.lineWidth = Math.max(1.2, r * 0.08);
       c.beginPath();
-      c.arc(cx, cy, r - c.lineWidth / 2, 0, TAU);
+      c.arc(cx, cy, fr, 0, TAU);
       c.stroke();
-      // groove
-      c.lineWidth = Math.max(1, r * 0.07);
-      c.strokeStyle = 'rgba(50,62,110,0.4)';
+      // inner groove
+      c.lineWidth = Math.max(1, r * 0.06);
+      c.strokeStyle = 'rgba(40,52,110,0.45)';
       c.beginPath();
-      c.arc(cx, cy, r * 0.62, 0, TAU);
+      c.arc(cx, cy, r * 0.46, 0, TAU);
       c.stroke();
-      c.strokeStyle = 'rgba(255,255,255,0.45)';
+      c.strokeStyle = 'rgba(255,255,255,0.6)';
       c.beginPath();
-      c.arc(cx + 0.5, cy + 0.7, r * 0.62, 0, TAU);
+      c.arc(cx + 0.5, cy + 0.7, r * 0.46, 0, TAU);
       c.stroke();
-      // gloss
-      g = c.createLinearGradient(cx, cy - r * 0.6, cx, cy - r * 0.1);
-      g.addColorStop(0, 'rgba(255,255,255,0.85)');
+      // fixed specular: it belongs to the light, never rotates with the puck
+      g = c.createLinearGradient(cx, cy - r * 0.7, cx, cy - r * 0.1);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
       g.addColorStop(1, 'rgba(255,255,255,0)');
       c.fillStyle = g;
       c.beginPath();
-      c.ellipse(cx - r * 0.22, cy - r * 0.36, r * 0.46, r * 0.22, -0.5, 0, TAU);
+      c.ellipse(cx - r * 0.22, cy - r * 0.4, r * 0.46, r * 0.2, -0.55, 0, TAU);
+      c.fill();
+      c.fillStyle = '#ffffff';
+      c.beginPath();
+      c.arc(cx - r * 0.45, cy - r * 0.55, Math.max(1.1, r * 0.08), 0, TAU);
+      c.fill();
+    });
+  }
+
+  function makePuckShadow(r) {
+    const pad = Math.ceil(r * 0.9);
+    return makeSprite((r + pad) * 2, (c, cx, cy) => {
+      const g = c.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 1.45);
+      g.addColorStop(0, 'rgba(0,0,10,0.62)');
+      g.addColorStop(0.55, 'rgba(0,0,10,0.42)');
+      g.addColorStop(1, 'rgba(0,0,10,0)');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(cx, cy, r * 1.45, 0, TAU);
       c.fill();
     });
   }
@@ -312,33 +398,61 @@ export function createView(canvas, role, cfg) {
     });
   }
 
+  // Brass post: shadow, turned collar, banded body with a metallic sheen, domed cap.
   function makeBumper(r) {
     const pad = Math.ceil(r * 0.5) + 2;
     return makeSprite((r + pad) * 2, (c, cx, cy) => {
       discShadow(c, cx, cy, r, r * 0.5, r * 0.15, r * 0.25, 0.6);
       // outer brass collar
       let g = c.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-      g.addColorStop(0, '#fff0b0');
-      g.addColorStop(0.5, '#b88a22');
-      g.addColorStop(1, '#4e3408');
+      g.addColorStop(0, '#fff3bd');
+      g.addColorStop(0.25, '#e2b647');
+      g.addColorStop(0.55, '#9b6f19');
+      g.addColorStop(0.8, '#5a3c08');
+      g.addColorStop(1, '#2c1c03');
       c.fillStyle = g;
       c.beginPath();
       c.arc(cx, cy, r, 0, TAU);
       c.fill();
+      c.strokeStyle = 'rgba(40,24,2,0.7)';
+      c.lineWidth = 1;
+      c.beginPath();
+      c.arc(cx, cy, r - 0.5, 0, TAU);
+      c.stroke();
       // post body
       g = c.createRadialGradient(cx - r * 0.3, cy - r * 0.35, r * 0.05, cx, cy, r * 0.85);
-      g.addColorStop(0, '#fff2b8');
-      g.addColorStop(0.45, '#e0ab3a');
-      g.addColorStop(1, '#7a5214');
+      g.addColorStop(0, '#fff6c8');
+      g.addColorStop(0.4, '#e6b343');
+      g.addColorStop(0.8, '#9a6b16');
+      g.addColorStop(1, '#6a4510');
       c.fillStyle = g;
       c.beginPath();
       c.arc(cx, cy, r * 0.84, 0, TAU);
       c.fill();
-      c.strokeStyle = 'rgba(70,40,5,0.55)';
-      c.lineWidth = Math.max(1, r * 0.05);
+      // turned ridges
+      c.lineWidth = Math.max(1, r * 0.04);
+      c.strokeStyle = 'rgba(70,40,5,0.45)';
+      c.beginPath();
+      c.arc(cx, cy, r * 0.7, 0, TAU);
+      c.stroke();
+      c.strokeStyle = 'rgba(255,240,170,0.4)';
+      c.beginPath();
+      c.arc(cx + 0.5, cy + 0.7, r * 0.7, 0, TAU);
+      c.stroke();
+      // metallic sheen: a diagonal band of light across the body
+      c.save();
       c.beginPath();
       c.arc(cx, cy, r * 0.84, 0, TAU);
-      c.stroke();
+      c.clip();
+      g = c.createLinearGradient(cx - r * 0.9, cy - r * 0.9, cx + r * 0.9, cy + r * 0.9);
+      g.addColorStop(0.2, 'rgba(255,255,255,0)');
+      g.addColorStop(0.36, 'rgba(255,252,225,0.55)');
+      g.addColorStop(0.46, 'rgba(255,255,255,0)');
+      g.addColorStop(0.72, 'rgba(255,230,150,0.28)');
+      g.addColorStop(0.8, 'rgba(255,255,255,0)');
+      c.fillStyle = g;
+      c.fillRect(cx - r, cy - r, r * 2, r * 2);
+      c.restore();
       // dome
       g = c.createRadialGradient(cx - r * 0.18, cy - r * 0.22, r * 0.02, cx, cy, r * 0.46);
       g.addColorStop(0, '#ffffff');
@@ -347,6 +461,13 @@ export function createView(canvas, role, cfg) {
       c.fillStyle = g;
       c.beginPath();
       c.arc(cx, cy, r * 0.46, 0, TAU);
+      c.fill();
+      c.strokeStyle = 'rgba(90,55,8,0.5)';
+      c.lineWidth = Math.max(1, r * 0.04);
+      c.stroke();
+      c.fillStyle = 'rgba(255,255,255,0.85)';
+      c.beginPath();
+      c.ellipse(cx - r * 0.15, cy - r * 0.2, r * 0.13, r * 0.07, -0.7, 0, TAU);
       c.fill();
     });
   }
@@ -361,15 +482,116 @@ export function createView(canvas, role, cfg) {
     return s;
   }
 
+  // Mine casing: dark steel, studs, recessed LED socket. The LED itself is dynamic.
+  function makeMine(r) {
+    const pad = Math.ceil(r * 0.4) + 2;
+    return makeSprite((r + pad) * 2, (c, cx, cy) => {
+      discShadow(c, cx, cy, r, r * 0.45, r * 0.1, r * 0.2, 0.6);
+      let g = c.createRadialGradient(cx - r * 0.3, cy - r * 0.35, r * 0.05, cx, cy, r * 1.05);
+      g.addColorStop(0, '#59607a');
+      g.addColorStop(0.5, '#262b3b');
+      g.addColorStop(1, '#0e1018');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(cx, cy, r, 0, TAU);
+      c.fill();
+      g = c.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+      g.addColorStop(0, 'rgba(255,255,255,0.7)');
+      g.addColorStop(0.45, 'rgba(255,255,255,0.05)');
+      g.addColorStop(1, 'rgba(0,0,0,0.8)');
+      c.strokeStyle = g;
+      c.lineWidth = Math.max(1.5, r * 0.09);
+      c.beginPath();
+      c.arc(cx, cy, r - c.lineWidth / 2, 0, TAU);
+      c.stroke();
+      // studs
+      for (let k = 0; k < 8; k++) {
+        const a = (k + 0.5) * (TAU / 8);
+        const sx = cx + Math.cos(a) * r * 0.7;
+        const sy = cy + Math.sin(a) * r * 0.7;
+        const sr = Math.max(1.5, r * 0.085);
+        g = c.createRadialGradient(sx - sr * 0.3, sy - sr * 0.3, sr * 0.1, sx, sy, sr);
+        g.addColorStop(0, '#c9d0e6');
+        g.addColorStop(1, '#3a4058');
+        c.fillStyle = g;
+        c.beginPath();
+        c.arc(sx, sy, sr, 0, TAU);
+        c.fill();
+      }
+      // recessed plate
+      c.fillStyle = 'rgba(0,0,0,0.4)';
+      c.beginPath();
+      c.arc(cx, cy, r * 0.46, 0, TAU);
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.22)';
+      c.lineWidth = Math.max(1, r * 0.04);
+      c.beginPath();
+      c.arc(cx + 0.4, cy + 0.6, r * 0.46, 0, TAU);
+      c.stroke();
+      // LED socket
+      c.fillStyle = '#05060a';
+      c.beginPath();
+      c.arc(cx, cy, r * 0.2, 0, TAU);
+      c.fill();
+      c.strokeStyle = 'rgba(190,200,230,0.5)';
+      c.lineWidth = Math.max(1, r * 0.04);
+      c.stroke();
+    });
+  }
+
+  function getMineSprite(rCss) {
+    const key = Math.round(rCss * 2);
+    let s = mineSprites.get(key);
+    if (!s) {
+      s = makeMine(key / 2);
+      mineSprites.set(key, s);
+    }
+    return s;
+  }
+
+  // Fan of light rays shining from a goal mouth into the rink. Origin at the top centre.
+  function makeRays(rgb) {
+    const w = 640;
+    const h = 320;
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const c = cv.getContext('2d');
+    const ox_ = w / 2;
+    const n = 11;
+    c.fillStyle = '#fff';
+    for (let i = 0; i < n; i++) {
+      const a = Math.PI / 2 + ((i - (n - 1) / 2) / ((n - 1) / 2)) * 1.15;
+      const hw = i % 2 ? 0.028 : 0.05;
+      c.beginPath();
+      c.moveTo(ox_, 0);
+      c.lineTo(ox_ + Math.cos(a - hw) * h * 3, Math.sin(a - hw) * h * 3);
+      c.lineTo(ox_ + Math.cos(a + hw) * h * 3, Math.sin(a + hw) * h * 3);
+      c.closePath();
+      c.fill();
+    }
+    c.globalCompositeOperation = 'source-in';
+    const g = c.createRadialGradient(ox_, 0, 0, ox_, 0, h);
+    g.addColorStop(0, `rgba(255,255,255,0.95)`);
+    g.addColorStop(0.25, `rgba(${rgb},0.7)`);
+    g.addColorStop(1, `rgba(${rgb},0)`);
+    c.fillStyle = g;
+    c.fillRect(0, 0, w, h);
+    return cv;
+  }
+
   function buildSprites() {
     const pr = puckR * scale;
     const mr = malletR * scale;
     spr = {
       puck: makePuck(pr),
+      puckShadow: makePuckShadow(pr),
       host: makeMallet(mr, '#ffc3a2', '#ff7a45', '#b0400f', 'rgba(70,20,0,0.9)'),
       guest: makeMallet(mr, '#b9f0ff', '#4fd1ff', '#1580ab', 'rgba(0,40,60,0.9)'),
     };
     bumperSprites.clear();
+    mineSprites.clear();
+    rays = { host: makeRays(HOST_RGB), guest: makeRays(GUEST_RGB) };
   }
 
   function buildGradients() {
@@ -385,7 +607,13 @@ export function createView(canvas, role, cfg) {
       g.addColorStop(0, 'rgba(255,255,255,0.95)');
       g.addColorStop(0.25, `rgba(${rgb},0.7)`);
       g.addColorStop(1, `rgba(${rgb},0)`);
-      goalGrad[side] = { glow, flash: g };
+      const flash = g;
+      // Recessed slot: dark at the lip, the player's colour at the back wall.
+      g = ctx.createLinearGradient(0, 0, 0, fw);
+      g.addColorStop(0, 'rgba(0,0,0,0.25)');
+      g.addColorStop(0.55, `rgba(${rgb},0.16)`);
+      g.addColorStop(1, `rgba(${rgb},0.7)`);
+      goalGrad[side] = { glow, flash, slot: g };
     }
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, seamR);
     g.addColorStop(0, 'rgba(220,242,255,0.95)');
@@ -396,119 +624,235 @@ export function createView(canvas, role, cfg) {
 
   // --- static rink --------------------------------------------------------------
 
-  function halfGeom(side) {
-    const isHost = side === 'host';
-    const a = syw(isHost ? H + G : 0);
-    const b = syw(isHost ? bottomY : H);
-    return { top: Math.min(a, b), h: Math.abs(b - a), yA: isHost ? H + G : 0 };
+  // Rink rect expanded outward by d, as a rounded subpath. d = 0 is the playing
+  // surface, d = fw the outer edge of the frame. The seam end is never rounded.
+  function framePath(c, d) {
+    const r = ri + d;
+    const y0 = solo ? ry - d : -80;
+    rrPath(c, rx - d, y0, rw + 2 * d, ry + rh + d - y0, solo ? r : 0, r);
   }
 
-  function drawHalf(c, side) {
-    const isHost = side === 'host';
-    const { top, h, yA } = halfGeom(side);
-    const cx = rx + rw / 2;
-    const cy = top + h / 2;
-    const R = Math.hypot(rw / 2, h / 2);
-    const ice = mode === 'ice';
-
-    let g = c.createRadialGradient(cx, cy, 0, cx, cy, R);
-    if (ice) {
-      g.addColorStop(0, '#26407a');
-      g.addColorStop(0.6, '#182c58');
-      g.addColorStop(1, '#0c1630');
-    } else {
-      g.addColorStop(0, '#1b2b58');
-      g.addColorStop(0.6, '#111d3d');
-      g.addColorStop(1, '#080d1e');
-    }
-    c.fillStyle = g;
-    c.fillRect(rx, top, rw, h);
-
-    // Accent wash near this half's goal.
-    const goalY = syw(isHost ? bottomY : 0);
-    const rgb = isHost ? HOST_RGB : GUEST_RGB;
-    g = c.createRadialGradient(cx, goalY, 0, cx, goalY, Math.max(rw, h) * 0.75);
-    g.addColorStop(0, `rgba(${rgb},0.17)`);
-    g.addColorStop(1, `rgba(${rgb},0)`);
-    c.fillStyle = g;
-    c.fillRect(rx, top, rw, h);
-
-    // Grid.
-    const step = (W / 20) * scale;
-    c.strokeStyle = ice ? 'rgba(170,200,255,0.06)' : 'rgba(140,170,255,0.045)';
-    c.lineWidth = 1;
-    c.beginPath();
-    for (let i = 1; i < 20; i++) {
-      const x = Math.round(rx + i * step) + 0.5;
-      c.moveTo(x, top);
-      c.lineTo(x, top + h);
-    }
-    const startY = syw(yA);
-    const dirY = ky > 0 ? 1 : -1;
-    for (let j = 0; j * step <= h; j++) {
-      const y = Math.round(startY + dirY * j * step) + 0.5;
-      c.moveTo(rx, y);
-      c.lineTo(rx + rw, y);
-    }
-    c.stroke();
-
-    // Brushed texture: seeded long hairlines.
-    let seed = isHost ? 1337 : 7331;
-    const rand = () => {
-      seed = (seed * 1664525 + 1013904223) >>> 0;
-      return seed / 4294967296;
+  function rng(seed) {
+    let s = seed >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 4294967296;
     };
-    c.strokeStyle = ice ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.022)';
-    c.lineWidth = 1;
-    c.beginPath();
-    const lines = ice ? 140 : 80;
-    for (let i = 0; i < lines; i++) {
-      const x = rx + rand() * rw * 0.9;
-      const y = top + rand() * h;
-      const len = rw * (0.15 + rand() * 0.5);
-      c.moveTo(x, y);
-      c.lineTo(x + len, y + (rand() - 0.5) * 3);
-    }
-    c.stroke();
-
-    // Serve spot and face-off dots.
-    const spotY = syw(yA + H / 2);
-    c.strokeStyle = 'rgba(255,255,255,0.1)';
-    c.lineWidth = 1.5;
-    c.beginPath();
-    c.arc(cx, spotY, puckR * 1.9 * scale, 0, TAU);
-    c.stroke();
-    c.fillStyle = 'rgba(255,255,255,0.1)';
-    c.beginPath();
-    c.arc(cx, spotY, 3, 0, TAU);
-    c.arc(rx + rw * 0.2, spotY, 3, 0, TAU);
-    c.moveTo(rx + rw * 0.8 + 3, spotY);
-    c.arc(rx + rw * 0.8, spotY, 3, 0, TAU);
-    c.fill();
   }
 
-  function drawCentreCircle(c) {
-    const cx = rx + rw / 2;
-    const cy = syw(H + G / 2);
-    const r = W * 0.18 * scale;
+  function noiseCanvas(w, h, rand, lo, hi) {
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const c = cv.getContext('2d');
+    const id = c.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) {
+      const v = lo + rand() * (hi - lo);
+      id.data[i * 4] = v;
+      id.data[i * 4 + 1] = v;
+      id.data[i * 4 + 2] = v;
+      id.data[i * 4 + 3] = 255;
+    }
+    c.putImageData(id, 0, 0);
+    return cv;
+  }
+
+  function drawLetterbox(c) {
+    const cx = screenW / 2;
+    const cy = solo ? screenH / 2 : screenH * 0.42;
+    const g = c.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(screenW, screenH) * 0.62);
+    g.addColorStop(0, '#17234d');
+    g.addColorStop(0.5, '#0a1230');
+    g.addColorStop(1, '#03050c');
+    c.fillStyle = g;
+    c.fillRect(0, 0, screenW, screenH);
+  }
+
+  function drawSurface(c) {
+    const ice = mode === 'ice';
+    const rand = rng(90210);
+    const lcx = rx + rw / 2;
+    const lcy = solo ? ry + rh / 2 : ry + rh * 0.36;
+    const lR = Math.hypot(rw / 2, Math.max(lcy - ry, ry + rh - lcy)) * 1.02;
+
+    // Overhead light: bright pool, falling off to the corners.
+    let g = c.createRadialGradient(lcx, lcy, 0, lcx, lcy, lR);
+    if (ice) {
+      g.addColorStop(0, '#79a6d8');
+      g.addColorStop(0.4, '#4a78b2');
+      g.addColorStop(0.75, '#274b82');
+      g.addColorStop(1, '#14284f');
+    } else {
+      g.addColorStop(0, '#4a73ad');
+      g.addColorStop(0.4, '#2f568e');
+      g.addColorStop(0.75, '#1b3563');
+      g.addColorStop(1, '#0d1a38');
+    }
+    c.fillStyle = g;
+    c.fillRect(rx, ry, rw, rh);
+
+    // Large-scale frosting: soft blotches.
+    for (let i = 0; i < 34; i++) {
+      const bx = rx + rand() * rw;
+      const by = ry + rand() * rh;
+      const br = rw * (0.12 + rand() * 0.3);
+      const light = rand() < 0.65;
+      const a = 0.02 + rand() * 0.03;
+      g = c.createRadialGradient(bx, by, 0, bx, by, br);
+      g.addColorStop(0, light ? `rgba(215,235,255,${a})` : `rgba(10,25,60,${a * 1.4})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      c.fillStyle = g;
+      c.fillRect(bx - br, by - br, br * 2, br * 2);
+    }
+
+    // Smooth value noise (two octaves, upscaled with filtering), soft-light blended.
+    c.save();
     c.beginPath();
-    c.arc(cx, cy, r, 0, TAU);
-    c.strokeStyle = 'rgba(160,190,255,0.06)';
-    c.lineWidth = 9;
-    c.stroke();
-    c.strokeStyle = 'rgba(255,255,255,0.16)';
-    c.lineWidth = 2.5;
-    c.stroke();
-    c.fillStyle = 'rgba(255,255,255,0.14)';
+    c.rect(rx, ry, rw, rh);
+    c.clip();
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = 'high';
+    c.globalCompositeOperation = 'soft-light';
+    const aspect = rh / rw;
+    const n1 = noiseCanvas(14, Math.max(8, Math.round(14 * aspect)), rand, 70, 190);
+    const n2 = noiseCanvas(40, Math.max(8, Math.round(40 * aspect)), rand, 90, 170);
+    c.globalAlpha = ice ? 0.4 : 0.3;
+    c.drawImage(n1, rx, ry, rw, rh);
+    c.globalAlpha = ice ? 0.22 : 0.16;
+    c.drawImage(n2, rx, ry, rw, rh);
+    c.restore();
+
+    // Fine frost grain (tiled, very faint).
+    {
+      const tile = document.createElement('canvas');
+      tile.width = 128;
+      tile.height = 128;
+      const tc = tile.getContext('2d');
+      const id = tc.createImageData(128, 128);
+      for (let i = 0; i < 128 * 128; i++) {
+        const r0 = rand();
+        const on = r0 < 0.16;
+        id.data[i * 4] = 225;
+        id.data[i * 4 + 1] = 240;
+        id.data[i * 4 + 2] = 255;
+        id.data[i * 4 + 3] = on ? 6 + rand() * (ice ? 26 : 18) : 0;
+      }
+      tc.putImageData(id, 0, 0);
+      c.fillStyle = c.createPattern(tile, 'repeat');
+      c.fillRect(rx, ry, rw, rh);
+    }
+
+    // Soft sheen from the lamp.
+    c.save();
+    c.translate(lcx, lcy);
+    c.scale(1, 0.62);
+    g = c.createRadialGradient(0, 0, 0, 0, 0, rw * 0.55);
+    g.addColorStop(0, `rgba(235,246,255,${ice ? 0.17 : 0.11})`);
+    g.addColorStop(1, 'rgba(235,246,255,0)');
+    c.fillStyle = g;
+    c.fillRect(-rw, -rw, rw * 2, rw * 2);
+    c.restore();
+
+    // Accent wash at each goal end.
+    for (const gl of goals) {
+      const gy = gl.top ? ry : ry + rh;
+      const rgb = gl.side === 'host' ? HOST_RGB : GUEST_RGB;
+      g = c.createRadialGradient(lcx, gy, 0, lcx, gy, Math.max(rw, rh * 0.5) * 0.8);
+      g.addColorStop(0, `rgba(${rgb},0.2)`);
+      g.addColorStop(0.5, `rgba(${rgb},0.06)`);
+      g.addColorStop(1, `rgba(${rgb},0)`);
+      c.fillStyle = g;
+      c.fillRect(rx, ry, rw, rh);
+    }
+
+    drawMarkings(c);
+  }
+
+  function drawMarkings(c) {
+    const lw = Math.max(1.5, 2 * u);
+    // Face-off dots + serve spots per visible half.
+    const halves = [];
+    if (role !== 'guest') halves.push({ yA: H + G, rgb: HOST_RGB });
+    if (role !== 'host') halves.push({ yA: 0, rgb: GUEST_RGB });
+    for (const h of halves) {
+      const cy = syw(h.yA + H / 2);
+      const cx = rx + rw / 2;
+      c.fillStyle = 'rgba(235,245,255,0.2)';
+      c.strokeStyle = 'rgba(235,245,255,0.13)';
+      c.lineWidth = lw * 0.8;
+      for (const fx_ of [0.2, 0.8]) {
+        const x = rx + rw * fx_;
+        c.beginPath();
+        c.arc(x, cy, Math.max(3, 5 * u), 0, TAU);
+        c.fill();
+        c.beginPath();
+        c.arc(x, cy, 26 * u, 0, TAU);
+        c.stroke();
+      }
+      c.beginPath();
+      c.arc(cx, cy, Math.max(3, 4.5 * u), 0, TAU);
+      c.fill();
+      c.beginPath();
+      c.arc(cx, cy, puckR * 2.1 * scale, 0, TAU);
+      c.stroke();
+    }
+
+    // Goal crease arcs.
+    for (const gl of goals) {
+      const rgb = gl.side === 'host' ? HOST_RGB : GUEST_RGB;
+      const gy = gl.top ? ry : ry + rh;
+      const R = goalW0 * scale * 0.78;
+      c.save();
+      c.translate(rx + rw / 2, gy);
+      c.scale(1, gl.top ? 1 : -1);
+      const g = c.createRadialGradient(0, 0, R * 0.2, 0, 0, R);
+      g.addColorStop(0, `rgba(${rgb},0.2)`);
+      g.addColorStop(1, `rgba(${rgb},0.03)`);
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(0, 0, R, 0, Math.PI);
+      c.closePath();
+      c.fill();
+      c.strokeStyle = `rgba(${rgb},0.5)`;
+      c.lineWidth = lw;
+      c.beginPath();
+      c.arc(0, 0, R, 0, Math.PI);
+      c.stroke();
+      c.strokeStyle = `rgba(${rgb},0.14)`;
+      c.lineWidth = lw * 4;
+      c.beginPath();
+      c.arc(0, 0, R + lw * 2, 0, Math.PI);
+      c.stroke();
+      c.restore();
+    }
+
+    // Centre circle straddling the seam.
+    const ccx = rx + rw / 2;
+    const ccy = syw(H + G / 2);
+    const cr = W * 0.18 * scale;
     c.beginPath();
-    c.arc(cx, cy, 4, 0, TAU);
+    c.arc(ccx, ccy, cr, 0, TAU);
+    c.strokeStyle = 'rgba(200,225,255,0.07)';
+    c.lineWidth = lw * 5;
+    c.stroke();
+    c.strokeStyle = 'rgba(235,245,255,0.3)';
+    c.lineWidth = lw;
+    c.stroke();
+    c.beginPath();
+    c.arc(ccx, ccy, cr * 0.34, 0, TAU);
+    c.strokeStyle = 'rgba(235,245,255,0.13)';
+    c.lineWidth = lw * 0.7;
+    c.stroke();
+    c.fillStyle = 'rgba(235,245,255,0.3)';
+    c.beginPath();
+    c.arc(ccx, ccy, Math.max(3, 5 * u), 0, TAU);
     c.fill();
   }
 
   // Solo with no seam gap: a faint line so the two halves read clearly.
   function drawCentreLine(c) {
     const y = Math.round(syw(H + G / 2)) + 0.5;
-    c.strokeStyle = 'rgba(255,255,255,0.1)';
+    c.strokeStyle = 'rgba(235,245,255,0.18)';
     c.lineWidth = 1.5;
     c.beginPath();
     c.moveTo(rx, y);
@@ -516,19 +860,19 @@ export function createView(canvas, role, cfg) {
     c.stroke();
   }
 
+  // Solo with a seam gap: a dark beveled bezel band between the two halves.
   function drawBand(c) {
     const t = syw(H);
     const b = syw(H + G);
     const bh = b - t;
     if (bh < 1) return;
     let g = c.createLinearGradient(0, t, 0, b);
-    g.addColorStop(0, '#1a2138');
-    g.addColorStop(0.2, '#070a14');
-    g.addColorStop(0.8, '#070a14');
-    g.addColorStop(1, '#1a2138');
+    g.addColorStop(0, '#2b3350');
+    g.addColorStop(0.2, '#0a0e1a');
+    g.addColorStop(0.8, '#0a0e1a');
+    g.addColorStop(1, '#2b3350');
     c.fillStyle = g;
     c.fillRect(rx, t, rw, bh);
-    // cast shadows onto the felt on either side
     g = c.createLinearGradient(0, t - 18, 0, t);
     g.addColorStop(0, 'rgba(0,0,0,0)');
     g.addColorStop(1, 'rgba(0,0,0,0.55)');
@@ -539,66 +883,160 @@ export function createView(canvas, role, cfg) {
     g.addColorStop(1, 'rgba(0,0,0,0)');
     c.fillStyle = g;
     c.fillRect(rx, b, rw, 18);
-    // bevel highlights
-    c.fillStyle = 'rgba(255,255,255,0.14)';
+    c.fillStyle = 'rgba(255,255,255,0.22)';
     c.fillRect(rx, t, rw, 1);
     c.fillRect(rx, b - 1, rw, 1);
-    c.fillStyle = 'rgba(255,255,255,0.05)';
-    c.fillRect(rx, t + 1, rw, 1);
-    // tiny sensor dot, like the bezel of a real iPad
-    c.fillStyle = 'rgba(120,140,200,0.18)';
+    c.fillStyle = 'rgba(120,140,200,0.2)';
     c.beginPath();
     c.arc(rx + rw / 2, t + bh / 2, Math.min(3.5, bh * 0.14), 0, TAU);
     c.fill();
   }
 
+  // The top edge of a host/guest screen is where the other iPad begins: no frame,
+  // just a thin bright hairline so both halves read as one table.
   function drawSeamEdge(c) {
-    // The top edge of a host/guest screen is where the other iPad begins.
-    let g = c.createLinearGradient(0, ry, 0, ry + 26);
-    g.addColorStop(0, 'rgba(0,0,0,0.55)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
+    let g = c.createLinearGradient(0, ry, 0, ry + 22);
+    g.addColorStop(0, 'rgba(190,225,255,0.2)');
+    g.addColorStop(1, 'rgba(190,225,255,0)');
     c.fillStyle = g;
-    c.fillRect(rx, ry, rw, 26);
-    c.setLineDash([10, 8]);
-    c.strokeStyle = 'rgba(255,255,255,0.16)';
-    c.lineWidth = 1.5;
-    c.beginPath();
-    c.moveTo(rx, ry + 1);
-    c.lineTo(rx + rw, ry + 1);
-    c.stroke();
-    c.setLineDash(NO_DASH);
+    c.fillRect(rx, ry, rw, 22);
+    c.fillStyle = 'rgba(235,246,255,0.8)';
+    c.fillRect(rx, ry, rw, 1);
+    // continue across the frame sides, dimmer
+    c.fillStyle = 'rgba(235,246,255,0.35)';
+    c.fillRect(ox, ry, fw, 1);
+    c.fillRect(rx + rw, ry, fw, 1);
   }
 
-  function drawRails(c) {
-    const x1 = rx + 1.5;
-    const x2 = rx + rw - 1.5;
-    const g = c.createLinearGradient(0, syw(0), 0, syw(bottomY));
-    g.addColorStop(0, 'rgb(79,209,255)');
-    g.addColorStop((H + G / 2) / bottomY, 'rgb(205,225,255)');
-    g.addColorStop(1, 'rgb(255,122,69)');
+  // Metal frame around the rink: drop shadow, body, machined groove, lit bevel,
+  // inner lip and a coloured inlay.
+  function drawFrameShadow(c) {
+    c.save();
+    c.shadowColor = 'rgba(0,0,0,0.75)';
+    c.shadowBlur = fw * 1.6 * dpr;
+    c.shadowOffsetY = fw * 0.35 * dpr;
+    c.fillStyle = '#000';
+    c.beginPath();
+    framePath(c, fw);
+    c.fill();
+    c.restore();
+  }
+
+  function drawFrame(c) {
+    const x1 = rx + rw + fw;
+    const y1 = ry + rh + fw;
+    // body
+    let g = c.createLinearGradient(rx - fw, ry, x1, y1);
+    g.addColorStop(0, '#79849e');
+    g.addColorStop(0.3, '#4a536a');
+    g.addColorStop(0.65, '#2a3144');
+    g.addColorStop(1, '#171b28');
+    c.fillStyle = g;
+    c.beginPath();
+    framePath(c, fw);
+    framePath(c, 0);
+    c.fill('evenodd');
+
+    c.save();
+    c.beginPath();
+    framePath(c, fw);
+    framePath(c, 0);
+    c.clip('evenodd');
+
+    // broad reflections
+    g = c.createLinearGradient(rx - fw, 0, x1, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0.1)');
+    g.addColorStop(0.18, 'rgba(255,255,255,0)');
+    g.addColorStop(0.82, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(255,255,255,0.05)');
+    c.fillStyle = g;
+    c.fillRect(rx - fw, -80, rw + 2 * fw, y1 + 80);
+
+    // outer edge highlight
+    g = c.createLinearGradient(rx - fw, ry, x1, y1);
+    g.addColorStop(0, 'rgba(255,255,255,0.85)');
+    g.addColorStop(0.4, 'rgba(255,255,255,0.22)');
+    g.addColorStop(1, 'rgba(0,0,0,0.5)');
     c.strokeStyle = g;
-    c.lineCap = 'butt';
-    const segs = [];
-    if (role !== 'guest') segs.push(halfGeom('host'));
-    if (role !== 'host') segs.push(halfGeom('guest'));
-    const passes = [
-      [18, 0.06],
-      [9, 0.13],
-      [3.2, 0.9],
-    ];
-    for (const [lw, a] of passes) {
-      c.globalAlpha = a;
-      c.lineWidth = lw;
-      c.beginPath();
-      for (const s of segs) {
-        c.moveTo(x1, s.top);
-        c.lineTo(x1, s.top + s.h);
-        c.moveTo(x2, s.top);
-        c.lineTo(x2, s.top + s.h);
-      }
-      c.stroke();
-    }
+    c.lineWidth = 3;
+    c.beginPath();
+    framePath(c, fw);
+    c.stroke();
+
+    // machined groove
+    c.lineWidth = 1;
+    c.strokeStyle = 'rgba(0,0,0,0.55)';
+    c.beginPath();
+    framePath(c, fw * 0.8);
+    c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,0.12)';
+    c.beginPath();
+    framePath(c, fw * 0.8 - 1);
+    c.stroke();
+
+    // lit bevel on the inner side of the frame
+    const bw = fw * 0.34;
+    g = c.createLinearGradient(rx, ry, rx + rw, ry + rh);
+    g.addColorStop(0, 'rgba(255,255,255,0.75)');
+    g.addColorStop(0.4, 'rgba(210,222,255,0.2)');
+    g.addColorStop(0.62, 'rgba(0,0,0,0.3)');
+    g.addColorStop(1, 'rgba(0,0,0,0.7)');
+    c.strokeStyle = g;
+    c.lineWidth = bw;
+    c.beginPath();
+    framePath(c, bw / 2);
+    c.stroke();
+
+    // coloured inlay running round the rink: guest blue -> white -> host orange
+    const ig = c.createLinearGradient(0, syw(0), 0, syw(bottomY));
+    ig.addColorStop(0, 'rgb(79,209,255)');
+    ig.addColorStop((H + G / 2) / bottomY, 'rgb(215,232,255)');
+    ig.addColorStop(1, 'rgb(255,122,69)');
+    c.strokeStyle = ig;
+    c.lineCap = 'round';
+    c.beginPath();
+    framePath(c, fw * 0.56);
+    c.globalAlpha = 0.16;
+    c.lineWidth = Math.max(5, fw * 0.3);
+    c.stroke();
+    c.globalAlpha = 0.95;
+    c.lineWidth = Math.max(1.5, fw * 0.08);
+    c.stroke();
     c.globalAlpha = 1;
+    c.restore();
+
+    // inner lip: dark line against the ice, then a bright catch-light
+    c.lineWidth = 1;
+    c.strokeStyle = 'rgba(0,0,0,0.7)';
+    c.beginPath();
+    framePath(c, 0.5);
+    c.stroke();
+    g = c.createLinearGradient(rx, ry, rx + rw, ry + rh);
+    g.addColorStop(0, 'rgba(255,255,255,0.55)');
+    g.addColorStop(0.5, 'rgba(255,255,255,0.08)');
+    g.addColorStop(1, 'rgba(255,255,255,0.18)');
+    c.strokeStyle = g;
+    c.beginPath();
+    framePath(c, -0.5);
+    c.stroke();
+  }
+
+  // Shadow the frame casts onto the ice (light from the top left).
+  function drawInnerShadow(c) {
+    c.save();
+    c.beginPath();
+    framePath(c, 0);
+    c.clip();
+    c.shadowColor = 'rgba(0,6,20,0.7)';
+    c.shadowBlur = fw * 1.1 * dpr;
+    c.shadowOffsetX = fw * 0.14 * dpr;
+    c.shadowOffsetY = fw * 0.22 * dpr;
+    c.fillStyle = '#000';
+    c.beginPath();
+    c.rect(-200, -300, screenW + 400, screenH + 600);
+    framePath(c, 0);
+    c.fill('evenodd');
+    c.restore();
   }
 
   function buildBg() {
@@ -609,20 +1047,22 @@ export function createView(canvas, role, cfg) {
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.fillStyle = BG;
     c.fillRect(0, 0, screenW, screenH);
+    drawLetterbox(c);
+    drawFrameShadow(c);
 
     c.save();
     c.beginPath();
-    c.rect(rx, ry, rw, rh);
+    framePath(c, 0);
     c.clip();
-    if (role !== 'guest') drawHalf(c, 'host');
-    if (role !== 'host') drawHalf(c, 'guest');
-    drawCentreCircle(c);
+    drawSurface(c);
     if (solo) {
       if (G > 0) drawBand(c);
       else drawCentreLine(c);
-    } else drawSeamEdge(c);
+    }
     c.restore();
-    drawRails(c);
+    drawInnerShadow(c);
+    drawFrame(c);
+    if (!solo) drawSeamEdge(c);
   }
 
   // --- dynamic state ------------------------------------------------------------
@@ -631,9 +1071,19 @@ export function createView(canvas, role, cfg) {
   let lastNow = -1;
   let lastPhase = null;
   let phaseStart = 0;
+  let outSnap = null; // frozen copy of the previous message phase, fading out
+  let outT = -1e9;
+  let outEl = 0;
+  let inLabel = false;
+  let labelT = -1e9;
   let lastSc0 = -1;
   let lastSc1 = -1;
+  let goT = -1e9;
   const popT = [-1e9, -1e9];
+  const progK = [0, 0];
+  const prevRd = [0, 0];
+  const readyT = [-1e9, -1e9];
+  const heldK = { v: 0 };
   const mp = [0, 0, 0, 0];
   const mv = [0, 0, 0, 0];
   let mvT = 0;
@@ -646,7 +1096,12 @@ export function createView(canvas, role, cfg) {
   let lmT = 0;
   let lmInit = false;
   const bumperFlashT = [];
+  const mineFlashT = [];
   let latency = null;
+  let shOx = 0; // puck shadow offset (px), lags behind the puck
+  let shOy = 0;
+  let uiNow = NO_UI;
+  let gA = 1; // alpha multiplier for message text (phase transitions)
 
   const trX = new Float64Array(TRAIL_N);
   const trY = new Float64Array(TRAIL_N);
@@ -654,12 +1109,36 @@ export function createView(canvas, role, cfg) {
   let trHead = 0;
   let trCount = 0;
   let trLast = -1e9;
+  const RB = TRAIL_N + 2;
+  const rbX = new Float64Array(RB);
+  const rbY = new Float64Array(RB);
+  const rbF = new Float64Array(RB);
+  const rbNX = new Float64Array(RB);
+  const rbNY = new Float64Array(RB);
+
+  // Slow floating bokeh for the letterbox.
+  const bokeh = [];
+  {
+    const r = rng(4242);
+    for (let i = 0; i < 18; i++) {
+      bokeh.push({ x: r(), y: r(), r: 14 + r() * 48, sp: 5 + r() * 12, ph: r() * TAU, tint: i % 3 === 0 ? 1 : i % 3 === 1 ? 2 : 0, a: 0.05 + r() * 0.11 });
+    }
+  }
 
   function newSnap(snap, now) {
     if (snap.ph !== lastPhase) {
+      if (curSnap && lastPhase && MSG_PHASES[lastPhase]) {
+        outSnap = { ph: lastPhase, tm: curSnap.tm, sd: curSnap.sd, lg: curSnap.lg, wn: curSnap.wn, sc: curSnap.sc, rd: curSnap.rd };
+        outT = now;
+        outEl = (now - phaseStart) / 1000;
+      }
       lastPhase = snap.ph;
       phaseStart = now;
       trCount = 0;
+      const inGroup = snap.ph === 'ready' || snap.ph === 'countdown';
+      if (inGroup && !inLabel) labelT = now;
+      else if (!inGroup && inLabel) labelT = now;
+      inLabel = inGroup;
     }
     const sc = snap.sc || [0, 0];
     if (lastSc0 >= 0) {
@@ -668,6 +1147,12 @@ export function createView(canvas, role, cfg) {
     }
     lastSc0 = sc[0];
     lastSc1 = sc[1];
+
+    const rd = snap.rd || NO_RD;
+    for (let i = 0; i < 2; i++) {
+      if (rd[i] && !prevRd[i]) readyT[i] = now;
+      prevRd[i] = rd[i] ? 1 : 0;
+    }
 
     // Mallet velocity from successive distinct snapshots (for the speed glow).
     const m = snap.m;
@@ -688,24 +1173,26 @@ export function createView(canvas, role, cfg) {
         const e = ev[i];
         if (!e) continue;
         fx.onEvent(e, now, snap);
-        if (e.k === 'bumper' && snap.ob) markBumper(snap.ob, e, now);
+        if (e.k === 'bumper' && snap.ob) markObstacle(snap.ob, e, now, 'bumper', bumperFlashT);
+        else if (e.k === 'mine' && snap.ob) markObstacle(snap.ob, e, now, 'mine', mineFlashT);
+        else if (e.k === 'go') goT = now;
       }
     }
     curSnap = snap;
   }
 
-  function markBumper(ob, e, now) {
+  function markObstacle(ob, e, now, kind, arr) {
     let best = -1;
     let bd = 1e12;
     for (let i = 0; i < ob.length; i++) {
-      if (ob[i].k !== 'bumper') continue;
+      if (ob[i].k !== kind) continue;
       const d = (ob[i].x - e.x) * (ob[i].x - e.x) + (ob[i].y - e.y) * (ob[i].y - e.y);
       if (d < bd) {
         bd = d;
         best = i;
       }
     }
-    if (best >= 0) bumperFlashT[best] = now;
+    if (best >= 0) arr[best] = now;
   }
 
   // --- drawing helpers ----------------------------------------------------------
@@ -748,95 +1235,130 @@ export function createView(canvas, role, cfg) {
     ctx.globalAlpha = 1;
   }
 
-  function drawGoal(g, now, dt) {
-    const tw = (curSnap.gw && curSnap.gw[g.idx]) || goalW0;
-    g.w += (tw - g.w) * (1 - Math.exp(-dt * 9));
+  function drawBokeh(now) {
+    const t = now / 1000;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, screenW, screenH);
+    ctx.rect(ox, oy, ow, oh);
+    ctx.clip('evenodd');
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < bokeh.length; i++) {
+      const b = bokeh[i];
+      const x = b.x * screenW + Math.sin(t * 0.13 + b.ph) * 26;
+      let y = (b.y * screenH - t * b.sp) % screenH;
+      if (y < 0) y += screenH;
+      const r = b.r * u;
+      ctx.globalAlpha = b.a * (0.7 + 0.3 * Math.sin(t * 0.5 + b.ph * 2));
+      ctx.drawImage(bokehGlows[b.tint], x - r, y - r, r * 2, r * 2);
+    }
+    ctx.restore();
+  }
+
+  // Goal slot: a recessed, glowing opening cut into the frame. Drawn unclipped,
+  // over the frame, with the tweened mouth width.
+  function drawGoalSlot(g, now) {
     const gwPx = g.w * scale;
     const half = gwPx / 2;
-    const rgb = g.side === 'host' ? HOST_RGB : GUEST_RGB;
     const col = g.side === 'host' ? HOST_COL : GUEST_COL;
     const cx = rx + rw / 2;
     const edgeY = g.top ? ry : ry + rh;
-    const dir = g.top ? 1 : -1; // screen direction into the rink
+    const pulse = 0.82 + 0.18 * Math.sin(now / 420 + g.idx * 2);
+    const grads = goalGrad[g.side];
+    const glowSpr = g.side === 'host' ? glowHost : glowGuest;
+    const bwall = Math.max(2, fw * 0.14);
+
+    ctx.save();
+    ctx.translate(cx, edgeY);
+    ctx.scale(1, g.top ? -1 : 1); // local +y points out of the rink, into the frame
+
+    // lip cut, then the dark recess
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(-half - 3, -1, gwPx + 6, fw + 2);
+    ctx.fillStyle = '#04060b';
+    ctx.fillRect(-half, -1, gwPx, fw + 1);
+    ctx.fillStyle = grads.slot;
+    ctx.fillRect(-half, 0, gwPx, fw);
+    // side walls: lit on the left, shaded on the right
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.fillRect(-half, 0, 1.5, fw);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(half - 1.5, 0, 1.5, fw);
+    // back wall light
+    ctx.globalAlpha = 0.95 * pulse;
+    ctx.fillStyle = col;
+    ctx.fillRect(-half + 1, fw - bwall, gwPx - 2, bwall);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.7 * pulse;
+    ctx.drawImage(glowSpr, -half * 1.08, fw - fw * 1.6, gwPx * 1.08, fw * 2.4);
+    ctx.globalAlpha = 0.35 * pulse;
+    ctx.fillStyle = col;
+    ctx.fillRect(-half, 0, gwPx, 1.5);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+
+    // posts at the mouth
+    const pr = Math.max(3.5, fw * 0.34);
+    for (let s = -1; s <= 1; s += 2) {
+      const px = s * half;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath();
+      ctx.arc(px + 1, 2, pr + 1, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(px, 0, pr, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(px - pr * 0.25, -pr * 0.25, pr * 0.42, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Inside the rink: colour spill from the mouth, flash and light rays after a goal.
+  function drawGoalInside(g, now) {
+    const gwPx = g.w * scale;
+    const half = gwPx / 2;
+    const cx = rx + rw / 2;
+    const edgeY = g.top ? ry : ry + rh;
     const grads = goalGrad[g.side];
     const pulse = 0.85 + 0.15 * Math.sin(now / 420 + g.idx * 2);
 
     ctx.save();
     ctx.translate(cx, edgeY);
-    ctx.scale(1, dir); // local +y points into the rink
+    ctx.scale(1, g.top ? 1 : -1); // local +y points into the rink
 
-    // crease
-    ctx.beginPath();
-    ctx.arc(0, 0, gwPx * 0.9, 0, Math.PI);
-    ctx.fillStyle = `rgba(${rgb},0.05)`;
-    ctx.fill();
-    ctx.strokeStyle = `rgba(${rgb},0.3)`;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // glow gradient in the mouth
     ctx.globalAlpha = pulse;
     ctx.fillStyle = grads.glow;
     ctx.fillRect(-half, 0, gwPx, glowH);
     ctx.globalAlpha = 1;
 
-    // goal flash after a goal
     const ft = now - fx.state.goalFlash[g.side];
-    if (ft >= 0 && ft < 800) {
-      const a = 1 - ft / 800;
+    if (ft >= 0 && ft < 1200) {
+      const t = ft / 1200;
+      const a = 1 - t;
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = a * a;
+      // radial flash
+      ctx.globalAlpha = a * a * (ft < 800 ? 1 : 0);
       ctx.fillStyle = grads.flash;
       ctx.save();
       ctx.scale(half * 1.5, glowH * 3.4);
       ctx.fillRect(-1, 0, 2, 1);
       ctx.restore();
+      // light rays
+      const rr = Math.min(rh * 0.8, rw * 0.95);
+      ctx.globalAlpha = Math.min(1, ft / 90) * Math.pow(a, 1.4) * 0.6;
+      ctx.save();
+      ctx.rotate(Math.sin(now / 500) * 0.05);
+      ctx.drawImage(rays[g.side], -rr, 0, rr * 2, rr);
+      ctx.restore();
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
     }
-
-    // end rails with the mouth cut out
-    ctx.strokeStyle = col;
-    ctx.lineCap = 'round';
-    const L = -rw / 2 + 1.5;
-    const R = rw / 2 - 1.5;
-    const passes = [
-      [16, 0.07],
-      [8, 0.16],
-      [3.2, 0.95],
-    ];
-    for (const [lw, a] of passes) {
-      ctx.globalAlpha = a;
-      ctx.lineWidth = lw;
-      ctx.beginPath();
-      ctx.moveTo(L, 1.6);
-      ctx.lineTo(-half, 1.6);
-      ctx.moveTo(half, 1.6);
-      ctx.lineTo(R, 1.6);
-      ctx.stroke();
-    }
-    // bright line across the mouth + posts
-    ctx.globalAlpha = 0.5 * pulse;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-half, 1);
-    ctx.lineTo(half, 1);
-    ctx.stroke();
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.arc(-half, 1.6, 9, 0, TAU);
-    ctx.arc(half, 1.6, 9, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(-half, 1.6, 3.6, 0, TAU);
-    ctx.moveTo(half + 3.6, 1.6);
-    ctx.arc(half, 1.6, 3.6, 0, TAU);
-    ctx.fill();
     ctx.restore();
-    ctx.lineCap = 'butt';
   }
 
   function drawObstacles(ob, now) {
@@ -846,26 +1368,31 @@ export function createView(canvas, role, cfg) {
       const sy = syw(o.y);
       const r = o.r * scale;
       if (o.k === 'bumper') {
-        const ft = (now - (bumperFlashT[i] || -1e9)) / 330;
+        const ft = (now - (bumperFlashT[i] || -1e9)) / 380;
         const flashing = ft >= 0 && ft < 1;
         // idle warm halo
         ctx.globalCompositeOperation = 'lighter';
-        drawGlow(glowGold, sx, sy, r * 2.1, 0.22 + (flashing ? 0.7 * (1 - ft) : 0));
+        drawGlow(glowGold, sx, sy, r * 2.1, 0.2 + (flashing ? 0.7 * (1 - ft) : 0));
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
-        drawSprite(getBumperSprite(r), sx, sy, flashing ? 1 + 0.14 * (1 - ft) : 1);
+        drawSprite(getBumperSprite(r), sx, sy, flashing ? 1 + 0.12 * (1 - ft) * (1 - ft) : 1);
         if (flashing) {
           ctx.globalCompositeOperation = 'lighter';
-          ctx.globalAlpha = (1 - ft) * 0.55;
+          ctx.globalAlpha = (1 - ft) * 0.5;
           ctx.fillStyle = '#fff6d0';
           ctx.beginPath();
           ctx.arc(sx, sy, r * 0.92, 0, TAU);
           ctx.fill();
           ctx.globalAlpha = (1 - ft) * 0.9;
           ctx.strokeStyle = '#ffe28a';
-          ctx.lineWidth = Math.max(2, r * 0.12);
+          ctx.lineWidth = Math.max(2, r * 0.14 * (1 - ft * 0.5));
           ctx.beginPath();
-          ctx.arc(sx, sy, r * (1.05 + 0.9 * ft), 0, TAU);
+          ctx.arc(sx, sy, r * (1.05 + 1.1 * easeOutCubic(ft)), 0, TAU);
+          ctx.stroke();
+          ctx.globalAlpha = (1 - ft) * 0.5;
+          ctx.lineWidth = Math.max(1.5, r * 0.07);
+          ctx.beginPath();
+          ctx.arc(sx, sy, r * (0.95 + 0.6 * easeOutCubic(ft)), 0, TAU);
           ctx.stroke();
           ctx.globalCompositeOperation = 'source-over';
           ctx.globalAlpha = 1;
@@ -873,84 +1400,161 @@ export function createView(canvas, role, cfg) {
       } else {
         // mine
         const armed = o.a === 1;
+        const bt = (now - (mineFlashT[i] || -1e9)) / 1000;
+        // scorch mark left by the last blast
+        if (bt >= 0 && bt < 4) {
+          drawGlow(glowBlack, sx, sy, r * 2.4, 0.6 * (1 - bt / 4));
+          ctx.globalAlpha = 1;
+        }
         if (armed) {
-          const pulse = 0.5 + 0.5 * Math.sin(now / 170 + o.x * 0.013);
+          const pulse = 0.5 + 0.5 * Math.sin(now / 260 + o.x * 0.013);
           ctx.globalCompositeOperation = 'lighter';
-          drawGlow(glowRed, sx, sy, r * (2.0 + 0.35 * pulse), 0.35 + 0.4 * pulse);
+          drawGlow(glowRed, sx, sy, r * (1.9 + 0.3 * pulse), 0.18 + 0.2 * pulse);
           ctx.globalCompositeOperation = 'source-over';
-          ctx.globalAlpha = 0.75;
-          ctx.fillStyle = '#240606';
-          ctx.beginPath();
-          ctx.arc(sx, sy, r, 0, TAU);
-          ctx.fill();
-          ctx.globalAlpha = 0.65 + 0.35 * pulse;
+          ctx.globalAlpha = 1;
+          drawSprite(getMineSprite(r), sx, sy);
+          // danger ring
+          ctx.globalAlpha = 0.35 + 0.3 * pulse;
           ctx.strokeStyle = '#ff3b3b';
-          ctx.lineWidth = Math.max(2, r * 0.13);
-          ctx.beginPath();
-          ctx.arc(sx, sy, r * (0.92 + 0.05 * pulse), 0, TAU);
-          ctx.stroke();
-          ctx.globalAlpha = 0.55;
-          ctx.strokeStyle = '#ff9a8a';
-          ctx.lineWidth = Math.max(1, r * 0.06);
+          ctx.lineWidth = Math.max(1.5, r * 0.07);
           ctx.setLineDash(DASH);
-          ctx.lineDashOffset = -now / 60;
+          ctx.lineDashOffset = -now / 70;
           ctx.beginPath();
-          ctx.arc(sx, sy, r * 0.62, 0, TAU);
+          ctx.arc(sx, sy, r * 1.12, 0, TAU);
           ctx.stroke();
           ctx.setLineDash(NO_DASH);
-          ctx.globalAlpha = 0.7 + 0.3 * pulse;
-          ctx.fillStyle = '#ffd0c8';
-          ctx.beginPath();
-          ctx.arc(sx, sy, Math.max(2, r * 0.14), 0, TAU);
-          ctx.fill();
+          // blinking LED
+          const on = ((now + o.x * 3) % 700) < 320;
+          const lr = Math.max(2.5, r * 0.15);
+          if (on) {
+            ctx.globalCompositeOperation = 'lighter';
+            drawGlow(glowRed, sx, sy, lr * 5, 1);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#ff4638';
+            ctx.beginPath();
+            ctx.arc(sx, sy, lr, 0, TAU);
+            ctx.fill();
+            ctx.fillStyle = '#ffd6cf';
+            ctx.beginPath();
+            ctx.arc(sx - lr * 0.25, sy - lr * 0.3, lr * 0.4, 0, TAU);
+            ctx.fill();
+          } else {
+            ctx.fillStyle = '#4d0e0b';
+            ctx.beginPath();
+            ctx.arc(sx, sy, lr, 0, TAU);
+            ctx.fill();
+          }
         } else {
-          ctx.globalAlpha = 0.55;
-          ctx.fillStyle = '#10131c';
+          ctx.globalAlpha = 0.62;
+          drawSprite(getMineSprite(r), sx, sy);
+          ctx.globalAlpha = 1;
+          const lr = Math.max(2.5, r * 0.15);
+          ctx.fillStyle = '#6d7488';
           ctx.beginPath();
-          ctx.arc(sx, sy, r, 0, TAU);
+          ctx.arc(sx, sy, lr, 0, TAU);
           ctx.fill();
-          ctx.globalAlpha = 0.4;
-          ctx.strokeStyle = '#8a93a8';
-          ctx.lineWidth = Math.max(1.5, r * 0.08);
-          ctx.setLineDash(DASH);
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
           ctx.beginPath();
-          ctx.arc(sx, sy, r * 0.9, 0, TAU);
+          ctx.arc(sx - lr * 0.25, sy - lr * 0.3, lr * 0.4, 0, TAU);
+          ctx.fill();
+        }
+        // explosion burst
+        if (bt >= 0 && bt < 0.55) {
+          const t = bt / 0.55;
+          const rr = r * (1.2 + 4.2 * easeOutCubic(t));
+          ctx.globalCompositeOperation = 'lighter';
+          drawGlow(glowGold, sx, sy, rr, (1 - t) * (1 - t));
+          drawGlow(glowRed, sx, sy, rr * 1.35, (1 - t) * 0.8);
+          if (t < 0.25) {
+            ctx.globalAlpha = (1 - t / 0.25) * 0.95;
+            ctx.fillStyle = '#fff3d6';
+            ctx.beginPath();
+            ctx.arc(sx, sy, r * (0.8 + 1.8 * t * 4), 0, TAU);
+            ctx.fill();
+          }
+          ctx.globalAlpha = (1 - t) * 0.8;
+          ctx.strokeStyle = '#ffb35a';
+          ctx.lineWidth = Math.max(2, r * 0.18 * (1 - t));
+          ctx.beginPath();
+          ctx.arc(sx, sy, r * (1 + 3.4 * easeOutCubic(t)), 0, TAU);
           ctx.stroke();
-          ctx.setLineDash(NO_DASH);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
         }
         ctx.globalAlpha = 1;
       }
     }
   }
 
+  // Tapered ribbon: wide at the puck, thinning to nothing. Length and brightness
+  // follow speed. Three nested fills approximate a fade towards the tail.
+  function ribbon(cnt, wMax, wScale) {
+    ctx.beginPath();
+    for (let j = 0; j < cnt; j++) {
+      const w = wMax * wScale * Math.pow(1 - rbF[j] / (rbF[cnt - 1] + 0.0001) * 0.999, 1.5);
+      const x = rbX[j] + rbNX[j] * w;
+      const y = rbY[j] + rbNY[j] * w;
+      if (j === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    for (let j = cnt - 1; j >= 0; j--) {
+      const w = wMax * wScale * Math.pow(1 - rbF[j] / (rbF[cnt - 1] + 0.0001) * 0.999, 1.5);
+      ctx.lineTo(rbX[j] - rbNX[j] * w, rbY[j] - rbNY[j] * w);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
   function drawTrail(px, py, speed, now) {
-    if (speed < 140) return;
-    const k = clamp(speed / 2200, 0, 1);
-    const life = 0.05 + 0.26 * k;
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = speed > 1500 ? '#ffd9a8' : '#bfe3ff';
-    let ax = sxw(px);
-    let ay = syw(py);
-    const wBase = puckR * scale * 1.6;
-    for (let n = 0; n < trCount; n++) {
+    if (speed < 160) return;
+    const k = clamp((speed - 160) / 2000, 0, 1);
+    const life = 0.07 + 0.27 * k;
+    // Length is capped at about 9 puck radii so a fast puck never leaves a long streak.
+    const maxLen = 9 * puckR * scale;
+    let m = 1;
+    let dist = 0;
+    rbX[0] = sxw(px);
+    rbY[0] = syw(py);
+    rbF[0] = 0;
+    for (let n = 0; n < trCount && m < RB; n++) {
       const i = (trHead - 1 - n + TRAIL_N * 2) % TRAIL_N;
       const age = (now - trT[i]) / 1000;
       if (age > life) break;
-      const f = age / life;
-      const bx = sxw(trX[i]);
-      const by = syw(trY[i]);
-      ctx.globalAlpha = 0.5 * (1 - f) * (0.4 + 0.6 * k);
-      ctx.lineWidth = Math.max(1, wBase * (1 - f * 0.85));
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-      ax = bx;
-      ay = by;
+      const sx = sxw(trX[i]);
+      const sy = syw(trY[i]);
+      const seg = Math.abs(sx - rbX[m - 1]) + Math.abs(sy - rbY[m - 1]);
+      if (seg < 1.2) continue;
+      dist += Math.hypot(sx - rbX[m - 1], sy - rbY[m - 1]);
+      if (dist > maxLen) break;
+      rbX[m] = sx;
+      rbY[m] = sy;
+      rbF[m] = Math.max(age / life, dist / maxLen);
+      m++;
     }
+    if (m < 3) return;
+    for (let j = 0; j < m; j++) {
+      const a = j > 0 ? j - 1 : j;
+      const b = j < m - 1 ? j + 1 : j;
+      const dx = rbX[a] - rbX[b];
+      const dy = rbY[a] - rbY[b];
+      const len = Math.hypot(dx, dy) || 1;
+      rbNX[j] = -dy / len;
+      rbNY[j] = dx / len;
+    }
+    const wMax = puckR * scale * (0.5 + 0.4 * k);
+    const hot = speed > 1500;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = hot ? '#ffb27a' : '#8fc4ff';
+    ctx.globalAlpha = 0.04 + 0.06 * k;
+    ribbon(m, wMax * 1.2, 1);
+    ctx.fillStyle = hot ? '#ffd9a8' : '#bfe3ff';
+    ctx.globalAlpha = 0.05 + 0.08 * k;
+    ribbon(Math.max(3, (m * 0.72) | 0), wMax, 0.7);
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.06 + 0.12 * k;
+    ribbon(Math.max(3, (m * 0.42) | 0), wMax, 0.34);
     ctx.globalAlpha = 1;
-    ctx.lineCap = 'butt';
     ctx.globalCompositeOperation = 'source-over';
   }
 
@@ -970,6 +1574,11 @@ export function createView(canvas, role, cfg) {
     trLast = now;
   }
 
+  function isLocalSide(side) {
+    if (!solo) return side === role;
+    return players === 'pass' || side === 'host';
+  }
+
   // local: optional {x, y} world position overriding the snapshot (guest prediction).
   function drawMallet(side, i, now, local) {
     const wx = local ? local.x : curSnap.m[i];
@@ -977,6 +1586,11 @@ export function createView(canvas, role, cfg) {
     if (wy < visTop - malletR || wy > visBot + malletR) return;
     const sx = sxw(wx);
     const sy = syw(wy);
+    const R = malletR * scale;
+    const glowSpr = side === 'host' ? glowHost : glowGuest;
+    const colr = side === 'host' ? HOST_COL : GUEST_COL;
+    const rgb = side === 'host' ? HOST_RGB : GUEST_RGB;
+    const idx = i >> 1;
     let sp;
     if (local) {
       sp = Math.hypot(lmVx, lmVy) * Math.exp(-(now - lmT) / 140);
@@ -986,11 +1600,142 @@ export function createView(canvas, role, cfg) {
     const k = clamp((sp - 250) / 1500, 0, 1);
     if (k > 0.02) {
       ctx.globalCompositeOperation = 'lighter';
-      drawGlow(side === 'host' ? glowHost : glowGuest, sx, sy, malletR * scale * (2.2 + 0.8 * k), 0.75 * k);
+      drawGlow(glowSpr, sx, sy, R * (2.2 + 0.8 * k), 0.75 * k);
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
     }
+
+    const readyPhase = curSnap.ph === 'ready';
+    const isReady = !!(curSnap.rd && curSnap.rd[idx]);
+    // "grab me" halo for a side that is not ready yet
+    if (readyPhase && !isReady) {
+      const ph = (now / 1250) % 1;
+      ctx.globalCompositeOperation = 'lighter';
+      drawGlow(glowSpr, sx, sy, R * (2.5 + 0.3 * Math.sin(now / 260)), 0.55 + 0.25 * Math.sin(now / 260));
+      ctx.strokeStyle = colr;
+      for (let q = 0; q < 2; q++) {
+        const t = (ph + q * 0.5) % 1;
+        ctx.globalAlpha = 0.75 * Math.pow(1 - t, 1.6);
+        ctx.lineWidth = Math.max(2, 3.5 * u * (1 - t * 0.5));
+        ctx.beginPath();
+        ctx.arc(sx, sy, R * (1.1 + 1.15 * easeOutCubic(t)), 0, TAU);
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+
+    // soft contact ring under the local mallet while the finger is down
+    if (heldK.v > 0.01 && isLocalSide(side)) {
+      const hk = heldK.v;
+      const rr = R * (1.3 + 0.03 * Math.sin(now / 150));
+      ctx.globalCompositeOperation = 'lighter';
+      drawGlow(glowSpr, sx, sy, R * 2.1, 0.5 * hk);
+      ctx.globalAlpha = 0.1 * hk;
+      ctx.fillStyle = colr;
+      ctx.beginPath();
+      ctx.arc(sx, sy, rr, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 0.8 * hk;
+      ctx.strokeStyle = colr;
+      ctx.lineWidth = Math.max(2, 3 * u);
+      ctx.beginPath();
+      ctx.arc(sx, sy, rr, 0, TAU);
+      ctx.stroke();
+      ctx.globalAlpha = 0.35 * hk;
+      ctx.strokeStyle = `rgba(${rgb},1)`;
+      ctx.lineWidth = Math.max(5, 9 * u);
+      ctx.beginPath();
+      ctx.arc(sx, sy, rr + 3 * u, 0, TAU);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+
     drawSprite(side === 'host' ? spr.host : spr.guest, sx, sy);
+
+    // ready check badge
+    if (readyPhase && isReady) {
+      const pop = easeOutBack(clamp((now - readyT[idx]) / 340, 0, 1));
+      const br = Math.max(8, R * 0.36) * pop;
+      if (br > 0.5) {
+        const bx = sx + R * 0.8;
+        const by = sy - R * 0.8;
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.beginPath();
+        ctx.arc(bx + 1, by + 2, br + 1, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = '#2fd37a';
+        ctx.beginPath();
+        ctx.arc(bx, by, br, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = Math.max(1.5, br * 0.14);
+        ctx.stroke();
+        ctx.lineWidth = Math.max(2, br * 0.26);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(bx - br * 0.42, by + br * 0.02);
+        ctx.lineTo(bx - br * 0.1, by + br * 0.36);
+        ctx.lineTo(bx + br * 0.48, by - br * 0.34);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
+    }
+  }
+
+  // Seam alignment helper: a big ring centred on the seam gap on both iPads, plus
+  // a short tick at the seam centre. When the halves line up the arcs meet.
+  function drawCalibration(now) {
+    const cx = rx + rw / 2;
+    const cy = syw(H + G / 2);
+    const rad = 0.3 * W * scale;
+    const pulse = 0.75 + 0.25 * Math.sin(now / 300);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = '#8fe0ff';
+    ctx.globalAlpha = 0.18 * pulse;
+    ctx.lineWidth = 16 * u;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rad, 0, TAU);
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 0.95;
+    ctx.strokeStyle = '#f2fbff';
+    ctx.lineWidth = Math.max(2.5, 4 * u);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rad, 0, TAU);
+    ctx.stroke();
+    // graduation ticks every 15 degrees
+    ctx.lineWidth = Math.max(1.5, 2 * u);
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    for (let a = 0; a < 24; a++) {
+      const th = (a / 24) * TAU;
+      const c0 = Math.cos(th);
+      const s0 = Math.sin(th);
+      ctx.moveTo(cx + c0 * (rad - 6 * u), cy + s0 * (rad - 6 * u));
+      ctx.lineTo(cx + c0 * (rad - (a % 6 === 0 ? 24 : 14) * u), cy + s0 * (rad - (a % 6 === 0 ? 24 : 14) * u));
+    }
+    ctx.stroke();
+    // seam centre tick
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = Math.max(3, 4.5 * u);
+    ctx.strokeStyle = '#ffffff';
+    ctx.beginPath();
+    if (solo) {
+      ctx.moveTo(cx, cy - 16 * u);
+      ctx.lineTo(cx, cy + 16 * u);
+    } else {
+      ctx.moveTo(cx, ry);
+      ctx.lineTo(cx, ry + 30 * u);
+    }
+    ctx.stroke();
+    ctx.restore();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
   }
 
   // --- text ---------------------------------------------------------------------
@@ -999,11 +1744,14 @@ export function createView(canvas, role, cfg) {
     ctx.font = font(size, weight);
     ctx.lineJoin = 'round';
     ctx.strokeStyle = glow;
+    ctx.lineWidth = size * 0.34;
+    ctx.globalAlpha = alpha * 0.1 * gA;
+    ctx.strokeText(str, x, y);
     ctx.lineWidth = size * 0.16;
-    ctx.globalAlpha = alpha * 0.28;
+    ctx.globalAlpha = alpha * 0.26 * gA;
     ctx.strokeText(str, x, y);
     ctx.fillStyle = fill;
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = alpha * gA;
     ctx.fillText(str, x, y);
     ctx.globalAlpha = 1;
   }
@@ -1011,18 +1759,28 @@ export function createView(canvas, role, cfg) {
   function plainText(str, x, y, size, fill, alpha, weight) {
     ctx.font = font(size, weight);
     ctx.fillStyle = fill;
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = alpha * gA;
     ctx.fillText(str, x, y);
     ctx.globalAlpha = 1;
   }
 
-  function drawScore(x, y, rot, value, label, side, popStart, now) {
+  // A soft dark plate behind a line of text so it reads over the ice.
+  function plate(w, h, y, alpha) {
+    ctx.globalAlpha = alpha * gA;
+    ctx.fillStyle = '#050a1a';
+    ctx.beginPath();
+    rrPath(ctx, -w / 2, y - h / 2, w, h, h / 2, h / 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawScore(x, y, rot, value, label, side, idx, popStart, now) {
     const col = side === 'host' ? HOST_COL : GUEST_COL;
     const rgb = side === 'host' ? HOST_RGB : GUEST_RGB;
     ctx.save();
     ctx.translate(x, y);
     if (rot) ctx.rotate(Math.PI);
-    plainText(label, 0, -46 * u, 13 * u, '#ffffff', 0.5, 700);
+    plainText(label, 0, -50 * u, Math.max(10, 13 * u), '#ffffff', 0.55, 800);
     const t = (now - popStart) / 1000;
     let sc = 1;
     let hot = 0;
@@ -1032,71 +1790,136 @@ export function createView(canvas, role, cfg) {
     }
     ctx.save();
     ctx.scale(sc, sc);
-    glowText(String(value), 0, 0, 60 * u, hot > 0.25 ? '#ffffff' : col, 0.95, 800, `rgb(${rgb})`);
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(side === 'host' ? glowHost : glowGuest, 0, -2 * u, 64 * u * (1 + hot * 0.6), 0.34 + hot * 0.5);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.font = font(64 * u, 800);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(4,8,22,0.55)';
+    ctx.lineWidth = 6 * u;
+    ctx.strokeText(String(value), 0, 0);
+    ctx.fillStyle = hot > 0.25 ? '#ffffff' : col;
+    ctx.globalAlpha = 0.97;
+    ctx.fillText(String(value), 0, 0);
+    ctx.globalAlpha = 1;
     ctx.restore();
-    if (target <= 11) {
-      const gap = 15 * u;
-      const x0 = (-(target - 1) * gap) / 2;
-      const py = 44 * u;
-      for (let i = 0; i < target; i++) {
-        ctx.beginPath();
-        ctx.arc(x0 + i * gap, py, 4.2 * u, 0, TAU);
-        if (i < value) {
-          ctx.globalAlpha = 0.95;
-          ctx.fillStyle = col;
-          ctx.fill();
-        } else {
-          ctx.globalAlpha = 0.25;
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1.3;
-          ctx.stroke();
-        }
-      }
-      ctx.globalAlpha = 1;
+
+    // goals-to-target progress bar
+    const bw = 96 * u;
+    const bh = Math.max(3, 5 * u);
+    const by = 46 * u;
+    const bx = -bw / 2;
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#050a1a';
+    ctx.beginPath();
+    rrPath(ctx, bx - 1, by - bh / 2 - 1, bw + 2, bh + 2, bh, bh);
+    ctx.fill();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    rrPath(ctx, bx, by - bh / 2, bw, bh, bh / 2, bh / 2);
+    ctx.fill();
+    const fillW = bw * clamp(progK[idx], 0, 1);
+    if (fillW > 0.5) {
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      rrPath(ctx, bx, by - bh / 2, Math.max(bh, fillW), bh, bh / 2, bh / 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.28;
+      ctx.fillRect(bx + 2, by - bh / 2, Math.max(0, fillW - 4), bh * 0.4);
+      ctx.globalCompositeOperation = 'source-over';
     }
+    if (target <= 11) {
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = '#050a1a';
+      for (let i = 1; i < target; i++) ctx.fillRect(bx + (bw * i) / target - 0.5, by - bh / 2, 1, bh);
+    }
+    ctx.globalAlpha = 1;
     ctx.restore();
   }
 
-  function drawHud(snap, now) {
+  function drawHud(snap, now, dt) {
     const sc = snap.sc || [0, 0];
+    const k = 1 - Math.exp(-dt * 7);
+    progK[0] += (sc[0] / target - progK[0]) * k;
+    progK[1] += (sc[1] / target - progK[1]) * k;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const padX = 62 * u;
+    const padX = 66 * u;
+    gA = 1;
+    if (snap.ph === 'ready' && uiNow.calibrating) return; // host's calibration bar sits here
     if (solo) {
-      drawScore(rx + padX, ry + rh - 96 * u, false, sc[0], labels[0], 'host', popT[0], now);
-      drawScore(rx + rw - padX, ry + 96 * u, true, sc[1], labels[1], 'guest', popT[1], now);
+      drawScore(rx + padX, ry + rh - 104 * u, false, sc[0], labels[0], 'host', 0, popT[0], now);
+      drawScore(rx + rw - padX, ry + 104 * u, true, sc[1], labels[1], 'guest', 1, popT[1], now);
     } else {
       const mine = role === 'host' ? 0 : 1;
       const other = 1 - mine;
-      drawScore(rx + padX, ry + rh - 96 * u, false, sc[mine], labels[0], role, popT[mine], now);
-      drawScore(rx + rw - padX, ry + 76 * u, false, sc[other], labels[1], role === 'host' ? 'guest' : 'host', popT[other], now);
+      drawScore(rx + padX, ry + rh - 104 * u, false, sc[mine], labels[0], role, mine, popT[mine], now);
+      drawScore(rx + rw - padX, ry + 86 * u, false, sc[other], labels[1], role === 'host' ? 'guest' : 'host', other, popT[other], now);
     }
   }
 
-  // Serve hint: chevrons sliding across the seam toward whoever receives.
+  function drawModeLabel(now) {
+    const a = inLabel ? easeOutCubic(clamp((now - labelT) / 250, 0, 1)) : 1 - clamp((now - labelT) / 220, 0, 1);
+    if (a < 0.02) return;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    gA = a;
+    const cx = rx + rw / 2;
+    const draw = (rot, y) => {
+      ctx.save();
+      ctx.translate(cx, y);
+      if (rot) ctx.rotate(Math.PI);
+      const fs = Math.max(12, 15 * u);
+      ctx.font = font(fs, 800);
+      const w = ctx.measureText(modeLabel).width + fs * 2.2;
+      plate(w, fs * 1.9, 0, 0.5);
+      plainText(modeLabel, 0, 0.5, fs, '#ffffff', 0.85, 800);
+      ctx.restore();
+    };
+    if (!solo) draw(false, ry + 34 * u);
+    else if (players === 'pass') {
+      draw(false, ry + rh / 2 + 28 * u);
+      draw(true, ry + rh / 2 - 28 * u);
+    } else draw(false, ry + rh / 2 + 28 * u);
+    gA = 1;
+  }
+
+  // Serve hint: chevrons sliding toward whoever receives the serve. On a host/guest
+  // screen they run from the seam edge into the rink when we receive, and towards
+  // the seam when we serve; solo shows them crossing the centre.
   function drawServeHint(snap, now) {
     const recvHost = snap.p[1] > H + G / 2;
-    const dir = recvHost ? 1 : -1;
     const col = recvHost ? HOST_COL : GUEST_COL;
     const cycle = 1.3;
     const ph = ((now / 1000) % cycle) / cycle;
-    const seamC = H + G / 2;
-    const screenDir = (ky > 0 ? 1 : -1) * dir;
     const cx = rx + rw / 2;
-    const s = 26 * scale;
+    const s = 30 * u;
     ctx.strokeStyle = col;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = Math.max(2.5, 4 * u);
+    ctx.lineWidth = Math.max(3, 6 * u);
+    const span = rh * (solo ? 0.18 : 0.3);
+    let y0;
+    let dirS; // +1: chevrons point down the screen
+    if (solo) {
+      y0 = syw(H + G / 2);
+      dirS = (ky > 0 ? 1 : -1) * (recvHost ? 1 : -1);
+    } else {
+      const receiving = recvHost === (role === 'host');
+      dirS = receiving ? 1 : -1;
+      y0 = ry + 56 * u + (receiving ? 0 : span);
+    }
     for (let k = 0; k < 3; k++) {
       const t = (ph + k) / 3;
-      const wy = seamC + dir * (-190 + 380 * t);
-      const sy = syw(wy);
-      ctx.globalAlpha = Math.sin(Math.PI * t) * 0.65;
+      const sy = solo ? y0 + dirS * (-span + 2 * span * t) : y0 + dirS * t * span;
+      ctx.globalAlpha = Math.sin(Math.PI * t) * 0.95;
       ctx.beginPath();
-      ctx.moveTo(cx - s, sy - screenDir * s * 0.55);
+      ctx.moveTo(cx - s, sy - dirS * s * 0.55);
       ctx.lineTo(cx, sy);
-      ctx.lineTo(cx + s, sy - screenDir * s * 0.55);
+      ctx.lineTo(cx + s, sy - dirS * s * 0.55);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -1114,7 +1937,7 @@ export function createView(canvas, role, cfg) {
     // expanding ring
     ctx.strokeStyle = n === 1 ? '#ffd36b' : '#ffffff';
     ctx.lineWidth = 3 * u;
-    ctx.globalAlpha = (1 - frac) * 0.45;
+    ctx.globalAlpha = (1 - frac) * 0.45 * gA;
     ctx.beginPath();
     ctx.arc(0, 0, (70 + 170 * frac) * u, 0, TAU);
     ctx.stroke();
@@ -1125,68 +1948,196 @@ export function createView(canvas, role, cfg) {
     ctx.restore();
   }
 
-  function messageFor(side, snap, now, cx, cy, rot) {
+  // m: snapshot-like { tm, sd, lg, wn, sc, rd }; el: seconds since the phase began.
+  function messageFor(side, m, ph, el, now, cx, cy, rot, sMul) {
     ctx.save();
     ctx.translate(cx, cy);
     if (rot) ctx.rotate(Math.PI);
-    const ph = snap.ph;
-    if (ph === 'countdown') {
-      drawCountdownDigit(snap.tm);
+    ctx.scale(sMul, sMul);
+    const idx = side === 'host' ? 0 : 1;
+    const sc = m.sc || NO_RD;
+    const scol = side === 'host' ? HOST_COL : GUEST_COL;
+    const srgb = side === 'host' ? HOST_RGB : GUEST_RGB;
+    if (ph === 'ready') {
+      const rd = m.rd || NO_RD;
+      const own = !!rd[idx];
+      const pulse = 0.5 + 0.5 * Math.sin(now / 420);
+      let sub = '';
+      if (own && !rd[1 - idx]) sub = solo ? (players === 'pass' ? 'Waiting for the other player' : '') : 'Waiting for the other iPad';
+      const title = uiNow.calibrating ? 'Line up the ring, then hold your mallet' : 'Hold your mallet to get ready';
+      ctx.font = font(30 * u, 800);
+      const tw = ctx.measureText(title).width + 56 * u;
+      plate(tw, sub ? 100 * u : 62 * u, sub ? 14 * u : 0, 0.42);
+      // a small accent bar in the side colour
+      ctx.globalAlpha = (own ? 0.35 : 0.5 + 0.4 * pulse) * gA;
+      ctx.fillStyle = scol;
+      ctx.beginPath();
+      rrPath(ctx, -tw * 0.18, (sub ? -30 : -22) * u, tw * 0.36, 3 * u, 1.5 * u, 1.5 * u);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      glowText(title, 0, -4 * u, 30 * u, '#ffffff', own ? 0.6 : 0.85 + 0.15 * pulse, 800, `rgb(${srgb})`);
+      if (sub) plainText(sub, 0, 36 * u, 21 * u, '#ffffff', 0.78, 700);
+    } else if (ph === 'countdown') {
+      drawCountdownDigit(m.tm);
       plainText(solo ? 'Get ready' : 'Grab your mallet', 0, 105 * u, 24 * u, '#ffffff', 0.6, 600);
-    } else if (ph === 'goal' && snap.sd === 1) {
+    } else if (ph === 'goal' && m.sd === 1) {
       // Post-goal serve countdown: same digit as the pre-match countdown, so the
       // visual cue lines up with the beep the sim emits.
-      drawCountdownDigit(snap.tm);
+      drawCountdownDigit(m.tm);
     } else if (ph === 'goal') {
-      const el = (now - phaseStart) / 1000;
       const p = clamp(el / 0.42, 0, 1);
-      const sc = 0.3 + 0.7 * easeOutBack(p);
-      const a = Math.min(1, el / 0.12) * (snap.sd === 0 && snap.tm < 0.3 ? clamp(snap.tm / 0.3, 0, 1) : 1);
-      const mine = snap.lg === side;
-      const colr = mine ? GOOD : BAD;
+      const gs = 0.3 + 0.7 * easeOutBack(p);
+      const a = Math.min(1, el / 0.12) * (m.sd === 0 && m.tm < 0.3 ? clamp(m.tm / 0.3, 0, 1) : 1);
+      const mine = m.lg === side;
+      const lgCol = m.lg === 'host' ? HOST_COL : GUEST_COL;
+      const lgRgb = m.lg === 'host' ? HOST_RGB : GUEST_RGB;
       ctx.save();
-      ctx.scale(sc, sc);
-      glowText('GOAL!', 0, -18 * u, 98 * u, colr, a, 900, colr);
+      ctx.scale(gs, gs);
+      // White text with a dark outline/shadow so it reads on both screens (the wash
+      // behind is the scorer's colour, so a coloured fill would wash out).
+      ctx.save();
+      ctx.shadowColor = 'rgba(4,8,22,0.7)';
+      ctx.shadowBlur = 14 * u * dpr;
+      ctx.shadowOffsetY = 4 * u * dpr;
+      ctx.font = font(98 * u, 900);
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(4,8,22,0.8)';
+      ctx.lineWidth = 98 * u * 0.12;
+      ctx.globalAlpha = a * gA;
+      ctx.strokeText('GOAL!', 0, -18 * u);
+      ctx.restore();
+      glowText('GOAL!', 0, -18 * u, 98 * u, '#ffffff', a, 900, `rgb(${lgRgb})`);
       ctx.restore();
       let sub;
       if (solo && players === 'bot') sub = mine ? 'You scored' : 'Bot scored';
       else sub = mine ? 'You scored' : 'They scored';
-      plainText(sub, 0, 58 * u, 28 * u, '#ffffff', 0.75 * a, 600);
-    } else if (ph === 'over') {
-      const el = (now - phaseStart) / 1000;
-      const p = clamp(el / 0.5, 0, 1);
-      const sc = 0.3 + 0.7 * easeOutBack(p);
-      const a = Math.min(1, el / 0.15);
-      const won = snap.wn === side;
-      const colr = won ? GOOD : BAD;
       ctx.save();
-      ctx.scale(sc, sc);
-      glowText(won ? 'YOU WIN' : 'YOU LOSE', 0, -18 * u, 88 * u, colr, a, 900, colr);
+      ctx.shadowColor = 'rgba(4,8,22,0.85)';
+      ctx.shadowBlur = 8 * u * dpr;
+      ctx.shadowOffsetY = 2 * u * dpr;
+      ctx.font = font(28 * u, 800);
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(4,8,22,0.7)';
+      ctx.lineWidth = 5 * u;
+      ctx.globalAlpha = 0.95 * a * gA;
+      ctx.strokeText(sub, 0, 58 * u);
+      ctx.restore();
+      plainText(sub, 0, 58 * u, 28 * u, lgCol, 0.95 * a, 800);
+    } else if (ph === 'over') {
+      const p = clamp(el / 0.5, 0, 1);
+      const os = 0.3 + 0.7 * easeOutBack(p);
+      const a = Math.min(1, el / 0.15);
+      const won = m.wn === side;
+      const colr = won ? WIN_COL : LOSE_COL;
+      ctx.save();
+      ctx.scale(os, os);
+      glowText(won ? 'YOU WIN' : 'YOU LOSE', 0, -34 * u, 88 * u, colr, a, 900, won ? '#ffb020' : '#ff3b3b');
+      ctx.restore();
+      // final score, your colour first
+      const a0 = sc[idx];
+      const a1 = sc[1 - idx];
+      const c0 = side === 'host' ? HOST_COL : GUEST_COL;
+      const c1 = side === 'host' ? GUEST_COL : HOST_COL;
+      const r0 = side === 'host' ? HOST_RGB : GUEST_RGB;
+      const r1 = side === 'host' ? GUEST_RGB : HOST_RGB;
+      const sa = clamp((el - 0.15) / 0.3, 0, 1);
+      ctx.save();
+      ctx.scale(0.8 + 0.2 * easeOutCubic(sa), 0.8 + 0.2 * easeOutCubic(sa));
+      ctx.textAlign = 'right';
+      glowText(String(a0), -34 * u, 62 * u, 76 * u, c0, a * sa, 800, `rgb(${r0})`);
+      ctx.textAlign = 'center';
+      plainText('–', 0, 60 * u, 52 * u, '#ffffff', 0.55 * a * sa, 700);
+      ctx.textAlign = 'left';
+      glowText(String(a1), 34 * u, 62 * u, 76 * u, c1, a * sa, 800, `rgb(${r1})`);
+      ctx.textAlign = 'center';
       ctx.restore();
       const pulse = 0.5 + 0.5 * Math.sin(now / 280);
-      plainText('Tap to play again', 0, 58 * u, 28 * u, '#ffffff', a * (0.4 + 0.5 * pulse), 600);
+      plainText('Tap to play again', 0, 140 * u, 28 * u, '#ffffff', a * (0.4 + 0.5 * pulse), 700);
     }
     ctx.restore();
   }
 
-  function drawMessages(snap, now) {
-    const ph = snap.ph;
-    if (ph !== 'countdown' && ph !== 'goal' && ph !== 'over') return;
-    if (ph === 'over' || ph === 'goal') {
-      const el = clamp((now - phaseStart) / 300, 0, 1);
-      ctx.globalAlpha = el * (ph === 'over' ? 0.5 : 0.2);
+  // Screen-wide tint behind a message (colour wash after a goal, dim on game over).
+  function overlayFor(m, ph, el, k) {
+    if (k <= 0.001) return;
+    if (ph === 'over') {
+      ctx.globalAlpha = Math.min(1, el / 0.3) * 0.52 * k;
       ctx.fillStyle = '#05080f';
       ctx.fillRect(rx, ry, rw, rh);
-      ctx.globalAlpha = 1;
+    } else if (ph === 'goal') {
+      ctx.globalAlpha = Math.min(1, el / 0.3) * 0.2 * k;
+      ctx.fillStyle = '#05080f';
+      ctx.fillRect(rx, ry, rw, rh);
+      const env = el < 0.06 ? el / 0.06 : Math.exp(-(el - 0.06) * 2.8);
+      if (env > 0.01) {
+        // a pool of the scorer's colour behind the text, plus a faint flat tint
+        const sp = m.lg === 'host' ? glowHost : glowGuest;
+        const cy = solo ? ry + rh / 2 : ry + rh * 0.42;
+        drawGlow(sp, rx + rw / 2, cy, Math.max(rw, rh * 0.55) * 0.95, Math.min(1, 0.63 * env) * k);
+        ctx.globalAlpha = 0.067 * env * k;
+        ctx.fillStyle = m.lg === 'host' ? HOST_COL : GUEST_COL;
+        ctx.fillRect(rx, ry, rw, rh);
+      }
     }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawMsgSet(m, ph, el, now, aMul, sMul, textPass) {
+    if (!textPass) {
+      overlayFor(m, ph, el, aMul);
+      return;
+    }
+    gA = aMul;
     const cx = rx + rw / 2;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     if (!solo) {
-      messageFor(role, snap, now, cx, ry + rh * 0.42, false);
+      messageFor(role, m, ph, el, now, cx, ry + rh * 0.42, false, sMul);
     } else if (players === 'pass') {
-      messageFor('host', snap, now, cx, ry + rh * 0.62, false);
-      messageFor('guest', snap, now, cx, ry + rh * 0.38, true);
+      messageFor('host', m, ph, el, now, cx, ry + rh * 0.62, false, sMul);
+      messageFor('guest', m, ph, el, now, cx, ry + rh * 0.38, true, sMul);
     } else {
-      messageFor('host', snap, now, cx, ry + rh * 0.62, false);
+      messageFor('host', m, ph, el, now, cx, ry + rh * 0.62, false, sMul);
+    }
+    gA = 1;
+  }
+
+  // textPass false: tints/dims behind the particles; true: the message text on top.
+  function drawMessages(snap, now, textPass) {
+    const ph = snap.ph;
+    if (MSG_PHASES[ph]) {
+      const el = (now - phaseStart) / 1000;
+      const k = easeOutCubic(clamp(el / 0.25, 0, 1));
+      drawMsgSet(snap, ph, el, now, k, 0.9 + 0.1 * k, textPass);
+    }
+    if (outSnap) {
+      const ok = (now - outT) / 220;
+      if (ok < 1) drawMsgSet(outSnap, outSnap.ph, outEl, now, 1 - ok, 1 + 0.08 * ok, textPass);
+      else if (textPass) outSnap = null;
+    }
+    if (!textPass) return;
+    // "GO!" flash as play starts
+    const gt = (now - goT) / 650;
+    if (ph === 'play' && gt >= 0 && gt < 1) {
+      const cx = rx + rw / 2;
+      const draw = (rot, cy) => {
+        ctx.save();
+        ctx.translate(cx, cy);
+        if (rot) ctx.rotate(Math.PI);
+        const s = 1 + 0.5 * easeOutCubic(gt);
+        ctx.scale(s, s);
+        gA = 1 - gt * gt;
+        glowText('GO!', 0, 0, 120 * u, '#7CFF9A', 1, 900, 'rgb(80,255,150)');
+        gA = 1;
+        ctx.restore();
+      };
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (!solo) draw(false, ry + rh * 0.42);
+      else if (players === 'pass') {
+        draw(false, ry + rh * 0.62);
+        draw(true, ry + rh * 0.38);
+      } else draw(false, ry + rh * 0.62);
     }
   }
 
@@ -1195,21 +2146,21 @@ export function createView(canvas, role, cfg) {
     const ms = Math.round(latency);
     const col = ms < 40 ? '#7CFF9A' : ms < 90 ? '#ffd36b' : '#ff6b6b';
     ctx.textAlign = 'right';
-    ctx.textBaseline = 'alphabetic';
-    ctx.font = font(11, 600);
+    ctx.textBaseline = 'middle';
+    ctx.font = font(10, 700);
     ctx.fillStyle = '#ffffff';
-    ctx.globalAlpha = 0.4;
+    ctx.globalAlpha = 0.45;
     const lx = rx + rw;
-    const ly = ry + rh;
-    ctx.fillText(ms + ' ms', lx - 18, ly - 10);
+    // sits on the bottom frame rail, out of the way of play
+    const ly = ry + rh + Math.min(fw * 0.5, 11);
+    ctx.fillText(ms + ' ms', lx - 12, ly);
     ctx.fillStyle = col;
-    ctx.globalAlpha = 0.8;
+    ctx.globalAlpha = 0.85;
     ctx.beginPath();
-    ctx.arc(lx - 10, ly - 14, 3, 0, TAU);
+    ctx.arc(lx - 5, ly, 2.2, 0, TAU);
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
   }
 
   // --- frame --------------------------------------------------------------------
@@ -1221,13 +2172,18 @@ export function createView(canvas, role, cfg) {
    * localMallet: {x, y} in WORLD coordinates or null. For the guest role only, the
    * guest's own mallet is drawn there instead of at the (lagging) snapshot position;
    * host and solo ignore it.
+   * ui: optional { held, calibrating }. held = the local finger is on the canvas,
+   * calibrating = the host is adjusting the seam gap.
    */
-  function render(snap, puckExtrapolate = 0, now = performance.now(), localMallet = null) {
-    if (!snap || !snap.p || !snap.m || !bg || !spr) return; // also a no-op after destroy()
+  function render(snap, puckExtrapolate = 0, now = performance.now(), localMallet = null, ui = null) {
+    if (destroyed || !snap || !snap.p || !snap.m || !bg || !spr) return; // also a no-op after destroy()
     const dt = lastNow < 0 ? 0.016 : clamp((now - lastNow) / 1000, 0, 0.1);
     lastNow = now;
+    uiNow = ui || NO_UI;
     if (snap !== curSnap) newSnap(snap, now);
+    fx.setRain(snap.ph === 'over' && (solo || snap.wn === role));
     fx.update(now);
+    heldK.v += ((uiNow.held ? 1 : 0) - heldK.v) * (1 - Math.exp(-dt * 14));
 
     const shaking = fx.getShake(now, shk);
     const shx = Math.round(shk[0] * 2) / 2;
@@ -1248,13 +2204,21 @@ export function createView(canvas, role, cfg) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
+    if (hasLetterbox) drawBokeh(now);
+    for (let i = 0; i < goals.length; i++) {
+      const g = goals[i];
+      const tw = (snap.gw && snap.gw[g.idx]) || goalW0;
+      g.w += (tw - g.w) * (1 - Math.exp(-dt * 9));
+      drawGoalSlot(g, now);
+    }
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(rx, ry, rw, rh);
     ctx.clip();
 
     const s = snap;
-    for (let i = 0; i < goals.length; i++) drawGoal(goals[i], now, dt);
+    for (let i = 0; i < goals.length; i++) drawGoalInside(goals[i], now);
 
     // Puck position (extrapolated along its velocity).
     const px = s.p[0] + s.p[2] * puckExtrapolate;
@@ -1263,6 +2227,10 @@ export function createView(canvas, role, cfg) {
     const pvy = s.p[3];
     const speed = Math.hypot(pvx, pvy);
     const playing = s.ph === 'play';
+
+    if (s.ph === 'ready' && uiNow.calibrating) drawCalibration(now);
+
+    drawHud(s, now, dt);
 
     // Seam glow: the puck is about to cross to the other iPad.
     if (playing) {
@@ -1285,7 +2253,7 @@ export function createView(canvas, role, cfg) {
 
     if (s.ph === 'countdown') drawServeHint(s, now);
 
-    // Trail, glow and puck.
+    // Trail, shadow, glow and puck.
     if (playing) {
       pushTrail(px, py, now);
       drawTrail(px, py, speed, now);
@@ -1293,15 +2261,33 @@ export function createView(canvas, role, cfg) {
     {
       const sx = sxw(px);
       const sy = syw(py);
+      const pr = puckR * scale;
+      // The light is fixed at the top left, so the shadow falls down-right; it also
+      // lags behind the puck in proportion to its velocity.
+      const vsx = kx * pvx;
+      const vsy = ky * pvy;
+      let tox = pr * 0.18 - vsx * 0.0115;
+      let toy = pr * 0.32 - vsy * 0.0115;
+      const tl = Math.hypot(tox, toy);
+      const lim = pr * 1.25;
+      if (tl > lim) {
+        tox *= lim / tl;
+        toy *= lim / tl;
+      }
+      const sk = 1 - Math.exp(-dt * 12);
+      shOx += (tox - shOx) * sk;
+      shOy += (toy - shOy) * sk;
+      const dim = playing ? 1 : 0.6 + 0.12 * Math.sin(now / 260);
+      ctx.globalAlpha = dim;
+      drawSprite(spr.puckShadow, sx + shOx, sy + shOy);
       const hitT = (now - fx.state.hitAt) / 1000;
       const gk = clamp((speed - 500) / 1800, 0, 1) * 0.35 + (hitT >= 0 && hitT < 0.22 ? 0.85 * Math.pow(1 - hitT / 0.22, 2) : 0);
       if (gk > 0.02 && playing) {
         ctx.globalCompositeOperation = 'lighter';
-        drawGlow(glowWhite, sx, sy, puckR * scale * 2.8, Math.min(1, gk));
+        drawGlow(glowWhite, sx, sy, pr * 2.8, Math.min(1, gk));
         ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = playing ? 1 : 0.5 + 0.12 * Math.sin(now / 260);
+      ctx.globalAlpha = dim;
       drawSprite(spr.puck, sx, sy);
       ctx.globalAlpha = 1;
     }
@@ -1333,10 +2319,11 @@ export function createView(canvas, role, cfg) {
       drawMallet('guest', 2, now, local);
     }
 
+    drawMessages(s, now, false);
     fx.draw(ctx, map, now);
 
-    drawHud(s, now);
-    drawMessages(s, now);
+    drawModeLabel(now);
+    drawMessages(s, now, true);
 
     ctx.restore();
 
@@ -1364,6 +2351,7 @@ export function createView(canvas, role, cfg) {
   resize();
 
   function destroy() {
+    destroyed = true;
     window.removeEventListener('resize', onResize);
     window.removeEventListener('orientationchange', onResize);
     // Zero out offscreen canvases so Safari reclaims their backing stores promptly.
@@ -1377,17 +2365,28 @@ export function createView(canvas, role, cfg) {
     bg = null;
     if (spr) {
       free(spr.puck);
+      free(spr.puckShadow);
       free(spr.host);
       free(spr.guest);
       spr = null;
     }
+    if (rays) {
+      free(rays.host);
+      free(rays.guest);
+      rays = null;
+    }
     for (const cv of bumperSprites.values()) free(cv);
     bumperSprites.clear();
+    for (const cv of mineSprites.values()) free(cv);
+    mineSprites.clear();
     free(glowWhite);
     free(glowHost);
     free(glowGuest);
     free(glowGold);
     free(glowRed);
+    free(glowGreen);
+    free(glowBlack);
+    fx.reset();
   }
 
   return { render, screenToWorld, worldToScreen, resize, setLatency, destroy };

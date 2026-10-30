@@ -15,6 +15,7 @@
 import { createBot } from './bot.js';
 
 export const PHASE = {
+  READY: 'ready',
   COUNTDOWN: 'countdown',
   PLAY: 'play',
   GOAL: 'goal',
@@ -76,16 +77,18 @@ export function createSim(cfg, opts = {}) {
   if (!['easy', 'medium', 'hard', 'impossible'].includes(cfg.botLevel)) cfg.botLevel = 'medium';
   if (!(cfg.target >= 1)) cfg.target = 7;
 
-  const { W, H, G, puckR, malletR, goalW, target, mode } = cfg;
+  const { W, H, puckR, malletR, goalW, target, mode } = cfg;
+  let G = cfg.G; // seam gap; adjustable through setGap() while phase is 'ready'
   const rng = opts.rng || Math.random;
   const phys = MODE_PHYS[mode];
   const MAX_PUCK_SPEED = phys.max;
   const seamTop = H; // where the guest half ends
-  const seamBottom = H + G; // where the host half starts
-  const bottom = 2 * H + G;
+  let seamBottom = H + G; // where the host half starts
+  let bottom = 2 * H + G;
 
   const state = {
-    phase: PHASE.COUNTDOWN,
+    phase: PHASE.READY,
+    ready: { host: false, guest: cfg.players === 'bot' }, // the bot is always ready
     timer: 3,
     stage: 0, // 1 during the post-goal mini countdown (phase stays 'goal')
     time: 0, // simulated seconds since creation
@@ -114,7 +117,7 @@ export function createSim(cfg, opts = {}) {
 
   // --- obstacles ------------------------------------------------------------
 
-  const obstacles = buildObstacles();
+  const obstacles = buildObstacles(); // mutated in place by setGap()
 
   function buildObstacles() {
     const list = [];
@@ -473,7 +476,7 @@ export function createSim(cfg, opts = {}) {
   // --- frame step -----------------------------------------------------------
 
   let bot = null;
-  if (cfg.players === 'bot') {
+  function makeBot() {
     bot = createBot(cfg.botLevel, {
       W,
       H,
@@ -485,6 +488,7 @@ export function createSim(cfg, opts = {}) {
       wallRestitution: phys.wall,
     });
   }
+  if (cfg.players === 'bot') makeBot();
 
   function tickCountdown(t) {
     const tick = Math.ceil(t - 1e-9);
@@ -506,6 +510,7 @@ export function createSim(cfg, opts = {}) {
     if (dt > 0.05) dt = 0.05; // survive a backgrounded tab
     state.time += dt;
     decayMallets(dt);
+    if (state.phase === PHASE.READY) return; // waiting for both players: nothing moves
 
     if (bot && state.phase !== PHASE.OVER) {
       const m = state.mallets.guest;
@@ -549,7 +554,9 @@ export function createSim(cfg, opts = {}) {
     state.score.guest = 0;
     state.winner = null;
     state.lastGoalBy = null;
-    state.phase = PHASE.COUNTDOWN;
+    state.phase = PHASE.READY;
+    state.ready.host = false;
+    state.ready.guest = cfg.players === 'bot';
     state.timer = 3;
     state.stage = 0;
     lastTick = Infinity;
@@ -558,6 +565,53 @@ export function createSim(cfg, opts = {}) {
     updateGoalWidths();
     rearmAll();
     placePuckForServe();
+  }
+
+  /** Mark a side ready (or not) during the pre-match phase. When both sides are
+   *  ready the countdown starts. The bot's side is always ready. Returns true
+   *  when the call was accepted (phase 'ready', valid role). */
+  function setReady(role, value = true) {
+    if (state.phase !== PHASE.READY) return false;
+    if (role !== 'host' && role !== 'guest') return false;
+    const v = !!value;
+    if (role === 'guest' && cfg.players === 'bot') return v; // always ready
+    if (state.ready[role] === v) return true;
+    state.ready[role] = v;
+    if (!v) return true;
+    emit('ready', W / 2, bottom / 2, 1, { by: role });
+    if (state.ready.host && state.ready.guest) {
+      state.phase = PHASE.COUNTDOWN;
+      state.timer = 3;
+      state.stage = 0;
+      lastTick = Infinity;
+      emit('go', W / 2, bottom / 2, 1);
+    }
+    return true;
+  }
+
+  /** Change the seam gap (mm of bezel, in world px) while phase is 'ready'.
+   *  Recomputes every derived bound and obstacle layout in place. */
+  function setGap(newG) {
+    if (state.phase !== PHASE.READY) return false;
+    if (!(typeof newG === 'number' && Number.isFinite(newG)) || newG < 0) return false;
+    const delta = newG - G;
+    G = newG;
+    cfg.G = newG;
+    seamBottom = H + G;
+    bottom = 2 * H + G;
+    // The host's half slides down with the gap; keep the mallet at the same
+    // place relative to the host's own goal, then clamp it into the half.
+    const mh = state.mallets.host;
+    mh.y += delta;
+    mh.vx = 0;
+    mh.vy = 0;
+    clampMallet('host', mh);
+    clampMallet('guest', state.mallets.guest);
+    obstacles.length = 0;
+    obstacles.push(...buildObstacles());
+    if (bot) makeBot();
+    placePuckForServe();
+    return true;
   }
 
   /** Events accumulated since the previous call (also returned by snapshot). */
@@ -587,6 +641,8 @@ export function createSim(cfg, opts = {}) {
       m: [r(mh.x), r(mh.y), r(mg.x), r(mg.y)],
       sc: [state.score.host, state.score.guest],
       ph: state.phase,
+      rd: [state.ready.host ? 1 : 0, state.ready.guest ? 1 : 0],
+      g: G,
       tm: Math.round(state.timer * 100) / 100,
       sd: state.stage,
       lg: state.lastGoalBy,
@@ -599,7 +655,7 @@ export function createSim(cfg, opts = {}) {
 
   updateGoalWidths();
   placePuckForServe();
-  return { state, cfg, step, setMallet, restart, snapshot, drainEvents, obstacles };
+  return { state, cfg, step, setMallet, setReady, setGap, restart, snapshot, drainEvents, obstacles };
 }
 
 function r(v) {

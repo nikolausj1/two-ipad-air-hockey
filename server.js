@@ -21,7 +21,7 @@
 //   {t:'peer-left', reason:'host'|'guest'}
 //   {t:'closed', m}                the table is gone (host left / timed out)
 //   {t:'error', code, m}           code: no-table | full | none-open | multiple
-// Only s / input / config / restart / ping / pong are relayed to the peer untouched;
+// Only s / input / config / restart / ready / calib / ping / pong are relayed to the peer untouched;
 // the server also sends {t:'hb'} to every socket each heartbeat.
 
 const http = require('http');
@@ -36,7 +36,7 @@ const HOST_GRACE_MS = 45000;
 const HEARTBEAT_MS = 15000;
 
 // Only these game messages are relayed between the two devices.
-const RELAYED = new Set(['s', 'input', 'config', 'restart', 'ping', 'pong']);
+const RELAYED = new Set(['s', 'input', 'config', 'restart', 'ready', 'calib', 'ping', 'pong']);
 
 // One bad request must never take down every table.
 process.on('uncaughtException', (e) => console.error('uncaught', e));

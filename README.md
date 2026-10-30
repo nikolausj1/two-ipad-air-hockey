@@ -26,10 +26,21 @@ Share → Add to Home Screen and launch it from there.
 2. On the second iPad: scan the QR code (it opens the page and joins), or open
    the URL and tap *Join the open table*, or type the code.
 3. Lay the iPads flat, top edge touching top edge, each player at the bottom of
-   their own iPad. Grab your mallet. First to 5, 7 or 11 wins.
+   their own iPad.
+4. **Line up the seam** (host only). Before the match a slim bar at the bottom
+   of the host iPad shows *Seam gap* with − / + buttons, and a ring is drawn
+   across both screens. Nudge the gap until the ring looks like one circle
+   spanning the bezels, then tap *Done*. The value is remembered.
+5. **Get ready.** Each player presses a finger down on their own half. The
+   countdown starts once both iPads are ready. Grab your mallet. First to 5, 7
+   or 11 wins.
+6. **After the match** the host gets *Rematch* and *Change mode* (the table
+   stays paired; pick new options and start again). The guest can tap *Ask for
+   a rematch*. Tapping the rink also starts a rematch.
 
 **One iPad**: *Solo vs bot* (four bot levels) or *Pass & play* (one finger per
-half). Tap *Start*.
+half). Tap *Start*, then press down to start: one press against the bot, one
+press on each half in pass & play.
 
 To try it on one Mac, open the URL in two browser tabs: host in one, join in
 the other.
@@ -49,8 +60,11 @@ the other.
 - **Sound**: synthesized with Web Audio, no files. Hits, rail ticks, bumper
   dings, mine booms, goal horn, countdown beeps, win and lose jingles. Toggle
   it in the lobby or the pause menu.
-- **Pause menu** (the small button top-left): Resume, Restart, Fullscreen,
-  Sound, Quit.
+- **Pause menu** (the small button top-left, it fades while you play): the
+  table code, Resume, Restart, Fullscreen, Sound, Quit.
+- **Lobby**: animated background, a *How to play* sheet, a join code that
+  uppercases itself and joins at 4 letters, and a friendly message when a code
+  is wrong.
 - **Reconnect**: if an iPad loses Wi-Fi or reloads, it rejoins the same table
   automatically. The host keeps the score while the other iPad is away.
 - **Latency readout** in the corner during two-iPad play.
@@ -60,6 +74,8 @@ the other.
 
 - **Seam gap**: millimetres of bezel between the two screens. Raise it if the
   puck seems to jump at the seam, lower it if it seems to pause. Default 16.
+  Set it in the lobby, or live in the calibration bar before each new table's
+  first match (the ring should line up across both screens).
 - **First to**: 5, 7 or 11 goals.
 - All choices are remembered on the device.
 
@@ -68,7 +84,8 @@ the other.
 ```
 server.js         Pairing (4-letter codes), reconnect grace period, WebSocket relay.
                   Never sees game state. /healthz reports open tables.
-public/main.js    Lobby, pairing, input, pause menu, the per-frame loop.
+public/main.js    Lobby, pairing, ready handshake, seam calibration, post-match
+                  sheet, input, pause menu, the per-frame loop.
 public/sim.js     Host-authoritative physics in one shared world space, modes,
                   comeback rule, event stream.
 public/bot.js     The bot that drives the guest mallet in solo play.
@@ -93,6 +110,14 @@ since the last snapshot) about 60 times a second. The guest sends its mallet
 position in world coordinates and renders the latest snapshot, extrapolating
 the puck along its velocity to hide the few milliseconds of network delay.
 Effects and sounds on both iPads are driven by the same event stream.
+
+**Ready, calibrate, rematch.** Every match (and every rematch) starts in the
+sim's `ready` phase. The guest sends `{t:'ready'}` when its player presses
+down; the host applies it with the host's own press. While the host's
+calibration bar is open it also sends `{t:'calib', on:1|0}` so the guest draws
+the ring, and each gap change re-sends `{t:'config'}` (the guest swaps its view
+in place, no lobby). *Change mode* re-creates the sim on the host and re-sends
+`config` over the same socket and table code.
 
 **Transport.** Plain WebSockets through the Mac acting as relay. On a local
 network that is a couple of milliseconds. bigboard uses WebRTC data channels

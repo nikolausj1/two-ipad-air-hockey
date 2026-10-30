@@ -28,6 +28,7 @@ const SIDE_COLS = {
   guest: ['#4fd1ff', '#a8ecff', '#7cffd4', '#ffffff', '#3b8bff'],
 };
 const BOTH_COLS = ['#ff7a45', '#4fd1ff', '#ffd36b', '#ffffff', '#7cffd4'];
+const RAIN_RATE = 46; // confetti per second while the game-over rain is on
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[(Math.random() * arr.length) | 0];
@@ -50,7 +51,7 @@ export function createFx(opts) {
   // --- pools ------------------------------------------------------------------
   const pool = new Array(MAX_PARTICLES);
   for (let i = 0; i < MAX_PARTICLES; i++) {
-    pool[i] = { type: 0, x: 0, y: 0, vx: 0, vy: 0, age: 0, life: 1, size: 1, rot: 0, vr: 0, col: '#fff', drag: 0, grow: 0 };
+    pool[i] = { type: 0, x: 0, y: 0, vx: 0, vy: 0, ay: 0, age: 0, life: 1, size: 1, rot: 0, vr: 0, col: '#fff', drag: 0, grow: 0 };
   }
   let n = 0;
 
@@ -71,6 +72,11 @@ export function createFx(opts) {
   let finaleUntil = 0;
   let nextFinale = 0;
   let finaleCols = BOTH_COLS;
+  let rainOn = false;
+  let rainAcc = 0;
+  // World-space direction of "screen down" and the world y just above the screen top.
+  const fallDir = seamY == null ? 1 : seamDir;
+  const rainY0 = seamY == null ? -30 : seamY - seamDir * 30;
 
   function spawn(type, x, y, vx, vy, life, size, col, drag) {
     let p;
@@ -81,6 +87,7 @@ export function createFx(opts) {
     p.y = y;
     p.vx = vx;
     p.vy = vy;
+    p.ay = 0;
     p.age = 0;
     p.life = life;
     p.size = size;
@@ -238,6 +245,7 @@ export function createFx(opts) {
           const a = rnd(0, TAU);
           spawn(GLOW, x, y, Math.cos(a) * rnd(20, 120), Math.sin(a) * rnd(20, 120), rnd(0.25, 0.5), rnd(10, 20), '#ff9a3a', 3);
         }
+        spawn(GLOW, x, y, 0, 0, 0.28, 34, '#ffd9a0', 0);
         addRing(x, y, 8, puckR * 6, 0.5, '#ff7a1a', 8, now, 0.9);
         addRing(x, y, 4, puckR * 3.5, 0.3, '#ffffff', 4, now, 0.8);
         shake(7 + s * 2, now);
@@ -272,6 +280,30 @@ export function createFx(opts) {
         sparkBurst(x, y, 8, 80, 260, SPARK_COLS, 0.2, 0.4, 3);
         break;
       }
+      case 'ready': {
+        // A side grabbed its mallet: a ripple and a few sparks at the mallet.
+        const m = snap && snap.m;
+        const by = ev.by === 'guest' ? 'guest' : 'host';
+        const mx = ev.x != null ? ev.x : m ? m[by === 'host' ? 0 : 2] : W / 2;
+        const my = ev.y != null ? ev.y : m ? m[by === 'host' ? 1 : 3] : H;
+        if (!visible(mx, my, 80)) return;
+        const cols = SIDE_COLS[by];
+        addRing(mx, my, puckR * 1.4, puckR * 4.4, 0.45, cols[0], 5, now, 0.85);
+        addRing(mx, my, puckR * 1.0, puckR * 2.8, 0.3, '#ffffff', 3, now, 0.6);
+        sparkBurst(mx, my, 14, 90, 360, cols, 0.25, 0.55, 3);
+        break;
+      }
+      case 'go': {
+        // Play begins: a shockwave from the serve spot.
+        const sp = snap && snap.p;
+        const gx = ev.x != null ? ev.x : sp ? sp[0] : W / 2;
+        const gy2 = ev.y != null ? ev.y : sp ? sp[1] : bottomY / 2;
+        if (!visible(gx, gy2, 120)) return;
+        addRing(gx, gy2, puckR, puckR * 9, 0.5, '#7cffd4', 6, now, 0.8);
+        addRing(gx, gy2, puckR * 0.8, puckR * 5, 0.32, '#ffffff', 4, now, 0.8);
+        sparkBurst(gx, gy2, 16, 140, 520, SPARK_COLS, 0.25, 0.5, 2.8);
+        break;
+      }
       case 'over': {
         const winner = (snap && snap.wn) || ev.by || null;
         finaleCols = winner ? SIDE_COLS[winner] : BOTH_COLS;
@@ -297,6 +329,16 @@ export function createFx(opts) {
       finaleBurst(now);
       nextFinale = now + 200;
     }
+    if (rainOn && dt > 0) {
+      rainAcc += dt * RAIN_RATE;
+      while (rainAcc >= 1) {
+        rainAcc -= 1;
+        const p = spawn(CONFETTI, rnd(W * 0.02, W * 0.98), rainY0 - fallDir * rnd(0, 60), rnd(-45, 45), fallDir * rnd(40, 160), rnd(2.4, 3.6), rnd(7, 12), pick(finaleCols), 2.6);
+        p.ay = fallDir * rnd(520, 820);
+        p.rot = rnd(0, TAU);
+        p.vr = rnd(-7, 7);
+      }
+    }
     if (dt === 0) return;
     for (let i = n - 1; i >= 0; i--) {
       const p = pool[i];
@@ -312,7 +354,7 @@ export function createFx(opts) {
       }
       const f = Math.max(0, 1 - p.drag * dt);
       p.vx *= f;
-      p.vy *= f;
+      p.vy = (p.vy + p.ay * dt) * f;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.rot += p.vr * dt;
@@ -428,11 +470,18 @@ export function createFx(opts) {
     ctx.lineCap = 'butt';
   }
 
+  /** Turn the game-over confetti rain (falling from the top of the screen) on or off. */
+  function setRain(on) {
+    if (on && !rainOn) rainAcc = 0;
+    rainOn = !!on;
+  }
+
   function reset() {
     n = 0;
     rn = 0;
     finaleUntil = 0;
     shakeT0 = -1e9;
+    rainOn = false;
   }
 
   return {
@@ -440,6 +489,7 @@ export function createFx(opts) {
     update,
     draw,
     getShake,
+    setRain,
     reset,
     state,
     get count() {
