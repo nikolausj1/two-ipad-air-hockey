@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Air Hockey" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta name="theme-color" content="#0b1020" />
+  <title>Two iPad Air Hockey</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="rink"></canvas>
+
+  <!-- Tiny translucent menu button, shown only during play. -->
+  <button id="btn-menu" class="menu-btn hidden" type="button" aria-label="Menu">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>
+  </button>
+
+  <!-- ===================== Lobby ===================== -->
+  <div id="lobby" class="lobby">
+    <div class="lobby-inner">
+      <header class="brand">
+        <div class="puck-logo" aria-hidden="true"><i></i><i></i></div>
+        <h1>Air Hockey</h1>
+        <p class="tagline">Push two iPads together and play across the gap.</p>
+      </header>
+
+      <!-- Step 1: how do you want to play? -->
+      <section id="screen-play" class="screen">
+        <h2 class="step-title">How do you want to play?</h2>
+        <div class="play-cards">
+          <button class="play-card" type="button" data-play="duo">
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <rect x="14" y="2" width="36" height="27" rx="5" fill="none" stroke="#4fd1ff" stroke-width="3"/>
+              <rect x="14" y="35" width="36" height="27" rx="5" fill="none" stroke="#ff7a45" stroke-width="3"/>
+              <circle cx="32" cy="32" r="4" fill="#f4f6ff"/>
+              <circle cx="32" cy="14" r="5" fill="#4fd1ff" opacity=".85"/><circle cx="32" cy="50" r="5" fill="#ff7a45" opacity=".85"/>
+            </svg>
+            <b>Two iPads</b>
+            <span>Push them together, top edge to top edge. The puck crosses the gap.</span>
+          </button>
+          <button class="play-card" type="button" data-play="bot">
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <rect x="14" y="20" width="36" height="28" rx="8" fill="none" stroke="#4fd1ff" stroke-width="3"/>
+              <circle cx="25" cy="34" r="4" fill="#ff7a45"/><circle cx="39" cy="34" r="4" fill="#ff7a45"/>
+              <path d="M32 20v-7" stroke="#4fd1ff" stroke-width="3" stroke-linecap="round"/><circle cx="32" cy="10" r="3" fill="#4fd1ff"/>
+              <path d="M24 56h16" stroke="#4fd1ff" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+            <b>Solo vs bot</b>
+            <span>One iPad, you against the computer. Pick how tough it is.</span>
+          </button>
+          <button class="play-card" type="button" data-play="pass">
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <rect x="12" y="4" width="40" height="56" rx="6" fill="none" stroke="#9aa6c9" stroke-width="3"/>
+              <path d="M12 32h40" stroke="#9aa6c9" stroke-width="2" stroke-dasharray="4 4"/>
+              <circle cx="32" cy="17" r="7" fill="#4fd1ff"/><circle cx="32" cy="47" r="7" fill="#ff7a45"/>
+            </svg>
+            <b>Pass &amp; play</b>
+            <span>Two people, one iPad flat on the table. Each plays their own half.</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Step 2: options -->
+      <section id="screen-setup" class="screen hidden">
+        <div class="topline">
+          <button id="btn-back" class="back" type="button">&#8249; Back</button>
+          <h2 id="setup-title" class="step-title">Set up the game</h2>
+          <span class="topline-spacer"></span>
+        </div>
+
+        <div id="duo-tabs" class="seg seg-wide" data-seg="duoRole" role="tablist">
+          <button type="button" data-v="host">Host a table</button>
+          <button type="button" data-v="join">Join a table</button>
+        </div>
+
+        <div id="panel-options">
+          <h3 class="label">Mode</h3>
+          <div class="modes seg" data-seg="mode">
+            <button type="button" data-v="classic"><i class="g g-classic"></i><b>Classic</b><span>Pure air hockey, nothing else.</span></button>
+            <button type="button" data-v="bumpers"><i class="g g-bumpers"></i><b>Bumpers</b><span>Bumpers in the middle bounce the puck around.</span></button>
+            <button type="button" data-v="ice"><i class="g g-ice"></i><b>Ice</b><span>Slippery surface: the puck barely slows down.</span></button>
+            <button type="button" data-v="heavy"><i class="g g-heavy"></i><b>Heavy</b><span>A weighty puck that is hard to push and hard to stop.</span></button>
+            <button type="button" data-v="mines"><i class="g g-mines"></i><b>Mines</b><span>Mines on the rink. Watch where the puck goes.</span></button>
+          </div>
+
+          <div class="field">
+            <h3 class="label">First to</h3>
+            <div class="seg seg-wide" data-seg="target">
+              <button type="button" data-v="5">5</button>
+              <button type="button" data-v="7">7</button>
+              <button type="button" data-v="11">11</button>
+            </div>
+          </div>
+
+          <div class="field toggle-row">
+            <div class="toggle-text">
+              <h3 class="label">Comeback goals</h3>
+              <p>Keeps games close: a player who falls behind gets a helping hand.</p>
+            </div>
+            <button type="button" class="switch" role="switch" data-toggle="comeback" aria-checked="true" aria-label="Comeback goals"><i></i></button>
+          </div>
+
+          <div class="field" id="field-bot">
+            <h3 class="label">Bot level</h3>
+            <div class="seg seg-wide" data-seg="botLevel">
+              <button type="button" data-v="easy">Easy</button>
+              <button type="button" data-v="medium">Medium</button>
+              <button type="button" data-v="hard">Hard</button>
+              <button type="button" data-v="impossible">Impossible</button>
+            </div>
+          </div>
+
+          <div class="field toggle-row" id="field-gap">
+            <div class="toggle-text">
+              <h3 class="label">Seam gap</h3>
+              <p>Space between the two screens, bezels included. Raise it if the puck seems to jump at the seam, lower it if it seems to pause.</p>
+            </div>
+            <div class="stepper">
+              <button type="button" id="gap-minus" aria-label="Smaller gap">&#8722;</button>
+              <output id="gap-value">16 mm</output>
+              <button type="button" id="gap-plus" aria-label="Bigger gap">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="field toggle-row">
+          <div class="toggle-text"><h3 class="label">Sound</h3></div>
+          <button type="button" class="switch" role="switch" data-toggle="sound" aria-checked="true" aria-label="Sound"><i></i></button>
+        </div>
+
+        <div id="panel-join" class="panel-join">
+          <button id="btn-join-auto" class="cta cta-blue" type="button">Join the open table</button>
+          <div class="or"><span>or type the code</span></div>
+          <div class="code-row">
+            <input id="code-input" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="text" />
+            <button id="btn-join-code" class="cta" type="button">Join</button>
+          </div>
+          <p class="hint">The host iPad shows the 4-letter code, and a QR code you can scan with this iPad's camera.</p>
+        </div>
+
+        <div class="actions" id="actions">
+          <button id="btn-primary" class="cta" type="button">Start</button>
+        </div>
+        <p class="status" id="status-setup" role="status"></p>
+      </section>
+
+      <!-- Waiting for the other iPad (host) / for the host (guest) -->
+      <section id="screen-wait" class="screen hidden">
+        <h2 id="wait-title" class="step-title">Waiting for the other iPad</h2>
+        <div id="wait-code" class="big-code" aria-live="polite"></div>
+        <div id="wait-share" class="share">
+          <div id="wait-qr" class="qr"></div>
+          <div class="share-text">
+            <p class="muted">On the other iPad scan the QR code, or open</p>
+            <p id="wait-url" class="url"></p>
+            <p class="muted">and tap <strong>Two iPads</strong> &rsaquo; <strong>Join a table</strong>.</p>
+          </div>
+        </div>
+        <p id="wait-text" class="muted center"></p>
+        <p class="status" id="status-wait" role="status"></p>
+        <div class="actions"><button id="btn-wait-cancel" class="ghost" type="button">Cancel</button></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ===================== Overlays ===================== -->
+  <div id="overlay-conn" class="overlay hidden">
+    <div class="card center">
+      <div class="spinner" aria-hidden="true"></div>
+      <h2 id="conn-title">Reconnecting&hellip;</h2>
+      <p id="conn-text" class="muted"></p>
+      <button id="btn-conn-leave" class="ghost" type="button">Leave table</button>
+    </div>
+  </div>
+
+  <!-- Small hint (does not block touches): two-iPad games are played in portrait. -->
+  <div id="overlay-rotate" class="rotate-hint hidden" role="status">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 9a9 9 0 0 1 3-4M21 15a9 9 0 0 1-3 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Turn the iPad to portrait</span>
+  </div>
+
+  <div id="menu" class="overlay hidden">
+    <div class="card">
+      <h2 id="menu-title">Paused</h2>
+      <div class="menu-list">
+        <button id="m-resume" class="cta" type="button">Resume</button>
+        <button id="m-restart" type="button">Restart</button>
+        <button id="m-fs" type="button">Fullscreen</button>
+        <button id="m-sound" type="button">Sound: on</button>
+        <button id="m-leave" class="danger" type="button">Leave table</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="vendor/qrcode.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

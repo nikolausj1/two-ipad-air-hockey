@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>View / FX / Audio test</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0b1020; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
+    #rink { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    #bar { position: fixed; top: 8px; left: 8px; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; max-width: 70vw; }
+    #bar button { font: inherit; font-size: 13px; font-weight: 600; color: #eef2ff; background: rgba(29,39,68,0.9); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+    #bar button.on { background: #ff7a45; color: #1a0a00; border-color: transparent; }
+    #info { position: fixed; right: 8px; top: 100px; text-align: right; z-index: 5; color: rgba(255,255,255,0.55); font-size: 11px; font-family: ui-monospace, monospace; white-space: pre; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <canvas id="rink"></canvas>
+  <div id="bar">
+    <button data-role="host">host</button>
+    <button data-role="guest">guest</button>
+    <button data-role="solo" class="on">solo</button>
+    <button id="players">players: bot</button>
+    <button id="unlock">unlock audio</button>
+    <button id="mute">mute: off</button>
+    <button id="narrow">narrow goals</button>
+    <button id="lat">latency: off</button>
+    <button id="reuse">reuse snapshot: on</button>
+    <button id="mode">mode: mines</button>
+    <button id="sd">goal stage sd: 0</button>
+    <button id="goalnow">trigger goal</button>
+  </div>
+  <div id="info"></div>
+
+<script type="module">
+import { createView } from '../view.js';
+import { createFx } from '../fx.js';
+import { createAudio } from '../audio.js';
+
+const W = 820, H = 1100, G = 80;
+const BOTTOM = 2 * H + G;
+const cfgBase = { W, H, G, puckR: 28, malletR: 46, goalW: 300, target: 7 };
+const canvas = document.getElementById('rink');
+const audio = createAudio();
+const info = document.getElementById('info');
+
+let role = 'solo';
+let players = 'bot';
+let mode = 'mines';
+let view = null;
+let reuse = true;
+let narrow = false;
+let latencyOn = false;
+let pointerWorld = null; // set by dragging, tests screenToWorld
+let sdForce = 0; // 0 = natural (stage 0, then 1 for the last second), 1 = force sd=1 in goal phase
+let guestLocal = null; // guest role: {x, y} world position passed as render()'s 4th argument
+
+function makeView() {
+  if (view && view.destroy) view.destroy();
+  guestLocal = null;
+  view = createView(canvas, role, { ...cfgBase, mode, players });
+  audio.setPerspective(role);
+}
+
+// --- fake sim -----------------------------------------------------------------
+const puck = { x: W / 2, y: BOTTOM / 2, vx: 380, vy: 900 };
+const sc = [0, 0];
+const MINES = [{ k: 'mine', x: 240, y: 700, r: 36, a: 1 }, { k: 'mine', x: 590, y: 1700, r: 36, a: 1 }, { k: 'bumper', x: 410, y: 1150, r: 40, a: 1 }, { k: 'bumper', x: 200, y: 1500, r: 34, a: 1 }];
+let evq = [];
+let t0 = performance.now();
+let lastStep = t0;
+let phase = 'countdown';
+let phaseEnd = 3000;
+let lg = null;
+let wn = null;
+let lastSec = -1;
+let lastCount = 4;
+let mineDisarm = -1e9;
+
+function ev(k, x, y, s, by) { const e = { k, x, y, s }; if (by) e.by = by; evq.push(e); }
+
+function setPhase(p, dur, now) { phase = p; phaseEnd = now + dur; }
+
+function step(now) {
+  const dt = Math.min(0.05, (now - lastStep) / 1000);
+  lastStep = now;
+  // phases
+  if (phase === 'countdown') {
+    const left = Math.ceil((phaseEnd - now) / 1000);
+    if (left !== lastCount && left >= 1) { lastCount = left; ev('countdown', W / 2, BOTTOM / 2, left); }
+    puck.x = W / 2; puck.y = lg === 'host' ? H * 0.5 : H + G + H * 0.5; puck.vx = puck.vy = 0;
+    if (now >= phaseEnd) { setPhase('play', 14000, now); puck.x = W / 2; puck.y = BOTTOM / 2; puck.vx = 300; puck.vy = lg === 'host' ? -900 : 900; ev('serve', puck.x, puck.y, 0.5); lastSec = -1; }
+  } else if (phase === 'play') {
+    puck.x += puck.vx * dt; puck.y += puck.vy * dt;
+    if (puck.x < 28) { puck.x = 28; puck.vx = Math.abs(puck.vx); ev('wall', 28, puck.y, Math.min(1, Math.abs(puck.vx) / 1500)); }
+    if (puck.x > W - 28) { puck.x = W - 28; puck.vx = -Math.abs(puck.vx); ev('wall', W - 28, puck.y, Math.min(1, Math.abs(puck.vx) / 1500)); }
+    // end rails (bounce unless in mouth)
+    const mouth = Math.abs(puck.x - W / 2) < (narrow ? 130 : 300) / 2;
+    if (puck.y < 28 && !mouth) { puck.y = 28; puck.vy = Math.abs(puck.vy); ev('wall', puck.x, 28, 0.6); }
+    if (puck.y > BOTTOM - 28 && !mouth) { puck.y = BOTTOM - 28; puck.vy = -Math.abs(puck.vy); ev('wall', puck.x, BOTTOM - 28, 0.6); }
+    // scripted event every second
+    const sec = Math.floor((now - t0) / 1000);
+    if (sec !== lastSec) {
+      lastSec = sec;
+      const m = sec % 6;
+      if (m === 0) { ev('hit', puck.x, puck.y, 0.3 + Math.random() * 0.7); puck.vx *= 1.1; puck.vy *= 1.1; }
+      if (m === 1) ev('bumper', 410, 1150, 0.8);
+      if (m === 2) { ev('mine', MINES[0].x, MINES[0].y, 1); mineDisarm = now; }
+      if (m === 3) ev('hit', puck.x, puck.y, 1);
+      if (m === 4) { ev('wall', 0, puck.y, 0.5); }
+    }
+    // goal: puck leaves through a mouth
+    if (puck.y < -28 || puck.y > BOTTOM + 28) {
+      const by = puck.y < 0 ? 'host' : 'guest';
+      sc[by === 'host' ? 0 : 1]++;
+      lg = by;
+      ev('goal', puck.x, puck.y < 0 ? 0 : BOTTOM, 1, by);
+      if (sc[0] >= 7 || sc[1] >= 7) { wn = sc[0] >= 7 ? 'host' : 'guest'; setPhase('over', 5000, now); ev('over', W / 2, BOTTOM / 2, 1); }
+      else setPhase('goal', 1600, now);
+      puck.x = W / 2; puck.y = by === 'host' ? H * 0.5 : H + G + H * 0.5; puck.vx = puck.vy = 0;
+    }
+    // speed cap + gentle friction
+    const f = Math.pow(0.9, dt); puck.vx *= f; puck.vy *= f;
+    if (Math.hypot(puck.vx, puck.vy) < 500) { puck.vx *= 1.04; puck.vy *= 1.04; }
+    if (now - t0 > 200 && Math.random() < 0.006) { puck.vx += (Math.random() - 0.5) * 600; puck.vy += (Math.random() - 0.5) * 600; }
+    // auto-goal after some time so the demo reaches goal/over: aim at the mouth
+    if (now - lastGoalAim > 9000) { lastGoalAim = now; puck.x = W / 2; puck.vx = 0; puck.vy = Math.random() < 0.5 ? -2200 : 2200; puck.y = BOTTOM / 2; }
+  } else if (phase === 'goal') {
+    if (now >= phaseEnd) { setPhase('countdown', 3000, now); lastCount = 4; }
+  } else if (phase === 'over') {
+    if (now >= phaseEnd) { sc[0] = sc[1] = 0; wn = null; lg = null; setPhase('countdown', 3000, now); lastCount = 4; }
+  }
+}
+let lastGoalAim = performance.now();
+const lagBuf = [];
+
+const mallets = [W / 2, BOTTOM - H * 0.2, W / 2, H * 0.2];
+// Goal phase lasts 1600 ms in the fake sim: stage 0 for the first 600 ms (tm counts the
+// stage down to 0), then stage 1 (the serve countdown, tm 1 -> 0). The toggle forces sd=1
+// from the start so the digit can be inspected.
+function sdStage(now) {
+  if (sdForce) return 1;
+  return phaseEnd - now <= 1000 ? 1 : 0;
+}
+function build(now) {
+  const t = now / 1000;
+  // mallets wander; dragging overrides the local player's mallet
+  const hx = W / 2 + Math.sin(t * 1.7) * 280, hy = BOTTOM - H * 0.2 + Math.cos(t * 1.1) * 150;
+  const gx = W / 2 + Math.sin(t * 1.3 + 1) * 280, gy = H * 0.2 + Math.cos(t * 0.9) * 150;
+  mallets[0] = hx; mallets[1] = hy; mallets[2] = gx; mallets[3] = gy;
+  if (pointerWorld) {
+    if (role === 'guest') {
+      mallets[2] = pointerWorld[0]; mallets[3] = Math.min(H - 46, Math.max(46, pointerWorld[1]));
+    }
+    else { mallets[0] = pointerWorld[0]; mallets[1] = Math.min(BOTTOM - 46, Math.max(H + G + 46, pointerWorld[1])); }
+  }
+  const armedAge = now - mineDisarm;
+  const ob = mode === 'mines' ? [
+    { ...MINES[0], a: armedAge > 4000 ? 1 : 0 }, MINES[1], MINES[2], MINES[3],
+  ] : mode === 'bumpers' ? [MINES[2], MINES[3]] : [];
+  const left = Math.max(0, (phaseEnd - now) / 1000);
+  const snap = {
+    t: 's',
+    p: [puck.x, puck.y, puck.vx, puck.vy],
+    m: mallets.slice(),
+    sc: sc.slice(),
+    ph: phase,
+    tm: phase === 'goal' ? (sdStage(now) === 1 ? Math.min(1, left) : Math.max(0, left - 1)) : left,
+    sd: phase === 'goal' ? sdStage(now) : 0,
+    lg, wn,
+    ob,
+    gw: narrow ? [130, 130] : [300, 300],
+    ev: evq,
+  };
+  evq = [];
+  return snap;
+}
+
+// --- loop ---------------------------------------------------------------------
+let snap = null;
+let lastBuild = 0;
+let frames = 0, fpsT = performance.now(), fps = 0;
+function frame(now) {
+  step(now);
+  if (!snap || !reuse || now - lastBuild >= 16.6) {
+    snap = build(now);
+    lastBuild = now;
+    audio.onEvents(snap.ev, snap);
+  }
+  // Guest: the dragged mallet is passed as the local prediction (4th arg) while the
+  // snapshot copy is deliberately delayed ~80 ms, like Wi-Fi lag. Host/solo ignore it.
+  let local = null;
+  if (role === 'guest' && pointerWorld) {
+    local = { x: pointerWorld[0], y: Math.min(H - 46, Math.max(46, pointerWorld[1])) };
+    lagBuf.push({ t: now, x: local.x, y: local.y });
+    while (lagBuf.length > 1 && lagBuf[1].t <= now - 80) lagBuf.shift();
+    snap.m[2] = lagBuf[0].x; snap.m[3] = lagBuf[0].y;
+  } else lagBuf.length = 0;
+  view.render(snap, 0, now, local);
+  frames++;
+  if (now - fpsT > 500) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
+  info.textContent = `role=${role} players=${players} mode=${mode}  fps=${fps}  phase=${phase} sd=${snap.sd}  score=${sc[0]}-${sc[1]}  audio.muted=${audio.muted}`;
+  requestAnimationFrame(frame);
+}
+
+// --- UI -----------------------------------------------------------------------
+for (const b of document.querySelectorAll('[data-role]')) {
+  b.addEventListener('click', () => {
+    role = b.dataset.role;
+    for (const o of document.querySelectorAll('[data-role]')) o.classList.toggle('on', o === b);
+    makeView();
+  });
+}
+const $ = (id) => document.getElementById(id);
+$('players').onclick = () => { players = players === 'bot' ? 'pass' : 'bot'; $('players').textContent = 'players: ' + players; makeView(); };
+$('sd').onclick = () => { sdForce = sdForce ? 0 : 1; $('sd').textContent = 'goal stage sd: ' + (sdForce ? '1 (forced)' : 'auto'); $('sd').classList.toggle('on', !!sdForce); };
+$('goalnow').onclick = () => { lg = 'host'; phase = 'goal'; phaseEnd = performance.now() + 1600; };
+$('mode').onclick = () => { mode = mode === 'mines' ? 'bumpers' : mode === 'bumpers' ? 'ice' : mode === 'ice' ? 'classic' : 'mines'; $('mode').textContent = 'mode: ' + mode; makeView(); };
+$('unlock').onclick = () => { audio.unlock(); evq.push({ k: 'hit', x: W / 2, y: BOTTOM / 2, s: 0.8 }); };
+$('mute').onclick = () => { audio.setMuted(!audio.muted); $('mute').textContent = 'mute: ' + (audio.muted ? 'on' : 'off'); };
+$('narrow').onclick = () => { narrow = !narrow; $('narrow').classList.toggle('on', narrow); };
+$('lat').onclick = () => { latencyOn = !latencyOn; $('lat').textContent = 'latency: ' + (latencyOn ? 'on' : 'off'); view.setLatency(latencyOn ? 12 + Math.random() * 60 : null); };
+$('reuse').onclick = () => { reuse = !reuse; $('reuse').textContent = 'reuse snapshot: ' + (reuse ? 'on' : 'off'); };
+canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); pointerWorld = view.screenToWorld(e.clientX, e.clientY); });
+canvas.addEventListener('pointermove', (e) => { if (pointerWorld) pointerWorld = view.screenToWorld(e.clientX, e.clientY); });
+canvas.addEventListener('pointerup', () => { pointerWorld = null; });
+// Browsers need a gesture before audio can start.
+window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
+
+makeView();
+window.__test = { get view() { return view; }, audio, createFx, fire: ev, jump: (p) => { phase = p; phaseEnd = performance.now() + 4000; if (p === 'over') { wn = 'host'; sc[0] = 7; } if (p === 'goal') { lg = 'host'; } } };
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
