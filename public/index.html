@@ -149,18 +149,22 @@
         </div>
 
         <div id="panel-join" class="panel-join">
+          <!-- When another iPad is hosting, its table is the one big thing to tap;
+               the rest of this panel (and the controls above it) step back. -->
           <div class="nearby" id="nearby">
-            <h3 class="label">Tables near you</h3>
+            <h3 class="label" id="nearby-label">Tables near you</h3>
             <ul id="nearby-list" class="nearby-list" aria-live="polite"></ul>
             <p id="nearby-empty" class="nearby-empty">No tables nearby yet. Host one on the other iPad.</p>
           </div>
-          <div class="or"><span>or type the code</span></div>
-          <div class="code-row">
-            <input id="code-input" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="text" />
-            <button id="btn-join-code" class="cta" type="button">Join</button>
+          <div class="join-else" id="join-else">
+            <div class="or"><span>or type the code</span></div>
+            <div class="code-row">
+              <input id="code-input" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="text" />
+              <button id="btn-join-code" class="cta" type="button">Join</button>
+            </div>
+            <p id="join-error" class="inline-error hidden" role="alert"></p>
+            <p class="hint">The host iPad shows the 4-letter code, and a QR code you can scan with this iPad's camera.</p>
           </div>
-          <p id="join-error" class="inline-error hidden" role="alert"></p>
-          <p class="hint">The host iPad shows the 4-letter code, and a QR code you can scan with this iPad's camera.</p>
         </div>
 
         <div class="actions" id="actions">

@@ -648,32 +648,59 @@ function setNearby(list) {
   renderNearby();
 }
 
+let nearbyShown = ''; // codes on screen, to scroll a newly found table into view once
+
 function renderNearby() {
   const ul = $('nearby-list');
   ul.textContent = '';
-  for (const e of nearby) {
+  const has = nearby.length > 0;
+  nearby.forEach((e, i) => {
     const li = document.createElement('li');
-    li.className = 'nearby-row';
+    // The whole card is the button: the one big thing to tap on this screen.
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'nearby-cta' + (i === 0 ? ' nearby-first' : '');
+    btn.setAttribute('aria-label', 'Join table ' + e.code + (e.mode ? ', ' + e.mode : ''));
+    const eyebrow = document.createElement('span');
+    eyebrow.className = 'nearby-eyebrow';
+    eyebrow.textContent = i === 0 ? 'An iPad near you is hosting' : 'Also nearby';
+    const main = document.createElement('span');
+    main.className = 'nearby-main';
     const code = document.createElement('span');
     code.className = 'nearby-code';
     code.textContent = e.code;
     const mode = document.createElement('span');
     mode.className = 'nearby-mode';
-    mode.textContent = e.mode;
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'cta cta-blue';
-    btn.textContent = 'Join';
-    btn.setAttribute('aria-label', 'Join table ' + e.code);
+    mode.textContent = e.mode ? e.mode + ' table' : 'table';
+    main.append(code, mode);
+    const go = document.createElement('span');
+    go.className = 'nearby-go';
+    go.textContent = 'Join';
+    btn.append(eyebrow, main, go);
     btn.addEventListener('click', () => {
       unlockAudio();
       clearJoinError();
       startJoining(e.code);
     });
-    li.append(code, mode, btn);
+    li.append(btn);
     ul.append(li);
+  });
+  $('nearby-empty').classList.toggle('hidden', has);
+  $('nearby-label').textContent = has ? 'Ready to join' : 'Tables near you';
+  // Everything else on the screen steps back while a table is waiting.
+  $('panel-join').classList.toggle('has-nearby', has);
+  $('screen-setup').classList.toggle('nearby-ready', has);
+  const key = nearby.map((n) => n.code).join(',');
+  if (key !== nearbyShown) {
+    nearbyShown = key;
+    if (has && typeof ul.scrollIntoView === 'function') {
+      try {
+        ul.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      } catch {
+        /* older WebKit: no options object */
+      }
+    }
   }
-  $('nearby-empty').classList.toggle('hidden', nearby.length > 0);
 }
 
 /** Tell nearby iPads about our table while we are hosting and nobody has joined. */
@@ -908,6 +935,10 @@ function onMessage(msg) {
 
     case 'restart':
       if (sim && intent.role === 'host' && !modeChange) sim.restart(); // not while the host is picking a new mode
+      break;
+
+    case 'rpskip': // the other player tapped to skip the instant replay
+      skipReplay(false);
       break;
   }
 }
@@ -1254,6 +1285,13 @@ canvas.addEventListener('pointerdown', (e) => {
 
   const ph = currentPhase();
 
+  // A tap during the instant replay skips it (after a moment, so the last
+  // frantic swipe at the puck does not cancel the replay by accident).
+  if (rp.st === 2 && rp.el > 0.35) {
+    skipReplay(true);
+    return;
+  }
+
   // After the final goal a tap starts a new match (ignore the first moments
   // so a frantic last swipe does not skip the result).
   if (ph === 'over') {
@@ -1467,7 +1505,7 @@ let rbHead = 0;
 let rbCount = 0;
 // st: 0 idle, 1 waiting for the goal flash, 2 playing
 const rp = { st: 0, wait: 0, goalTs: 0, clip: null, gi: 0, hold: null, k: 0, t0: 0, dur: 0, el: 0 };
-const replayUi = { t: 0, speed: RP_SPEED };
+const replayUi = { t: 0, speed: RP_SPEED, el: 0 }; // el: seconds played (the view fades in 'tap to skip')
 
 function rbClear() {
   rbSnap.fill(null);
@@ -1500,6 +1538,17 @@ function replayReset() {
   rp.clip = null;
   rp.hold = null;
   ui.replay = null;
+}
+
+/**
+ * End the replay now on this iPad and, when `tell`, on the other one too, so the
+ * serve resumes at the same moment on both. (The host sim is frozen while a
+ * replay plays; the guest follows the host's snapshots once it stops.)
+ */
+function skipReplay(tell) {
+  if (rp.st === 0) return;
+  replayReset();
+  if (tell && tr && intent && peerPresent) sendNet({ t: 'rpskip' });
 }
 
 /** Look at a freshly produced / received snapshot for a goal that deserves a replay. */
@@ -1580,6 +1629,7 @@ function tickReplay(dt, livePhase) {
     return null;
   }
   replayUi.t = (rp.el * RP_SPEED) / rp.dur;
+  replayUi.el = rp.el;
   return replayFrame(media);
 }
 

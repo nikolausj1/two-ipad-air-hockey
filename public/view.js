@@ -1115,6 +1115,7 @@ export function createView(canvas, role, cfg) {
   let replayOn = false;
   let rpK = 0; // 0..1 slide progress of the bars (eased when drawn)
   let rpT = 0; // last replay progress 0..1 (kept while the bars slide out)
+  let rpEl = 0; // seconds the replay has played (the skip hint fades in after a moment)
   let rpSpeed = 1;
   let rpBar = 40; // bar height in px (set in layout)
   let rpZoom = 1; // world zoom while the bars are in, so goals stay visible
@@ -2285,7 +2286,26 @@ export function createView(canvas, role, cfg) {
     ctx.textAlign = 'center';
   }
 
-  function drawReplay(now, e) {
+  // "Tap to skip", right-aligned in the bottom bar, fading in once the replay
+  // has played for a moment (a tap before that is ignored by main.js).
+  function drawSkipHint(bh, e, el) {
+    const a = e * clamp((el - 0.45) / 0.4, 0, 1);
+    if (a <= 0) return;
+    const fs = clamp(rpBar * 0.3, 11, 15);
+    const cy = screenH - bh / 2;
+    ctx.globalAlpha = a * (0.55 + 0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 420)));
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = font(fs, 700);
+    ctx.fillStyle = '#ffffff';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = Math.round(fs * 0.14) + 'px';
+    ctx.fillText('TAP TO SKIP', screenW - 18, cy + 0.5);
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+  }
+
+  function drawReplay(now, e, el) {
     const bh = rpBar * e;
     ctx.globalAlpha = e;
     ctx.drawImage(vignette, 0, 0, screenW, screenH);
@@ -2324,11 +2344,13 @@ export function createView(canvas, role, cfg) {
     ctx.globalAlpha = 1;
     // badge (and a mirrored one for the player across the table in pass & play)
     drawBadge(bh, e);
+    drawSkipHint(bh, e, el);
     if (solo && players === 'pass') {
       ctx.save();
       ctx.translate(screenW, screenH);
       ctx.rotate(Math.PI);
       drawBadge(bh, e);
+      drawSkipHint(bh, e, el);
       ctx.restore();
     }
   }
@@ -2426,8 +2448,9 @@ export function createView(canvas, role, cfg) {
    * ui: optional {
    *   held:        the local finger is on the canvas,
    *   calibrating: the host is adjusting the seam gap,
-   *   replay:      { t: 0..1, speed } | null. Instant replay of old snapshots: letterbox
-   *                bars, REPLAY badge, progress line, vignette + grain, no HUD messages.
+   *   replay:      { t: 0..1, speed, el } | null. Instant replay of old snapshots: letterbox
+   *                bars, REPLAY badge, progress line, vignette + grain, no HUD messages,
+   *                and a 'tap to skip' hint once `el` (seconds played) passes ~0.5 s.
    *                Events in replayed snapshots spark but never re-fire once the live
    *                snapshot returns. Bars slide out when it goes back to null.
    *   diag:        { fps, frameMs, rtt, jitter, kind: 'p2p'|'ws'|'local', seq, drops } | null.
@@ -2453,6 +2476,7 @@ export function createView(canvas, role, cfg) {
     if (rp) {
       rpT = clamp(Number(rp.t) || 0, 0, 1);
       rpSpeed = rp.speed > 0 ? rp.speed : 1;
+      rpEl = Number(rp.el) || 0;
     }
     rpK = clamp(rpK + ((replayOn ? 1 : -1) * dt) / (BAR_MS / 1000), 0, 1);
     const rpE = rpK * rpK * (3 - 2 * rpK);
@@ -2623,7 +2647,7 @@ export function createView(canvas, role, cfg) {
 
     if (rpE > 0) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawReplay(now, rpE);
+      drawReplay(now, rpE, replayOn ? rpEl : 0);
     }
   }
 

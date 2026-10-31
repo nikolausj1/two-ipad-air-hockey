@@ -81,8 +81,9 @@ code carries it).
 1. On the first iPad: *Two iPads* → pick a mode → *Host a table*. It shows a
    4-letter code and a QR code.
 2. On the second iPad: open *Two iPads* then *Join a table*. The host's table
-   appears under *Tables near you* (same Wi-Fi); tap *Join*. Or scan the QR
-   code (it opens the page and joins), or type the 4-letter code.
+   shows up as one big *Join* card (same Wi-Fi) and everything else on the
+   screen steps back; tap it. Or scan the QR code (it opens the page and
+   joins), or type the 4-letter code.
 3. Lay the iPads flat, top edge touching top edge, each player at the bottom of
    their own iPad.
 4. **Line up the seam** (host only). Before the match a slim bar at the bottom
@@ -126,7 +127,8 @@ the other.
 - **Reconnect**: if an iPad loses Wi-Fi or reloads, it rejoins the same table
   automatically. The host keeps the score while the other iPad is away.
 - **Instant replay**: after every goal both iPads play the last two seconds
-  back at half speed, letterboxed, before the serve.
+  back at half speed, letterboxed, before the serve. Tap the rink to skip it;
+  either iPad can, and the serve resumes on both at once.
 - **Feel**: the guest iPad advances the puck between snapshots with the real
   physics, and predicts its own hits locally so a strike never waits for the
   round trip; the host confirms or corrects a moment later.

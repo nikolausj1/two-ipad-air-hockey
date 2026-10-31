@@ -41,7 +41,7 @@ const HOST_GRACE_MS = 45000;
 const HEARTBEAT_MS = 15000;
 
 // Only these game messages are relayed between the two devices.
-const RELAYED = new Set(['s', 'input', 'config', 'restart', 'ready', 'calib', 'ping', 'pong']);
+const RELAYED = new Set(['s', 'input', 'config', 'restart', 'ready', 'calib', 'rpskip', 'ping', 'pong']);
 
 // One bad request must never take down every table.
 process.on('uncaughtException', (e) => console.error('uncaught', e));
