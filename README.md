@@ -107,8 +107,12 @@ the other.
 ## What is in the box
 
 - **Modes**: Classic, Bumpers (brass posts to bank off), Ice (almost no
-  friction), Heavy (a slow steel puck), Mines (touch one and the puck blasts
-  off; it re-arms after a few seconds).
+  friction), Bombs (three bombs on each side; the puck knocks them around,
+  and a mallet that touches an armed bomb gives the other player the point),
+  Mines (touch one and the puck blasts off; it re-arms after a few seconds),
+  Glitch (every few seconds the puck flickers, then skips a short distance and
+  changes direction a little; the flicker is the tell, and it never skips into
+  a goal crease or onto a mallet).
 - **Comeback goals** (on by default): the player who is behind gets a narrower
   goal mouth, so no lead is safe.
 - **Bot** with Easy, Medium, Hard and Impossible levels. Hard and above predict

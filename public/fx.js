@@ -17,11 +17,16 @@ const SPARK = 0; // short additive streak
 const PUFF = 1; // soft circle that grows and fades
 const CONFETTI = 2; // tumbling rectangle
 const GLOW = 3; // additive dot
+const PIXEL = 4; // small axis-aligned square (glitch)
 
 const SPARK_COLS = ['#fff6d6', '#ffe28a', '#ffffff', '#ffb36b'];
 const PUFF_COLS = ['#cfe3ff', '#9fb8e8', '#e8f0ff'];
 const MINE_COLS = ['#ff3b2e', '#ff7a1a', '#ffd23a', '#ffffff'];
 const SMOKE_COLS = ['#3a2a2a', '#4a3b3b', '#2a2a33'];
+const BOMB_SMOKE_COLS = ['#55555e', '#44444c', '#686873'];
+const BOMB_SPARK_COLS = ['#ffffff', '#fff6d6', '#ffe28a'];
+const GLITCH_COLS = ['#49f2ff', '#ff4bd8', '#ffffff'];
+const GLITCH_TINTS = ['#49f2ff', '#ff4bd8'];
 const GOLD_COLS = ['#ffe28a', '#ffd23a', '#fff6d6', '#ffffff'];
 const SIDE_COLS = {
   host: ['#ff7a45', '#ffb48f', '#ffd36b', '#ffffff', '#ff4d2e'],
@@ -163,6 +168,15 @@ export function createFx(opts) {
     }
   }
 
+  // A cluster of small square "pixels" in the glitch colours.
+  function pixelBurst(x, y, count) {
+    for (let i = 0; i < count; i++) {
+      const a = rnd(0, TAU);
+      const sp = rnd(60, 420);
+      spawn(PIXEL, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.25, 0.5), rnd(3, 6), GLITCH_COLS[i % 3], 3.5);
+    }
+  }
+
   function finaleBurst(now) {
     const x = rnd(W * 0.12, W * 0.88);
     let y;
@@ -251,6 +265,65 @@ export function createFx(opts) {
         shake(7 + s * 2, now);
         break;
       }
+      case 'bombhit': {
+        if (!visible(x, y, 80)) return;
+        const cnt = 4 + Math.round(s * 2);
+        for (let i = 0; i < cnt; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(30, 140);
+          const p = spawn(PUFF, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.3, 0.5), rnd(4, 7), pick(BOMB_SMOKE_COLS), 4);
+          p.grow = rnd(18, 34);
+        }
+        sparkBurst(x, y, 3, 100, 320, BOMB_SPARK_COLS, 0.12, 0.26, 4);
+        addRing(x, y, puckR * 0.8, puckR * (1.6 + s), 0.2, '#ffffff', 4, now, 0.4 + 0.4 * s);
+        shake(0.8 + s, now);
+        break;
+      }
+      case 'bomb': {
+        if (!visible(x, y, 160)) {
+          shake(6, now);
+          return;
+        }
+        for (let i = 0; i < 54; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(120, 1100);
+          spawn(SPARK, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.3, 0.9), rnd(2, 4.5), pick(MINE_COLS), 2.4);
+        }
+        for (let i = 0; i < 18; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(30, 260);
+          const p = spawn(PUFF, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.8, 1.4), rnd(14, 26), pick(SMOKE_COLS), 2.5);
+          p.grow = rnd(60, 130);
+        }
+        for (let i = 0; i < 12; i++) {
+          const a = rnd(0, TAU);
+          spawn(GLOW, x, y, Math.cos(a) * rnd(20, 160), Math.sin(a) * rnd(20, 160), rnd(0.3, 0.6), rnd(14, 28), '#ff9a3a', 3);
+        }
+        spawn(GLOW, x, y, 0, 0, 0.4, 60, '#ffd9a0', 0);
+        spawn(GLOW, x, y, 0, 0, 0.2, 90, '#ffffff', 0);
+        addRing(x, y, 10, puckR * 9.6, 0.8, '#ff7a1a', 10, now, 0.9);
+        addRing(x, y, 5, puckR * 5.6, 0.45, '#ffffff', 5, now, 0.8);
+        addRing(x, y, puckR, puckR * 4, 0.6, '#ffd23a', 6, now, 0.6);
+        shake(11, now);
+        break;
+      }
+      case 'glitchwarn': {
+        if (!visible(x, y, 80)) return;
+        addRing(x, y, puckR * 0.9, puckR * 2.4, 0.2, '#49f2ff', 3, now, 0.6);
+        sparkBurst(x, y, 4, 80, 260, GLITCH_TINTS, 0.15, 0.3, 4);
+        break;
+      }
+      case 'glitch': {
+        const ox = ev.fx == null ? x : ev.fx;
+        const oy = ev.fy == null ? y : ev.fy;
+        if (!visible(ox, oy, 80) && !visible(x, y, 80)) return;
+        pixelBurst(ox, oy, 9);
+        pixelBurst(x, y, 9);
+        addRing(ox, oy, puckR * 0.8, puckR * 3, 0.3, '#49f2ff', 2, now, 0.6);
+        addRing(x, y, puckR * 0.8, puckR * 3, 0.3, '#ff4bd8', 2, now, 0.6);
+        shake(3, now);
+        break;
+      }
       case 'goal': {
         const by = ev.by || (snap && snap.lg) || 'host';
         const conceded = by === 'host' ? 'guest' : 'host';
@@ -259,7 +332,13 @@ export function createFx(opts) {
         const gy = by === 'host' ? 0 : bottomY; // the goal line that was crossed
         const inward = by === 'host' ? Math.PI / 2 : -Math.PI / 2; // into the rink from that goal
         const gx = Math.min(W * 0.8, Math.max(W * 0.2, x));
-        if (visible(gx, gy, 20)) {
+        const viaBomb = ev.why === 'bomb'; // the point came from a bomb, not a goal line
+        if (viaBomb && visible(x, y, 40)) {
+          confettiBurst(x, y, 0, Math.PI, 48, cols, 800);
+          sparkBurst(x, y, 30, 200, 900, cols, 0.35, 0.8, 2.2);
+          addRing(x, y, 20, 280, 0.6, cols[0], 8, now, 0.9);
+          addRing(x, y, 10, 170, 0.4, '#ffffff', 5, now, 0.8);
+        } else if (!viaBomb && visible(gx, gy, 20)) {
           confettiBurst(gx, gy, inward, 1.2, 60, cols, 950);
           sparkBurst(gx, gy, 30, 200, 900, cols, 0.35, 0.8, 2.2);
           addRing(gx, gy, 20, 280, 0.6, cols[0], 8, now, 0.9);
@@ -411,6 +490,11 @@ export function createFx(opts) {
         ctx.beginPath();
         ctx.arc(X0 + kx * p.x, Y0 + ky * p.y, (p.size + p.grow * p.age) * scale, 0, TAU);
         ctx.fill();
+      } else if (p.type === PIXEL) {
+        ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
+        if (p.col !== lastFill) { ctx.fillStyle = p.col; lastFill = p.col; }
+        const w = Math.max(2, p.size * scale);
+        ctx.fillRect(X0 + kx * p.x - w * 0.5, Y0 + ky * p.y - w * 0.5, w, w);
       } else if (p.type === CONFETTI) {
         if (!m) m = ctx.getTransform();
         const a = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;

@@ -42,10 +42,18 @@ const DASH = [5, 6];
 const NO_DASH = [];
 const NO_RD = [0, 0];
 const TRAIL_N = 32;
-const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', heavy: 'Heavy', mines: 'Mines' };
+const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', bombs: 'Bombs', mines: 'Mines', glitch: 'Glitch' };
 const MSG_PHASES = { ready: 1, countdown: 1, goal: 1, over: 1 };
 const NO_UI = { held: false, calibrating: false };
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+// Bomb sprite: fuse tip offset from the bomb centre, in bomb radii (shared by sprite and flame).
+const FUSE_X = 0.85;
+const FUSE_Y = -1.02;
+const BOMB_FLASH_S = 1.2; // how long a detonated bomb shows its scorch and blast
+const BOMB_HIT_MS = 250; // squash and flash after the puck knocks a bomb
+const GLITCH_WARN_MS = 380; // puck jitters this long before a jump
+const GLITCH_GHOST_MS = 450; // fading ghost at the old spot
+const GLITCH_TEAR_MS = 120; // horizontal tear bands
 const REPLAY_RED = '#ff3b3b';
 const BAR_MS = 200; // replay letterbox slide time
 const DIAG_ROWS = 7;
@@ -136,6 +144,7 @@ export function createView(canvas, role, cfg) {
   let spr = null; // sprites, rebuilt on resize
   const bumperSprites = new Map();
   const mineSprites = new Map();
+  const bombSprites = new Map();
   const goalGrad = {}; // local-space gradients per side, rebuilt on resize
   let rays = null;
   let seamGrad = null;
@@ -557,6 +566,104 @@ export function createView(canvas, role, cfg) {
     return s;
   }
 
+  // Cast-iron bomb: near-black sphere, soft top-left highlight, thin rim light and a
+  // short rope fuse in a metal collar at the upper right. The flame is dynamic.
+  function makeBomb(r) {
+    const pad = Math.ceil(r * 0.5) + 2;
+    return makeSprite((r + pad) * 2, (c, cx, cy) => {
+      discShadow(c, cx, cy, r, r * 0.45, r * 0.1, r * 0.2, 0.65);
+      let g = c.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.05, cx, cy, r * 1.05);
+      g.addColorStop(0, '#5d6272');
+      g.addColorStop(0.3, '#2b2e3a');
+      g.addColorStop(0.7, '#101118');
+      g.addColorStop(1, '#040406');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(cx, cy, r, 0, TAU);
+      c.fill();
+      // soft highlight
+      const hx = cx - r * 0.4;
+      const hy = cy - r * 0.45;
+      g = c.createRadialGradient(hx, hy, 0, hx, hy, r * 0.42);
+      g.addColorStop(0, 'rgba(255,255,255,0.5)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(hx, hy, r * 0.42, 0, TAU);
+      c.fill();
+      // rim light
+      const lw = Math.max(1, r * 0.05);
+      c.lineWidth = lw;
+      c.strokeStyle = 'rgba(140,170,255,0.45)';
+      c.beginPath();
+      c.arc(cx, cy, r - lw / 2, 0.2, 1.5);
+      c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,0.25)';
+      c.beginPath();
+      c.arc(cx, cy, r - lw / 2, Math.PI * 1.05, Math.PI * 1.55);
+      c.stroke();
+      // metal collar where the fuse enters
+      const ca = -0.9;
+      const bx = cx + Math.cos(ca) * r * 0.9;
+      const by = cy + Math.sin(ca) * r * 0.9;
+      c.save();
+      c.translate(bx, by);
+      c.rotate(ca + Math.PI / 2);
+      g = c.createLinearGradient(-r * 0.22, 0, r * 0.22, 0);
+      g.addColorStop(0, '#7b8196');
+      g.addColorStop(0.5, '#2e3242');
+      g.addColorStop(1, '#14161f');
+      c.fillStyle = g;
+      c.beginPath();
+      c.ellipse(0, 0, r * 0.22, r * 0.12, 0, 0, TAU);
+      c.fill();
+      c.restore();
+      // rope fuse
+      const fw = Math.max(1.5, r * 0.12);
+      const tx = cx + r * FUSE_X;
+      const ty = cy + r * FUSE_Y;
+      c.lineCap = 'round';
+      c.strokeStyle = '#4a3820';
+      c.lineWidth = fw + 1;
+      c.beginPath();
+      c.moveTo(bx, by);
+      c.quadraticCurveTo(cx + r * 0.5, cy - r * 1.0, tx, ty);
+      c.stroke();
+      c.strokeStyle = '#b8975a';
+      c.lineWidth = fw;
+      c.beginPath();
+      c.moveTo(bx, by);
+      c.quadraticCurveTo(cx + r * 0.5, cy - r * 1.0, tx, ty);
+      c.stroke();
+      c.lineCap = 'butt';
+    });
+  }
+
+  function getBombSprite(rCss) {
+    const key = Math.round(rCss * 2);
+    let s = bombSprites.get(key);
+    if (!s) {
+      s = makeBomb(key / 2);
+      bombSprites.set(key, s);
+    }
+    return s;
+  }
+
+  // Copy of a sprite with every opaque pixel flooded with one colour (glitch ghosts).
+  function tintSprite(src, col) {
+    const cv = document.createElement('canvas');
+    cv.width = src.width;
+    cv.height = src.height;
+    cv.cs = src.cs;
+    const c = cv.getContext('2d');
+    c.drawImage(src, 0, 0);
+    c.globalCompositeOperation = 'source-atop';
+    c.globalAlpha = 0.85;
+    c.fillStyle = col;
+    c.fillRect(0, 0, cv.width, cv.height);
+    return cv;
+  }
+
   // Fan of light rays shining from a goal mouth into the rink. Origin at the top centre.
   function makeRays(rgb) {
     const w = 640;
@@ -591,14 +698,18 @@ export function createView(canvas, role, cfg) {
   function buildSprites() {
     const pr = puckR * scale;
     const mr = malletR * scale;
+    const puck = makePuck(pr);
     spr = {
-      puck: makePuck(pr),
+      puck,
+      puckCyan: tintSprite(puck, '#49f2ff'),
+      puckMag: tintSprite(puck, '#ff4bd8'),
       puckShadow: makePuckShadow(pr),
       host: makeMallet(mr, '#ffc3a2', '#ff7a45', '#b0400f', 'rgba(70,20,0,0.9)'),
       guest: makeMallet(mr, '#b9f0ff', '#4fd1ff', '#1580ab', 'rgba(0,40,60,0.9)'),
     };
     bumperSprites.clear();
     mineSprites.clear();
+    bombSprites.clear();
     rays = { host: makeRays(HOST_RGB), guest: makeRays(GUEST_RGB) };
   }
 
@@ -1105,6 +1216,15 @@ export function createView(canvas, role, cfg) {
   let lmInit = false;
   const bumperFlashT = [];
   const mineFlashT = [];
+  const bombFlashT = []; // detonation time per obstacle index
+  const bombHitT = []; // last puck knock per obstacle index
+  let goalWhy = ''; // 'why' of the last goal event, cleared on serve ('bomb' changes the banner)
+  // Glitch mode: last warning, last jump (with its from-point) and the puck's screen y.
+  let glitchWarnT = -1e9;
+  let glitchT = -1e9;
+  let glitchFx = 0;
+  let glitchFy = 0;
+  let glitchPy = 0;
   let latency = null;
   let shOx = 0; // puck shadow offset (px), lags behind the puck
   let shOy = 0;
@@ -1218,7 +1338,17 @@ export function createView(canvas, role, cfg) {
         fx.onEvent(e, now, snap);
         if (e.k === 'bumper' && snap.ob) markObstacle(snap.ob, e, now, 'bumper', bumperFlashT);
         else if (e.k === 'mine' && snap.ob) markObstacle(snap.ob, e, now, 'mine', mineFlashT);
-        else if (e.k === 'go' && !replayOn) goT = now;
+        else if (e.k === 'bomb' && snap.ob) markObstacle(snap.ob, e, now, 'bomb', bombFlashT);
+        else if (e.k === 'bombhit' && snap.ob) markObstacle(snap.ob, e, now, 'bomb', bombHitT);
+        else if (e.k === 'goal') goalWhy = e.why || '';
+        else if (e.k === 'serve') goalWhy = '';
+        else if (e.k === 'glitchwarn') glitchWarnT = now;
+        else if (e.k === 'glitch') {
+          glitchT = now;
+          glitchFx = e.fx == null ? e.x : e.fx;
+          glitchFy = e.fy == null ? e.y : e.fy;
+          trCount = 0; // no streak across the jump
+        } else if (e.k === 'go' && !replayOn) goT = now;
       }
     }
     curSnap = snap;
@@ -1406,6 +1536,131 @@ export function createView(canvas, role, cfg) {
     ctx.restore();
   }
 
+  // Bombs move, so they are drawn at the snapshot position every frame. A detonated
+  // bomb (still in the snapshot) is replaced by a scorch ring and a big blast for a moment.
+  function drawBomb(o, i, sx, sy, r, now) {
+    const bt = (now - (bombFlashT[i] || -1e9)) / 1000;
+    if (bt >= 0 && bt < BOMB_FLASH_S) {
+      const fade = 1 - bt / BOMB_FLASH_S;
+      drawGlow(glowBlack, sx, sy, r * 3.4, 0.65 * fade);
+      ctx.globalAlpha = 0.5 * fade;
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = Math.max(2, r * 0.3);
+      ctx.beginPath();
+      ctx.arc(sx, sy, r * 1.15, 0, TAU);
+      ctx.stroke();
+      if (bt < 0.8) {
+        const t = bt / 0.8;
+        const rr = r * (1.2 + 6.7 * easeOutCubic(t)); // the mine blast, about 1.6x bigger
+        ctx.globalCompositeOperation = 'lighter';
+        drawGlow(glowGold, sx, sy, rr, (1 - t) * (1 - t));
+        drawGlow(glowRed, sx, sy, rr * 1.35, (1 - t) * 0.8);
+        if (t < 0.25) {
+          ctx.globalAlpha = (1 - t / 0.25) * 0.95;
+          ctx.fillStyle = '#fff3d6';
+          ctx.beginPath();
+          ctx.arc(sx, sy, r * (1.3 + 11.5 * t), 0, TAU);
+          ctx.fill();
+        }
+        ctx.globalAlpha = (1 - t) * 0.8;
+        ctx.strokeStyle = '#ffb35a';
+        ctx.lineWidth = Math.max(2, r * 0.28 * (1 - t));
+        ctx.beginPath();
+        ctx.arc(sx, sy, r * (1 + 5.4 * easeOutCubic(t)), 0, TAU);
+        ctx.stroke();
+        ctx.globalAlpha = (1 - t) * 0.5;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = Math.max(1.5, r * 0.1);
+        ctx.beginPath();
+        ctx.arc(sx, sy, r * (0.9 + 3.4 * easeOutCubic(t)), 0, TAU);
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
+    const armed = o.a === 1;
+    const ht = (now - (bombHitT[i] || -1e9)) / BOMB_HIT_MS;
+    const hitting = ht >= 0 && ht < 1;
+    if (armed) {
+      // faint warm halo under the bomb
+      const pulse = 0.5 + 0.5 * Math.sin(now / 300 + i * 1.9);
+      ctx.globalCompositeOperation = 'lighter';
+      drawGlow(glowGold, sx, sy, r * 1.9, 0.1 + 0.07 * pulse);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    let kw = 1;
+    let kh = 1;
+    if (hitting) {
+      const e = Math.sin(ht * Math.PI) * (1 - ht);
+      kw = 1 + 0.14 * e;
+      kh = 1 - 0.14 * e;
+    }
+    const bs = getBombSprite(r);
+    const bw = bs.cs * kw;
+    const bh = bs.cs * kh;
+    ctx.globalAlpha = armed ? 1 : 0.6;
+    ctx.drawImage(bs, sx - bw / 2, sy - bh / 2, bw, bh);
+    const tx = sx + r * FUSE_X * kw;
+    const ty = sy + r * FUSE_Y * kh;
+    if (armed) {
+      // burning fuse tip: flickering glow, hot core and two jittering sparks
+      const fl = 0.65 + 0.35 * Math.sin(now * 0.05 + i * 2.3) * Math.sin(now * 0.071 + i);
+      ctx.globalCompositeOperation = 'lighter';
+      drawGlow(glowGold, tx, ty, r * (0.42 + 0.16 * fl), 0.55 + 0.4 * fl);
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#fff4d6';
+      ctx.beginPath();
+      ctx.arc(tx, ty, Math.max(1.5, r * 0.07 * (0.8 + 0.4 * fl)), 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#ffd27a';
+      for (let q = 0; q < 2; q++) {
+        const cyc = now * 0.0035 + q * 0.5 + i * 0.31;
+        const ph = cyc - Math.floor(cyc);
+        const ang = -1.57 + Math.sin(Math.floor(cyc) * 7.7 + q * 3.1 + i) * 1.4;
+        const d = r * (0.1 + 0.38 * ph);
+        ctx.globalAlpha = 0.9 * (1 - ph);
+        ctx.beginPath();
+        ctx.arc(tx + Math.cos(ang) * d, ty + Math.sin(ang) * d, Math.max(1, r * 0.04), 0, TAU);
+        ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    } else {
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = '#1d1812';
+      ctx.beginPath();
+      ctx.arc(tx, ty, Math.max(1.2, r * 0.06), 0, TAU);
+      ctx.fill();
+    }
+    if (hitting) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.35 * (1 - ht);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(sx, sy, r * 0.95, 0, TAU);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Two thin translucent bands across the whole screen at the puck's height, right
+  // after a glitch jump.
+  function drawGlitchTear(now) {
+    const tt = now - glitchT;
+    if (tt < 0 || tt >= GLITCH_TEAR_MS) return;
+    const a = 0.28 * (1 - tt / GLITCH_TEAR_MS);
+    const j = (((tt / 30) | 0) % 3) * 2;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#49f2ff';
+    ctx.fillRect(0, glitchPy - 12 - j, screenW, 3);
+    ctx.fillStyle = '#ff4bd8';
+    ctx.fillRect(0, glitchPy + 9 + j, screenW, 2);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
   function drawObstacles(ob, now) {
     for (let i = 0; i < ob.length; i++) {
       const o = ob[i];
@@ -1442,6 +1697,8 @@ export function createView(canvas, role, cfg) {
           ctx.globalCompositeOperation = 'source-over';
           ctx.globalAlpha = 1;
         }
+      } else if (o.k === 'bomb') {
+        drawBomb(o, i, sx, sy, r, now);
       } else {
         // mine
         const armed = o.a === 1;
@@ -2055,7 +2312,10 @@ export function createView(canvas, role, cfg) {
       glowText('GOAL!', 0, -18 * u, 98 * u, '#ffffff', a, 900, `rgb(${lgRgb})`);
       ctx.restore();
       let sub;
-      if (solo && players === 'bot') sub = mine ? 'You scored' : 'Bot scored';
+      if (goalWhy === 'bomb') {
+        if (solo && players === 'bot') sub = mine ? 'Bot touched a bomb' : 'You touched a bomb';
+        else sub = mine ? 'They touched a bomb' : 'You touched a bomb';
+      } else if (solo && players === 'bot') sub = mine ? 'You scored' : 'Bot scored';
       else sub = mine ? 'You scored' : 'They scored';
       ctx.save();
       ctx.shadowColor = 'rgba(4,8,22,0.85)';
@@ -2597,8 +2857,45 @@ export function createView(canvas, role, cfg) {
         drawGlow(glowWhite, sx, sy, pr * 2.8, Math.min(1, gk));
         ctx.globalCompositeOperation = 'source-over';
       }
+      glitchPy = sy;
+      // Glitch ghost at the old spot, fading with a growing cyan / magenta split.
+      const gt = now - glitchT;
+      if (gt >= 0 && gt < GLITCH_GHOST_MS) {
+        const ge = gt / GLITCH_GHOST_MS;
+        const gx = sxw(glitchFx);
+        const gy = syw(glitchFy);
+        const off = 3 + 6 * ge;
+        ctx.globalAlpha = 0.45 * (1 - ge) * (1 - ge);
+        drawSprite(spr.puck, gx, gy);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.5 * (1 - ge);
+        drawSprite(spr.puckCyan, gx - off, gy);
+        drawSprite(spr.puckMag, gx + off, gy);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      // Glitch warning: the puck jitters and splits into cyan / magenta ghosts.
+      const gw = now - glitchWarnT;
+      let jx = 0;
+      let jy = 0;
+      const warn = gw >= 0 && gw < GLITCH_WARN_MS;
+      if (warn) {
+        const q = (gw / 40) | 0;
+        const h1 = Math.sin(q * 12.9898) * 43758.5453;
+        const h2 = Math.sin(q * 78.233) * 12345.6789;
+        jx = (h1 - Math.floor(h1) - 0.5) * 8;
+        jy = (h2 - Math.floor(h2) - 0.5) * 8;
+      }
       ctx.globalAlpha = dim;
-      drawSprite(spr.puck, sx, sy);
+      drawSprite(spr.puck, sx + jx, sy + jy);
+      if (warn) {
+        // The split has to read from across a table: a quarter puck radius each way.
+        const woff = Math.max(6, pr * 0.28);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.55;
+        drawSprite(spr.puckCyan, sx + jx - woff, sy + jy);
+        drawSprite(spr.puckMag, sx + jx + woff, sy + jy);
+        ctx.globalCompositeOperation = 'source-over';
+      }
       ctx.globalAlpha = 1;
       predK += ((uiNow.predicted ? 1 : 0) - predK) * (1 - Math.exp(-dt * 12));
       if (predK > 0.02) drawPredRing(sx, sy, pr, now);
@@ -2640,6 +2937,8 @@ export function createView(canvas, role, cfg) {
     }
 
     ctx.restore();
+
+    drawGlitchTear(now);
 
     ctx.setTransform(dpr * z, 0, 0, dpr * z, zx * dpr, zy * dpr);
     drawLatency();
@@ -2685,6 +2984,8 @@ export function createView(canvas, role, cfg) {
     bg = null;
     if (spr) {
       free(spr.puck);
+      free(spr.puckCyan);
+      free(spr.puckMag);
       free(spr.puckShadow);
       free(spr.host);
       free(spr.guest);
@@ -2699,6 +3000,8 @@ export function createView(canvas, role, cfg) {
     bumperSprites.clear();
     for (const cv of mineSprites.values()) free(cv);
     mineSprites.clear();
+    for (const cv of bombSprites.values()) free(cv);
+    bombSprites.clear();
     free(glowWhite);
     free(glowHost);
     free(glowGuest);

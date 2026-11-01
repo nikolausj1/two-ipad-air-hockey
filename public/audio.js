@@ -186,6 +186,37 @@ export function createAudio() {
     noise(t + 0.02, 0.18, 'highpass', 2500, 0.6, 0.3);
   }
 
+  // A bomb gets knocked by the puck: a dull low thud.
+  function bombhit(t, s) {
+    const v = 0.25 + 0.55 * s;
+    tone(t, 'sine', 110, 0.12, v, 55, 0.002);
+    noise(t, 0.08, 'lowpass', 600, 0.7, v * 0.45);
+  }
+
+  // A mallet touched an armed bomb: heavier than a mine, then a sad two-note "uh-oh".
+  function bomb(t) {
+    tone(t, 'sine', 120, 0.95, 0.95, 26, 0.004);
+    tone(t, 'sine', 48, 0.7, 0.8, 28, 0.003); // sub thump
+    tone(t, 'sawtooth', 70, 0.6, 0.25, 26, 0.004, 350);
+    noise(t, 0.95, 'lowpass', 1200, 0.8, 0.75, 90);
+    noise(t + 0.015, 0.22, 'highpass', 2200, 0.6, 0.32);
+    note(t + 0.25, 'triangle', 330, 0.16, 0.24, 1600);
+    note(t + 0.4, 'triangle', 262, 0.24, 0.24, 1400);
+  }
+
+  // The puck is about to jump: two tiny high blips.
+  function glitchwarn(t) {
+    tone(t, 'square', 1760, 0.025, 0.05, null, 0.002);
+    tone(t + 0.06, 'square', 1760, 0.025, 0.05, null, 0.002);
+  }
+
+  // The puck jumped: a digital zap.
+  function glitch(t) {
+    tone(t, 'square', 900, 0.12, 0.16, 180, 0.002);
+    noise(t, 0.05, 'highpass', 4000, 0.7, 0.2);
+    tone(t, 'sine', 140, 0.04, 0.2, 70, 0.001);
+  }
+
   function goal(t, scored) {
     // Two-tone horn. Scoring is bright and rising, conceding is lower and falling.
     const a = scored ? 349 : 311;
@@ -228,7 +259,7 @@ export function createAudio() {
   }
 
   // Minimum spacing between two sounds of the same kind, in seconds.
-  const SPACING = { hit: 0.03, wall: 0.04, bumper: 0.05, mine: 0.1, goal: 0.5, countdown: 0.3, serve: 0.3, over: 1 };
+  const SPACING = { hit: 0.03, wall: 0.04, bumper: 0.05, mine: 0.1, bombhit: 0.05, bomb: 0.5, glitchwarn: 0.3, glitch: 0.3, goal: 0.5, countdown: 0.3, serve: 0.3, over: 1 };
 
   function play(ev, snap) {
     const kind = ev.k;
@@ -248,6 +279,10 @@ export function createAudio() {
       case 'wall': wall(t, s); dur = 0.1; break;
       case 'bumper': bumper(t, s); dur = 0.7; break;
       case 'mine': mine(t); dur = 0.9; break;
+      case 'bombhit': bombhit(t, s); dur = 0.2; break;
+      case 'bomb': bomb(t); dur = 1.1; break;
+      case 'glitchwarn': glitchwarn(t); dur = 0.2; break;
+      case 'glitch': glitch(t); dur = 0.25; break;
       case 'goal': {
         const scored = ev.by ? ev.by === perspective || (ev.by === 'host' && perspective === 'solo') : true;
         goal(t, scored);

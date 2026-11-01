@@ -11,16 +11,20 @@
 const LEVELS = {
   //          max speed, reaction delay (s), aim error (frac of W*0.3),
   //          defensive x tracking, goal-corner aim (frac of half goal width),
-  //          predict rail bounces, defend line (frac of H)
-  easy: { vmax: 700, delay: 0.25, aimErr: 1.0, track: 0.3, corner: 0, bounce: false, predictDef: false, defY: 0.1 },
-  medium: { vmax: 1200, delay: 0.08, aimErr: 0.45, track: 0.45, corner: 0.15, bounce: false, predictDef: false, defY: 0.12 },
-  hard: { vmax: 1800, delay: 0.03, aimErr: 0.15, track: 0.6, corner: 0.5, bounce: false, predictDef: true, defY: 0.15 },
-  impossible: { vmax: 2800, delay: 0, aimErr: 0, track: 0.8, corner: 0.75, bounce: true, predictDef: true, defY: 0.2 },
+  //          predict rail bounces, defend line (frac of H), armed-bomb avoidance
+  //          strength (1 = full), careful = never steps onto an armed bomb itself
+  easy: { vmax: 700, delay: 0.25, aimErr: 1.0, track: 0.3, corner: 0, bounce: false, predictDef: false, defY: 0.1, bomb: 0.6, careful: false },
+  medium: { vmax: 1200, delay: 0.08, aimErr: 0.45, track: 0.45, corner: 0.15, bounce: false, predictDef: false, defY: 0.12, bomb: 0.6, careful: false },
+  hard: { vmax: 1800, delay: 0.03, aimErr: 0.15, track: 0.6, corner: 0.5, bounce: false, predictDef: true, defY: 0.15, bomb: 1, careful: true },
+  impossible: { vmax: 2800, delay: 0, aimErr: 0, track: 0.8, corner: 0.75, bounce: true, predictDef: true, defY: 0.2, bomb: 1, careful: true },
 };
 
 const STRIKE_FACTOR = 0.6; // strike speed as a fraction of the level's max speed
 const SLOW_PUCK = 140; // px/s: below this the puck is "at rest" for interception
 const AWAY_SPEED = 350; // puck faster than this and heading to the host: do not chase
+const BOMB_BAND = 70; // px beyond (malletR + bomb r) where the repulsion fades to zero
+const BOMB_PUSH = 120; // px a full-strength repulsion shifts the target
+const BOMB_KEEP = 10; // targets never sit closer than this beyond (malletR + bomb r)
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -107,6 +111,84 @@ export function createBot(level, cfg) {
     stage.x = clamp(stage.x, minX, maxX);
     stage.y = clamp(stage.y, minY, maxY);
     return { ax, ay, stage };
+  }
+
+  /** Armed bombs among the sim's obstacles (state.obs may be missing or empty). */
+  function armedBombs(state) {
+    const list = state.obs;
+    if (!list || !list.length) return null;
+    let out = null;
+    for (const o of list) {
+      if (o.k === 'bomb' && o.armed) (out || (out = [])).push(o);
+    }
+    return out;
+  }
+
+  /** Push the target (tx, ty) away from armed bombs near the mallet and keep it
+   *  out of their blast margin. Returns the adjusted {x, y}. */
+  function avoidBombs(m, bombs, tx, ty) {
+    for (const o of bombs) {
+      const D = malletR + o.r;
+      const dx = m.x - o.x;
+      const dy = m.y - o.y;
+      const d = Math.hypot(dx, dy);
+      if (d >= D + BOMB_BAND) continue;
+      const depth = clamp((D + BOMB_BAND - d) / BOMB_BAND, 0, 1); // 1 when overlapping
+      const nx = d > 1e-6 ? dx / d : 0;
+      const ny = d > 1e-6 ? dy / d : 1;
+      tx += nx * depth * L.bomb * BOMB_PUSH;
+      ty += ny * depth * L.bomb * BOMB_PUSH;
+    }
+    // Never aim inside a bomb's keep-out circle: slide the target around it.
+    for (let pass = 0; pass < 2; pass++) {
+      tx = clamp(tx, minX, maxX);
+      ty = clamp(ty, minY, maxY);
+      for (const o of bombs) {
+        const keep = malletR + o.r + BOMB_KEEP;
+        let ex = tx - o.x;
+        let ey = ty - o.y;
+        let e = Math.hypot(ex, ey);
+        if (e >= keep) continue;
+        if (e < 1e-6) {
+          ex = m.x - o.x;
+          ey = m.y - o.y;
+          e = Math.hypot(ex, ey);
+          if (e < 1e-6) {
+            ex = 0;
+            ey = 1;
+            e = 1;
+          }
+        }
+        tx = o.x + (ex / e) * keep;
+        ty = o.y + (ey / e) * keep;
+      }
+    }
+    {
+      // Do not cut across a bomb on the way to the target: detour around it.
+      for (const o of bombs) {
+        const D = malletR + o.r;
+        const sx = tx - m.x;
+        const sy = ty - m.y;
+        const l2 = sx * sx + sy * sy;
+        if (l2 < 1) continue;
+        const u = clamp(((o.x - m.x) * sx + (o.y - m.y) * sy) / l2, 0, 1);
+        if (u <= 0 || u >= 1) continue;
+        const cx = m.x + sx * u - o.x;
+        const cy = m.y + sy * u - o.y;
+        if (Math.hypot(cx, cy) >= D + BOMB_KEEP + 4) continue;
+        const len = Math.sqrt(l2);
+        let px = -sy / len;
+        let py = sx / len;
+        const side = cx * px + cy * py;
+        if (side < 0 || (side === 0 && o.x > W / 2)) {
+          px = -px;
+          py = -py;
+        }
+        tx = clamp(o.x + px * (D + BOMB_KEEP + 14), minX, maxX);
+        ty = clamp(o.y + py * (D + BOMB_KEEP + 14), minY, maxY);
+      }
+    }
+    return { x: tx, y: ty };
   }
 
   function update(state, dt, now) {
@@ -228,6 +310,13 @@ export function createBot(level, cfg) {
     tx = clamp(tx, minX, maxX);
     ty = clamp(ty, minY, maxY);
 
+    const bombs = armedBombs(state);
+    if (bombs) {
+      const a = avoidBombs(m, bombs, tx, ty);
+      tx = clamp(a.x, minX, maxX);
+      ty = clamp(a.y, minY, maxY);
+    }
+
     // Move towards the target, capped by the level's top speed.
     const dx = tx - m.x;
     const dy = ty - m.y;
@@ -243,6 +332,20 @@ export function createBot(level, cfg) {
     }
     nx = clamp(nx, minX, maxX);
     ny = clamp(ny, minY, maxY);
+    if (bombs && L.careful) {
+      // The careful levels never step onto an armed bomb themselves.
+      for (const o of bombs) {
+        const D = malletR + o.r + 2;
+        const ex = nx - o.x;
+        const ey = ny - o.y;
+        const e = Math.hypot(ex, ey);
+        if (e < D) {
+          if (e < 1e-6) continue;
+          nx = clamp(o.x + (ex / e) * D, minX, maxX);
+          ny = clamp(o.y + (ey / e) * D, minY, maxY);
+        }
+      }
+    }
     m.vx = (nx - m.x) / dt;
     m.vy = (ny - m.y) / dt;
     m.x = nx;

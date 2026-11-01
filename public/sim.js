@@ -22,7 +22,7 @@ export const PHASE = {
   OVER: 'over',
 };
 
-export const MODES = ['classic', 'bumpers', 'ice', 'heavy', 'mines'];
+export const MODES = ['classic', 'bumpers', 'ice', 'mines', 'bombs', 'glitch'];
 
 // Per-mode physics. fric = fraction of puck speed kept after one second of
 // sliding, wall = rail restitution, mallet = mallet restitution, max = puck
@@ -32,8 +32,9 @@ export const MODE_PHYS = {
   classic: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   bumpers: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   mines: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  bombs: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  glitch: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   ice: { fric: 0.95, wall: 1.0, mallet: 0.85, max: 3000 },
-  heavy: { fric: 0.6, wall: 0.7, mallet: 0.5, max: 1560 }, // 60% of classic
 };
 
 const BUMPER_RESTITUTION = 0.95;
@@ -41,6 +42,26 @@ const BUMPER_R_FACTOR = 0.6; // of malletR
 const MINE_R_FACTOR = 0.45; // of malletR
 const MINE_REARM_S = 4;
 const MINE_BLAST_FACTOR = 0.92; // of max puck speed
+// Bombs: rigid bodies the puck can knock around. A mallet touching an armed
+// bomb detonates it and the other player scores.
+const BOMB_R_FACTOR = 0.5; // of malletR
+const BOMB_PUCK_MASS = 1;
+const BOMB_MASS = 2.2;
+const BOMB_PUCK_REST = 0.85; // puck vs bomb restitution
+const BOMB_BOMB_REST = 0.7; // bomb vs bomb (equal masses)
+const BOMB_WALL_REST = 0.6; // bomb vs rails (end rails are solid, no goal mouths)
+const BOMB_FRIC = 0.12; // fraction of speed kept after one second of sliding
+const BOMB_MAX = 1600; // px/s
+const BOMB_STOP = 8; // px/s: slower than this snaps to rest
+const BOMB_ARM_MARGIN = 12; // px beyond malletR + r a mallet must stay away to arm
+const BOMB_SEAM_REST_S = 1; // at rest fully inside the seam gap this long = nudge
+const BOMB_SEAM_NUDGE = 220; // px/s
+const BOMB_PUCK_SPEED_REF = 1800; // approach speed for a full-strength bombhit event
+// Glitch mode: the puck teleports a short way every few seconds.
+const GLITCH_WARN_S = 0.35;
+const GLITCH_GIVE_UP_S = 0.6;
+const GLITCH_TRIES = 12;
+const GLITCH_MIN_SPEED = 350; // px/s
 const MAX_MALLET_SPEED = 3200; // px/s
 const SERVE_SPEED = 600;
 const SUBSTEPS = 4;
@@ -61,6 +82,7 @@ const MINE_LAYOUTS = {
   2: [[0.25, 0.4], [0.75, 0.4]],
   3: [[0.22, 0.32], [0.78, 0.32], [0.5, 0.62]],
 };
+const BOMB_LAYOUT = [[0.24, 0.3], [0.76, 0.3], [0.5, 0.58]];
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -302,6 +324,11 @@ export function createSim(cfg, opts = {}) {
   let seq = 0;
   let lastTick = Infinity;
   let seamStill = 0;
+  const bombMode = mode === 'bombs';
+  const glitchMode = mode === 'glitch';
+  let glitchAt = Infinity; // sim time of the next glitch
+  let glitchWarned = false;
+  let glitchN = 0; // glitches (or skipped attempts) this rally
 
   function emit(k, x, y, s, extra) {
     if (events.length >= EVENT_CAP) return;
@@ -313,14 +340,17 @@ export function createSim(cfg, opts = {}) {
   // --- obstacles ------------------------------------------------------------
 
   const obstacles = buildObstacles(); // mutated in place by setGap()
+  state.obs = obstacles; // the bot reads this (same array reference)
 
   function buildObstacles() {
     const list = [];
-    if (mode !== 'bumpers' && mode !== 'mines') return list;
+    if (mode !== 'bumpers' && mode !== 'mines' && mode !== 'bombs') return list;
     const isBumper = mode === 'bumpers';
-    const rad = malletR * (isBumper ? BUMPER_R_FACTOR : MINE_R_FACTOR);
+    const rad = malletR * (bombMode ? BOMB_R_FACTOR : isBumper ? BUMPER_R_FACTOR : MINE_R_FACTOR);
     let layout;
-    if (isBumper) {
+    if (bombMode) {
+      layout = BOMB_LAYOUT;
+    } else if (isBumper) {
       const n = clamp(Math.round(cfg.bumperCount || 4), 3, 5);
       layout = BUMPER_LAYOUTS[n];
     } else {
@@ -334,19 +364,40 @@ export function createSim(cfg, opts = {}) {
       // Keep out of the goal crease (push towards the seam if too close).
       while (fv > 0.2 && Math.hypot(x - W / 2, (1 - fv) * H) < creaseLimit) fv -= 0.02;
       const y = seamBottom + fv * H;
+      if (bombMode) {
+        list.push(makeBomb(x, y, rad));
+        list.push(makeBomb(W - x, bottom - y, rad));
+        continue;
+      }
       list.push({ k: isBumper ? 'bumper' : 'mine', x, y, r: rad, rearmAt: 0 });
       list.push({ k: isBumper ? 'bumper' : 'mine', x: W - x, y: bottom - y, r: rad, rearmAt: 0 });
     }
     return list;
   }
 
+  function makeBomb(x, y, rad) {
+    return { k: 'bomb', x, y, r: rad, vx: 0, vy: 0, hx: x, hy: y, armed: false, still: 0 };
+  }
+
+  /** Mines rearm; bombs go home, at rest, unarmed. */
   function rearmAll() {
-    for (const o of obstacles) o.rearmAt = 0;
+    for (const o of obstacles) {
+      o.rearmAt = 0;
+      if (o.k === 'bomb') {
+        o.x = o.hx;
+        o.y = o.hy;
+        o.vx = 0;
+        o.vy = 0;
+        o.armed = false;
+        o.still = 0;
+      }
+    }
   }
 
   function collideObstacles() {
     const p = state.puck;
     for (const o of obstacles) {
+      if (o.k === 'bomb') continue; // bombs are bodies, see stepBombs()
       const dx = p.x - o.x;
       const dy = p.y - o.y;
       const minDist = puckR + o.r;
@@ -390,6 +441,177 @@ export function createSim(cfg, opts = {}) {
     }
   }
 
+  // --- bombs ----------------------------------------------------------------
+
+  function bombRails(b) {
+    if (b.x < b.r) {
+      b.x = b.r;
+      b.vx = Math.abs(b.vx) * BOMB_WALL_REST;
+    } else if (b.x > W - b.r) {
+      b.x = W - b.r;
+      b.vx = -Math.abs(b.vx) * BOMB_WALL_REST;
+    }
+    if (b.y < b.r) {
+      b.y = b.r;
+      b.vy = Math.abs(b.vy) * BOMB_WALL_REST;
+    } else if (b.y > bottom - b.r) {
+      b.y = bottom - b.r;
+      b.vy = -Math.abs(b.vy) * BOMB_WALL_REST;
+    }
+  }
+
+  /** Two bombs (equal masses): push apart evenly, exchange normal velocity. */
+  function bombBomb(a, b) {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    const minDist = a.r + b.r;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= minDist * minDist) return;
+    let d = Math.sqrt(d2);
+    if (d < 1e-6) {
+      dx = 1;
+      dy = 0;
+      d = 1;
+    }
+    const nx = dx / d;
+    const ny = dy / d;
+    const push = (minDist - d) / 2 + 0.005;
+    a.x -= nx * push;
+    a.y -= ny * push;
+    b.x += nx * push;
+    b.y += ny * push;
+    const vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+    if (vn < 0) {
+      const j = (-(1 + BOMB_BOMB_REST) * vn) / 2;
+      a.vx -= j * nx;
+      a.vy -= j * ny;
+      b.vx += j * nx;
+      b.vy += j * ny;
+    }
+  }
+
+  /** Puck vs bomb: two-body response along the normal, both pushed apart. */
+  function puckBomb(b) {
+    const p = state.puck;
+    let dx = p.x - b.x;
+    let dy = p.y - b.y;
+    const minDist = puckR + b.r;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= minDist * minDist) return;
+    let d = Math.sqrt(d2);
+    let nx;
+    let ny;
+    if (d < 1e-6) {
+      const rvx = p.vx - b.vx;
+      const rvy = p.vy - b.vy;
+      const rs = Math.hypot(rvx, rvy);
+      nx = rs > 1e-6 ? -rvx / rs : 0;
+      ny = rs > 1e-6 ? -rvy / rs : -1;
+      d = 0;
+    } else {
+      nx = dx / d;
+      ny = dy / d;
+    }
+    const total = BOMB_PUCK_MASS + BOMB_MASS;
+    const push = minDist - d + 0.01;
+    p.x += nx * push * (BOMB_MASS / total);
+    p.y += ny * push * (BOMB_MASS / total);
+    b.x -= nx * push * (BOMB_PUCK_MASS / total);
+    b.y -= ny * push * (BOMB_PUCK_MASS / total);
+    const vn = (p.vx - b.vx) * nx + (p.vy - b.vy) * ny;
+    if (vn < 0) {
+      const j = (-(1 + BOMB_PUCK_REST) * vn) / (1 / BOMB_PUCK_MASS + 1 / BOMB_MASS);
+      p.vx += (j / BOMB_PUCK_MASS) * nx;
+      p.vy += (j / BOMB_PUCK_MASS) * ny;
+      b.vx -= (j / BOMB_MASS) * nx;
+      b.vy -= (j / BOMB_MASS) * ny;
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > MAX_PUCK_SPEED) {
+        p.vx *= MAX_PUCK_SPEED / sp;
+        p.vy *= MAX_PUCK_SPEED / sp;
+      }
+      const s = Math.min(1, -vn / BOMB_PUCK_SPEED_REF);
+      if (s > 0.04) emit('bombhit', b.x + nx * b.r, b.y + ny * b.r, s);
+    }
+  }
+
+  /** Keep the puck on the table after a bomb pushed it (goal mouths stay open). */
+  function clampPuck() {
+    const p = state.puck;
+    p.x = clamp(p.x, puckR, W - puckR);
+    if (p.y < puckR && !inMouth(p.x, 'guest')) p.y = puckR;
+    else if (p.y > bottom - puckR && !inMouth(p.x, 'host')) p.y = bottom - puckR;
+  }
+
+  /** An armed bomb under mallet `m` goes off: the mallet's owner loses a point.
+   *  Returns true when a bomb detonated (the phase has changed). */
+  function detonateCheck(m, role) {
+    if (state.phase !== PHASE.PLAY) return false;
+    for (const b of obstacles) {
+      if (!b.armed) continue;
+      if (Math.hypot(m.x - b.x, m.y - b.y) < malletR + b.r) {
+        emit('bomb', b.x, b.y, 1, { by: role });
+        goal(role, { x: b.x, y: b.y, why: 'bomb' });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** One physics substep for every bomb: arming, friction, rails, bomb-bomb,
+   *  puck-bomb, seam rescue, detonation by a mallet the bomb slid into. */
+  function stepBombs(dt) {
+    const mh = state.mallets.host;
+    const mg = state.mallets.guest;
+    const armDist = malletR + BOMB_ARM_MARGIN;
+    const k = Math.pow(BOMB_FRIC, dt);
+    for (const b of obstacles) {
+      if (!b.armed) {
+        const lim = armDist + b.r;
+        if (Math.hypot(b.x - mh.x, b.y - mh.y) >= lim && Math.hypot(b.x - mg.x, b.y - mg.y) >= lim) b.armed = true;
+      }
+      b.vx *= k;
+      b.vy *= k;
+      const sp = Math.hypot(b.vx, b.vy);
+      if (sp > BOMB_MAX) {
+        b.vx *= BOMB_MAX / sp;
+        b.vy *= BOMB_MAX / sp;
+      } else if (sp < BOMB_STOP) {
+        b.vx = 0;
+        b.vy = 0;
+      }
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      bombRails(b);
+    }
+    for (let it = 0; it < 3; it++) {
+      for (let i = 0; i < obstacles.length; i++) {
+        for (let j = i + 1; j < obstacles.length; j++) bombBomb(obstacles[i], obstacles[j]);
+      }
+      for (const b of obstacles) puckBomb(b);
+      for (const b of obstacles) bombRails(b);
+      clampPuck();
+    }
+    // A bomb resting fully inside the seam gap is out of reach: nudge it out.
+    if (G > 0) {
+      for (const b of obstacles) {
+        const inGap = b.y - b.r > seamTop && b.y + b.r < seamBottom;
+        if (inGap && Math.hypot(b.vx, b.vy) < 30) {
+          b.still += dt;
+          if (b.still > BOMB_SEAM_REST_S) {
+            b.vx = 0;
+            b.vy = b.y < (seamTop + seamBottom) / 2 ? -BOMB_SEAM_NUDGE : BOMB_SEAM_NUDGE;
+            b.still = 0;
+          }
+        } else {
+          b.still = 0;
+        }
+      }
+    }
+    if (detonateCheck(mh, 'host')) return;
+    detonateCheck(mg, 'guest');
+  }
+
   // --- serving --------------------------------------------------------------
 
   function placePuckForServe() {
@@ -411,6 +633,11 @@ export function createSim(cfg, opts = {}) {
     p.vy = Math.cos(angle) * SERVE_SPEED * dir;
     seamStill = 0;
     rearmAll();
+    if (glitchMode) {
+      glitchAt = state.time + rand(1.8, 3.0);
+      glitchWarned = false;
+      glitchN = 0;
+    }
     emit('serve', p.x, p.y, 1);
   }
 
@@ -489,6 +716,7 @@ export function createSim(cfg, opts = {}) {
   }
 
   function collideMallet(m, role) {
+    if (bombMode && detonateCheck(m, role)) return;
     const p = state.puck;
     const hit = malletHit(p, m, role, geom, phys, inMouth);
     if (hit && hit.vn < 0) {
@@ -510,9 +738,12 @@ export function createSim(cfg, opts = {}) {
     state.gw = [h, g];
   }
 
-  function goal(scoredOn) {
+  /** `extra` {x, y, why} marks a goal that did not come from the puck (a bomb
+   *  going off): the event is placed at x, y and carries `why`. */
+  function goal(scoredOn, extra) {
     const scorer = scoredOn === 'host' ? 'guest' : 'host';
-    emit('goal', state.puck.x, scoredOn === 'guest' ? 0 : bottom, 1, { by: scorer });
+    if (extra) emit('goal', extra.x, extra.y, 1, { by: scorer, why: extra.why });
+    else emit('goal', state.puck.x, scoredOn === 'guest' ? 0 : bottom, 1, { by: scorer });
     state.score[scorer] += 1;
     state.lastGoalBy = scorer;
     state.serveTo = scoredOn;
@@ -550,6 +781,12 @@ export function createSim(cfg, opts = {}) {
       collideMallet(mh, 'host');
       collideMallet(mg, 'guest');
       if (obstacles.length) collideObstacles();
+      if (state.phase !== PHASE.PLAY) return; // a bomb went off
+    }
+    // Bombs are bodies: the puck and each other can shove them around.
+    if (bombMode) {
+      stepBombs(dt);
+      if (state.phase !== PHASE.PLAY) return;
     }
     // Still overlapping a mallet = squeezed between it and an obstacle or rail:
     // the puck just rides along with half the mallet's velocity.
@@ -582,6 +819,62 @@ export function createSim(cfg, opts = {}) {
     }
   }
 
+  // --- glitch ---------------------------------------------------------------
+
+  function rand(lo, hi) {
+    return lo + rng() * (hi - lo);
+  }
+
+  function glitchReschedule() {
+    glitchN += 1;
+    glitchAt = state.time + rand(1.4, 2.4) * Math.max(0.55, 1 - 0.07 * glitchN);
+    glitchWarned = false;
+  }
+
+  /** Telegraph, then hop the puck a short way. Runs once per step while playing. */
+  function glitchTick() {
+    const p = state.puck;
+    if (!glitchWarned && state.time >= glitchAt - GLITCH_WARN_S) {
+      emit('glitchwarn', p.x, p.y, 1);
+      glitchWarned = true;
+    }
+    if (!glitchWarned || state.time < glitchAt) return;
+    const inGap = (y) => y > seamTop - puckR && y < seamBottom + puckR;
+    if (inGap(p.y)) {
+      // Never hop out of (or into) the seam: wait for the puck to leave it.
+      if (state.time >= glitchAt + GLITCH_GIVE_UP_S) glitchReschedule();
+      return;
+    }
+    const mh = state.mallets.host;
+    const mg = state.mallets.guest;
+    const margin = puckR * 1.5;
+    const mallDist = malletR * 2.5 + puckR;
+    const goalDist = goalW / 2 + puckR * 3;
+    for (let i = 0; i < GLITCH_TRIES; i++) {
+      const len = rand(3, 6) * puckR;
+      const ang = rng() * Math.PI * 2;
+      const cx = p.x + Math.cos(ang) * len;
+      const cy = p.y + Math.sin(ang) * len;
+      if (cx < margin || cx > W - margin || cy < margin || cy > bottom - margin) continue;
+      if (inGap(cy)) continue;
+      if (Math.hypot(cx - mh.x, cy - mh.y) < mallDist || Math.hypot(cx - mg.x, cy - mg.y) < mallDist) continue;
+      if (Math.hypot(cx - W / 2, cy) <= goalDist || Math.hypot(cx - W / 2, cy - bottom) <= goalDist) continue;
+      const ox = p.x;
+      const oy = p.y;
+      const sp0 = Math.hypot(p.vx, p.vy);
+      const dir = (sp0 > 1e-6 ? Math.atan2(p.vy, p.vx) : ang) + rand(-0.6, 0.6);
+      const sp = Math.min(MAX_PUCK_SPEED, Math.max(GLITCH_MIN_SPEED, sp0));
+      p.x = cx;
+      p.y = cy;
+      p.vx = Math.cos(dir) * sp;
+      p.vy = Math.sin(dir) * sp;
+      seamStill = 0;
+      emit('glitch', cx, cy, Math.min(5, len / puckR), { fx: r(ox), fy: r(oy) });
+      break;
+    }
+    glitchReschedule();
+  }
+
   function wallBounce(vn) {
     const s = Math.min(1, vn / 2600);
     if (s > 0.04) emit('wall', state.puck.x, state.puck.y, s);
@@ -600,6 +893,7 @@ export function createSim(cfg, opts = {}) {
       goalW,
       friction: phys.fric,
       wallRestitution: phys.wall,
+      rng, // the bot's aim noise follows the sim's rng, so seeded runs repeat
     });
   }
   if (cfg.players === 'bot') makeBot();
@@ -656,6 +950,7 @@ export function createSim(cfg, opts = {}) {
       case PHASE.PLAY: {
         const h = dt / SUBSTEPS;
         for (let i = 0; i < SUBSTEPS && state.phase === PHASE.PLAY; i++) stepPuck(h);
+        if (glitchMode && state.phase === PHASE.PLAY) glitchTick();
         break;
       }
       case PHASE.OVER:
@@ -748,7 +1043,7 @@ export function createSim(cfg, opts = {}) {
       x: r(o.x),
       y: r(o.y),
       r: r(o.r),
-      a: o.k === 'bumper' || state.time >= o.rearmAt ? 1 : 0,
+      a: o.k === 'bumper' ? 1 : o.k === 'bomb' ? (o.armed ? 1 : 0) : state.time >= o.rearmAt ? 1 : 0,
     }));
     return {
       t: 's',

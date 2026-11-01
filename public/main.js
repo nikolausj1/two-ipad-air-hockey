@@ -43,7 +43,7 @@ const DEFAULTS = {
   conn: 'auto', // 'auto' | 'p2p' | 'ws' (see pickKind)
   diag: false, // diagnostics panel (fps, rtt, jitter...) in the pause menu
 };
-const MODES = ['classic', 'bumpers', 'ice', 'heavy', 'mines'];
+const MODES = ['classic', 'bumpers', 'ice', 'bombs', 'mines', 'glitch'];
 const PLAYS = ['duo', 'bot', 'pass'];
 const BOT_LEVELS = ['easy', 'medium', 'hard', 'impossible'];
 const TARGETS = [5, 7, 11];
@@ -1746,6 +1746,12 @@ function predConfirmed(auth) {
   return true;
 }
 
+function hasGlitch(ev) {
+  if (!ev) return false;
+  for (let i = 0; i < ev.length; i++) if (ev[i] && ev[i].k === 'glitch') return true;
+  return false;
+}
+
 function renderGuest(latest, now, dt) {
   const first = latest !== lastRendered; // a snapshot the view has not seen yet
   const playing = latest.ph === 'play';
@@ -1781,8 +1787,10 @@ function renderGuest(latest, now, dt) {
 
   const ageS = Math.min(0.12, (now - lastSnapshotAt) / 1000);
 
-  // 1. Has the host caught up with a predicted hit?
+  // 1. Has the host caught up with a predicted hit? (A glitch jump reported in
+  //    this snapshot makes any prediction moot: show the host's puck at once.)
   let auth = null;
+  if (pred.active && first && hasGlitch(latest.ev)) pred.active = false;
   if (pred.active) {
     if (now - pred.t0 >= PRED_MS) {
       pred.active = false;

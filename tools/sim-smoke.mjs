@@ -282,13 +282,18 @@ bottom = 2 * H + G;
 
 // ---- obstacle layouts ------------------------------------------------------
 console.log('Obstacle layouts');
-for (const mode of ['classic', 'ice', 'heavy', 'bumpers', 'mines']) {
+for (const mode of ['classic', 'ice', 'glitch', 'bumpers', 'mines', 'bombs']) {
   const sim = createSim({ ...base, mode });
   const ob = sim.snapshot().ob;
   const n = ob.length;
   if (mode === 'bumpers') check(n >= 6 && n <= 10 && n % 2 === 0, `bumper count ${n}`);
   else if (mode === 'mines') check(n >= 4 && n <= 6 && n % 2 === 0, `mine count ${n}`);
-  else check(n === 0, `${mode} should have no obstacles`);
+  else if (mode === 'bombs') {
+    check(n === 6, `bomb count ${n}`);
+    check(ob.every((o) => o.k === 'bomb'), 'bombs mode: every obstacle is a bomb');
+    check(Math.abs(ob[0].r - base.malletR * 0.5) < 0.06, `bomb radius ${ob[0].r}`);
+    check(ob.every((o) => o.a === 0), 'bombs start unarmed');
+  } else check(n === 0, `${mode} should have no obstacles`);
   for (const o of ob) {
     check(Math.abs(o.y - (H + G / 2)) > H * 0.15, `${mode} obstacle too close to seam`);
     const crease = Math.min(Math.hypot(o.x - W / 2, o.y), Math.hypot(o.x - W / 2, o.y - bottom));
@@ -316,7 +321,7 @@ run('comeback off', { mode: 'classic', players: 'bot', botLevel: 'impossible', c
 // ---- required: bot impossible vs idle host must score ----------------------
 console.log('\nRequired: impossible bot vs idle host mallet scores at least once');
 for (const mode of MODES) {
-  const res = run(`idle-host ${mode}/impossible`, { mode, players: 'bot', botLevel: 'impossible' }, { hostMode: 'idle', serveTo: 'guest', seed: 3 });
+  const res = run(`idle-host ${mode}/impossible`, { mode, players: 'bot', botLevel: 'impossible' }, { hostMode: 'idle', serveTo: 'guest', seed: 4 });
   check(res.sc.host + res.sc.guest >= 1, `${mode}: no goal in ${SECONDS}s`);
   check(res.sc.guest >= 1, `${mode}: bot never scored`);
 }
@@ -329,6 +334,12 @@ for (let seed = 1; seed <= 6; seed++) {
   bumperEvents += run(`bumpers seed ${seed}`, { mode: 'bumpers', players: 'bot', botLevel: 'hard' }, { seed }).kinds.bumper || 0;
 }
 check(mineEvents > 0, 'no mine events in any seed');
+check(!MODES.includes('heavy') && !MODE_PHYS.heavy, 'heavy mode is gone');
+check(MODES.includes('bombs') && MODES.includes('glitch'), 'bombs and glitch modes exist');
+{
+  const sim = createSim({ ...base, mode: 'heavy' });
+  check(sim.cfg.mode === 'classic', 'unknown mode falls back to classic');
+}
 check(bumperEvents > 0, 'no bumper events in any seed');
 
 // ---- mallet pushing the puck into a bumper (collision order) ---------------
@@ -412,7 +423,7 @@ console.log('\nSnapshot seq, ts, sv');
 
 // ---- predictMalletHit ----------------------------------------------------------
 console.log('\npredictMalletHit');
-for (const mode of ['classic', 'ice', 'heavy']) {
+for (const mode of ['classic', 'ice']) {
   const cfg = { ...base, mode, players: 'pass' };
   const sim = createSim(cfg, { rng: rngFor(6) });
   const st = sim.state;
@@ -465,10 +476,10 @@ function r1(v) {
 }
 // A fast puck hitting a still guest mallet from below, and the speed cap.
 {
-  const cfg = { ...base, mode: 'heavy', players: 'pass' };
+  const cfg = { ...base, mode: 'ice', players: 'pass' };
   const snap = { p: [W / 2, 400, 0, -3000], g: G };
   const out = predictMalletHit(snap, cfg, 'guest', { x: W / 2, y: 300, vx: 0, vy: -3000 }, 0.02);
-  check(out === null || Math.hypot(out[2], out[3]) <= MODE_PHYS.heavy.max + 1e-6, 'predicted hit respects the heavy cap');
+  check(out === null || Math.hypot(out[2], out[3]) <= MODE_PHYS.ice.max + 1e-6, 'predicted hit respects the ice cap');
 }
 
 // ---- advancePuck -----------------------------------------------------------------
@@ -477,7 +488,6 @@ for (const [mode, v0] of [
   ['classic', [700, 150]],
   ['classic', [-1400, 240]],
   ['ice', [900, -200]],
-  ['heavy', [1200, 100]],
 ]) {
   const cfg = { ...base, mode, players: 'pass' };
   const sim = createSim(cfg, { rng: rngFor(2) });
@@ -511,6 +521,220 @@ for (const [mode, v0] of [
   check(b[0] >= cfg.puckR && b[2] > 0, 'advancePuck bounces off the side rail');
   const top = advancePuck([W / 2, cfg.puckR + 1, 0, -900], cfg, 0.1);
   check(top[1] >= cfg.puckR && top[3] > 0, 'advancePuck treats the end rail as solid (no goals)');
+}
+
+
+// ---- bombs: detonation ---------------------------------------------------------
+console.log('\nBombs: arming, detonation, reset on serve');
+{
+  const cfg = { ...base, mode: 'bombs', players: 'pass' };
+  const sim = createSim(cfg, { rng: rngFor(11) });
+  const st = sim.state;
+  const rd = (v) => Math.round(v * 10) / 10;
+  let now = 1000;
+  const tick = () => {
+    now += DT * 1000;
+    sim.step(DT, now);
+    return sim.snapshot();
+  };
+  check(sim.state.obs === sim.obstacles, 'state.obs is the obstacle array');
+  sim.setReady('host');
+  sim.setReady('guest');
+  for (let i = 0; i < 300 && st.phase !== PHASE.PLAY; i++) tick();
+  check(st.phase === PHASE.PLAY, 'bombs: reached play');
+  const parkPuck = () => {
+    st.puck.x = W * 0.1;
+    st.puck.y = H + G + H * 0.2;
+    st.puck.vx = 0;
+    st.puck.vy = 0;
+  };
+  parkPuck();
+  check(sim.obstacles.every((o) => o.armed === false), 'bombs: unarmed right after the serve');
+  let snap = tick();
+  for (let i = 0; i < 5; i++) {
+    parkPuck();
+    snap = tick();
+  }
+  check(snap.ob.length === 6 && snap.ob.every((o) => o.k === 'bomb' && o.a === 1), `bombs arm once mallets are far (${JSON.stringify(snap.ob.map((o) => o.a))})`);
+  const target = sim.obstacles.find((o) => o.y > H + G);
+  const tx0 = target.x;
+  const ty0 = target.y;
+  // Walk the host mallet onto the bomb in short, non-teleporting steps.
+  const mh = st.mallets.host;
+  let found = null;
+  for (let i = 1; i <= 8 && !found; i++) {
+    parkPuck();
+    const x0 = mh.x;
+    const y0 = mh.y;
+    now += DT * 1000;
+    sim.setMallet('host', x0 + (tx0 - x0) / (9 - i), y0 + (ty0 - y0) / (9 - i), now);
+    let sn = sim.snapshot();
+    if (!sn.ev.some((e) => e.k === 'goal')) {
+      sim.step(DT, now);
+      sn = sim.snapshot();
+    }
+    if (sn.ev.some((e) => e.k === 'goal')) found = sn;
+  }
+  check(!!found, 'bombs: host mallet reached a bomb and it went off');
+  if (found) {
+    const be = found.ev.find((e) => e.k === 'bomb');
+    const ge = found.ev.find((e) => e.k === 'goal');
+    check(be && be.by === 'host' && be.s === 1, `bomb event ${JSON.stringify(be)}`);
+    check(ge && ge.by === 'guest' && ge.why === 'bomb' && ge.s === 1, `goal event ${JSON.stringify(ge)}`);
+    check(be && ge && be.x === rd(tx0) && be.y === rd(ty0), 'bomb event at the bomb position');
+    check(ge && ge.x === rd(tx0) && ge.y === rd(ty0), 'goal event at the bomb position');
+    check(st.score.guest === 1 && st.score.host === 0, `score after detonation ${st.score.host}-${st.score.guest}`);
+    check(st.phase === PHASE.GOAL && found.ph === 'goal' && found.sc.join() === '0,1', 'phase goal after detonation');
+    check(st.serveTo === 'host' && found.lg === 'guest', 'detonation serves to the loser');
+    check(found.ev.filter((e) => e.k === 'goal').length === 1, 'one detonation per step');
+    check(found.ev.every((e) => e.s >= 0 && e.s <= 5), 'event strengths in range');
+  }
+  // Bombs stay put in the goal pause, then the serve resets them.
+  const before = sim.obstacles.map((o) => [o.x, o.y]);
+  for (let i = 0; i < 30; i++) tick();
+  check(sim.obstacles.every((o, i) => o.x === before[i][0] && o.y === before[i][1]), 'bombs do not move outside play');
+  for (let i = 0; i < 400 && st.phase !== PHASE.PLAY; i++) tick();
+  check(st.phase === PHASE.PLAY, 'bombs: serve after the pause');
+  snap = sim.snapshot();
+  check(sim.obstacles.every((o) => o.x === o.hx && o.y === o.hy && o.vx === 0 && o.vy === 0 && o.armed === false), 'bombs home and unarmed after the serve');
+  check(snap.ob.every((o) => o.a === 0), 'snapshot a === 0 after the serve');
+  // The host mallet still sits on the detonated bomb's home: it must stay unarmed
+  // and harmless until the mallet moves away.
+  parkPuck();
+  for (let i = 0; i < 6; i++) {
+    parkPuck();
+    snap = tick();
+  }
+  check(st.phase === PHASE.PLAY, 'mallet on an unarmed bomb does not detonate it');
+  const n0 = snap.ob.filter((o) => o.a === 1).length;
+  check(n0 === 5 && target.armed === false, `only the covered bomb stays unarmed (${n0} armed)`);
+  for (let i = 0; i < 6; i++) {
+    parkPuck();
+    now += DT * 1000;
+    sim.setMallet('host', mh.x, Math.min(bottom - base.malletR, mh.y + 40), now);
+    snap = tick();
+  }
+  check(snap.ob.every((o) => o.a === 1) && st.phase === PHASE.PLAY, 'bombs arm again after the mallets move away');
+}
+
+// ---- bombs: puck interaction ------------------------------------------------------
+console.log('\nBombs: puck knocks bombs around');
+{
+  const cfg = { ...base, mode: 'bombs', players: 'pass' };
+  const sim = createSim(cfg, { rng: rngFor(12) });
+  const st = sim.state;
+  st.phase = PHASE.PLAY;
+  const home = sim.obstacles.map((o) => [o.x, o.y]);
+  const b0 = sim.obstacles.find((o) => o.y > H + G && o.x < W / 3);
+  const mid = sim.obstacles.find((o) => o.y > H + G && Math.abs(o.x - W / 2) < 1);
+  const dir = { x: mid.x - b0.x, y: mid.y - b0.y };
+  const dl = Math.hypot(dir.x, dir.y);
+  dir.x /= dl;
+  dir.y /= dl;
+  const p = st.puck;
+  p.x = b0.x - dir.x * 200;
+  p.y = b0.y - dir.y * 200;
+  p.vx = dir.x * 1700;
+  p.vy = dir.y * 1700;
+  let now = 1000;
+  let hit = null;
+  let maxBomb = 0;
+  let maxMid = 0;
+  let nan = 0;
+  let overlap = 0;
+  let outside = 0;
+  let worst = 0;
+  for (let i = 0; i < Math.round(3 / DT); i++) {
+    now += DT * 1000;
+    sim.step(DT, now);
+    const sn = sim.snapshot();
+    const e = sn.ev.find((q) => q.k === 'bombhit');
+    if (e && !hit) hit = e;
+    for (const q of sn.ev) if (!(q.s >= 0 && q.s <= 5)) nan++;
+    maxBomb = Math.max(maxBomb, Math.hypot(b0.vx, b0.vy));
+    maxMid = Math.max(maxMid, Math.hypot(mid.vx, mid.vy));
+    const vals = [p.x, p.y, p.vx, p.vy];
+    for (const o of sim.obstacles) vals.push(o.x, o.y, o.vx, o.vy);
+    if (vals.some((v) => !Number.isFinite(v))) nan++;
+    for (const o of sim.obstacles) {
+      if (o.x - o.r < -1e-6 || o.x + o.r > W + 1e-6 || o.y - o.r < -1e-6 || o.y + o.r > bottom + 1e-6) outside++;
+    }
+    for (let a = 0; a < sim.obstacles.length; a++) {
+      for (let b = a + 1; b < sim.obstacles.length; b++) {
+        const A = sim.obstacles[a];
+        const B = sim.obstacles[b];
+        const ov = A.r + B.r - Math.hypot(A.x - B.x, A.y - B.y);
+        worst = Math.max(worst, ov);
+        if (ov > 0.5) overlap++;
+      }
+    }
+  }
+  console.log(`  bombhit ${JSON.stringify(hit)}, bomb peak ${Math.round(maxBomb)} px/s, centre bomb peak ${Math.round(maxMid)} px/s, worst bomb overlap ${worst.toFixed(3)} px`);
+  check(!!hit, 'puck-bomb contact emits bombhit');
+  check(hit && hit.s > 0.04 && hit.s <= 1, 'bombhit strength in (0.04, 1]');
+  check(maxBomb > 300, `bomb gained velocity (${Math.round(maxBomb)})`);
+  check(maxMid > 20, `bomb-bomb collision moved the second bomb (${Math.round(maxMid)})`);
+  check(nan === 0, `bombs: NaN or bad event strength (${nan})`);
+  check(overlap === 0, `bombs overlapped on ${overlap} frames (worst ${worst.toFixed(2)} px)`);
+  check(outside === 0, `bombs left the rink on ${outside} frames`);
+  check(home.some((h, i) => Math.hypot(sim.obstacles[i].x - h[0], sim.obstacles[i].y - h[1]) > 20), 'a bomb ended away from home');
+}
+
+// ---- glitch ----------------------------------------------------------------------------
+console.log('\nGlitch: warning, short hops, only during play');
+{
+  const cfg = { ...base, mode: 'glitch', players: 'bot', botLevel: 'hard' };
+  const sim = createSim(cfg, { rng: rngFor(26) });
+  const st = sim.state;
+  sim.setReady('host');
+  let now = 1000;
+  let warned = false;
+  let warns = 0;
+  let glitches = 0;
+  let unwarned = 0;
+  let badLen = 0;
+  let badLand = 0;
+  let badPhase = 0;
+  let badS = 0;
+  let minLen = Infinity;
+  let maxLen = 0;
+  const pr = base.puckR;
+  const gd = base.goalW / 2 + pr * 3;
+  for (let i = 0; i < Math.round(20 / DT); i++) {
+    now += DT * 1000;
+    hostScript(sim, now, 'chase');
+    sim.step(DT, now);
+    const sn = sim.snapshot();
+    for (const ev of sn.ev) {
+      if (!(ev.s >= 0 && ev.s <= 5)) badS++;
+      if (ev.k === 'serve') warned = false;
+      else if (ev.k === 'glitchwarn') {
+        warned = true;
+        warns++;
+      } else if (ev.k === 'glitch') {
+        glitches++;
+        if (!warned) unwarned++;
+        warned = false;
+        const len = Math.hypot(ev.x - ev.fx, ev.y - ev.fy);
+        minLen = Math.min(minLen, len / pr);
+        maxLen = Math.max(maxLen, len / pr);
+        if (len < 2.5 * pr - 0.3 || len > 6.5 * pr + 0.3) badLen++;
+        const inside = ev.x >= pr && ev.x <= W - pr && ev.y >= pr && ev.y <= bottom - pr;
+        const far = Math.hypot(ev.x - W / 2, ev.y) > gd - 0.2 && Math.hypot(ev.x - W / 2, ev.y - bottom) > gd - 0.2;
+        if (!inside || !far) badLand++;
+        if (st.phase !== PHASE.PLAY || sn.ph !== 'play') badPhase++;
+      }
+    }
+    if (st.phase === PHASE.OVER) break;
+  }
+  console.log(`  glitches=${glitches} warns=${warns} jump ${minLen.toFixed(2)}..${maxLen.toFixed(2)} puck radii`);
+  check(glitches >= 3, `at least 3 glitches in 20 s (${glitches})`);
+  check(warns >= glitches, `a warning for every glitch (${warns} vs ${glitches})`);
+  check(unwarned === 0, `${unwarned} glitches without a preceding glitchwarn`);
+  check(badLen === 0, `${badLen} glitches with a jump length outside [2.5, 6.5] puck radii`);
+  check(badLand === 0, `${badLand} glitches landing outside the rink or near a goal mouth`);
+  check(badPhase === 0, `${badPhase} glitches outside the play phase`);
+  check(badS === 0, `${badS} glitch-run events with s outside 0..5`);
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL OK');
