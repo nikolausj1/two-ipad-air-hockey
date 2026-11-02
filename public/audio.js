@@ -258,8 +258,96 @@ export function createAudio() {
     tone(t + 0.4, 'sine', 116, 0.6, 0.2, 80, 0.01);
   }
 
+  // --- battle sounds ---------------------------------------------------------------
+
+  // An item box was collected: a bright three-note pickup chime.
+  function box(t) {
+    const f = [880, 1174.7, 1568];
+    for (let i = 0; i < f.length; i++) {
+      tone(t + i * 0.055, 'triangle', f[i], 0.2, 0.2, null, 0.003);
+      tone(t + i * 0.055, 'sine', f[i] * 2, 0.16, 0.06, null, 0.003);
+    }
+    noise(t, 0.05, 'highpass', 5000, 0.7, 0.07);
+  }
+
+  // A box (re)appeared: one soft, quiet blip.
+  function boxspawn(t) {
+    tone(t, 'sine', 1318, 0.14, 0.05, 1760, 0.01);
+  }
+
+  // An item was fired: a click, then an accent per item.
+  function use(t, item) {
+    noise(t, 0.02, 'highpass', 3000, 0.8, 0.14);
+    tone(t, 'square', 1500, 0.025, 0.07, 900, 0.001);
+    switch (item) {
+      case 'rocket':
+        noise(t + 0.02, 0.28, 'bandpass', 500, 1.2, 0.12, 2200);
+        tone(t + 0.02, 'sawtooth', 110, 0.26, 0.1, 340, 0.01, 900);
+        break;
+      case 'shield':
+        note(t + 0.02, 'sine', 220, 0.55, 0.14, 700);
+        note(t + 0.02, 'sine', 330, 0.55, 0.1, 700, 6);
+        note(t + 0.02, 'triangle', 440, 0.5, 0.05, 900, -6);
+        break;
+      case 'ghost':
+        tone(t + 0.02, 'sine', 1500, 0.55, 0.12, 420, 0.03);
+        tone(t + 0.02, 'sine', 1508, 0.55, 0.08, 424, 0.03);
+        noise(t + 0.02, 0.5, 'bandpass', 2800, 2, 0.05, 700);
+        break;
+      case 'shrink':
+        tone(t + 0.02, 'square', 1900, 0.2, 0.09, 380, 0.004, 3200);
+        tone(t + 0.14, 'square', 1300, 0.14, 0.06, 300, 0.004, 3200);
+        break;
+      case 'freeze': {
+        const f = [2093, 2637, 3136];
+        for (let i = 0; i < f.length; i++) tone(t + 0.02 + i * 0.05, 'sine', f[i], 0.5, 0.09, null, 0.004);
+        noise(t + 0.02, 0.12, 'highpass', 6000, 0.7, 0.06);
+        break;
+      }
+      case 'mine':
+        tone(t + 0.02, 'triangle', 220, 0.12, 0.2, 110, 0.002);
+        noise(t + 0.02, 0.05, 'bandpass', 1400, 2, 0.1);
+        break;
+      default:
+        break;
+    }
+  }
+
+  // The rocket hit: a whoosh that rises and then falls away, with a thump.
+  function rocket(t) {
+    noise(t, 0.5, 'bandpass', 400, 0.9, 0.34, 3200);
+    noise(t + 0.2, 0.45, 'bandpass', 3200, 0.9, 0.2, 700);
+    tone(t, 'sawtooth', 90, 0.4, 0.2, 420, 0.01, 1100);
+    tone(t, 'sine', 140, 0.14, 0.4, 55, 0.003);
+  }
+
+  // The puck bounced off a shield: a metallic ping.
+  function shieldhit(t, s) {
+    const v = 0.12 + 0.16 * s;
+    tone(t, 'sine', 1760, 0.4, v, null, 0.001);
+    tone(t, 'sine', 1760 * 2.76, 0.28, v * 0.5, null, 0.001);
+    tone(t, 'sine', 1760 * 5.4, 0.16, v * 0.3, null, 0.001);
+    noise(t, 0.02, 'highpass', 5000, 0.7, v * 0.5);
+  }
+
+  // The frozen puck lets go: a dry crack and a few ticks.
+  function thaw(t) {
+    noise(t, 0.05, 'highpass', 3500, 0.7, 0.3);
+    tone(t, 'square', 2400, 0.03, 0.09, 600, 0.001);
+    tone(t + 0.045, 'square', 1800, 0.025, 0.06, 500, 0.001);
+    tone(t + 0.09, 'square', 2900, 0.02, 0.05, 700, 0.001);
+    tone(t + 0.02, 'sine', 3136, 0.3, 0.05, null, 0.004);
+  }
+
+  // A mine landed on the ice: a dull thud.
+  function minedrop(t) {
+    tone(t, 'sine', 120, 0.18, 0.5, 45, 0.003);
+    noise(t, 0.09, 'lowpass', 700, 0.8, 0.3);
+    tone(t + 0.03, 'triangle', 300, 0.06, 0.08, 180, 0.002);
+  }
+
   // Minimum spacing between two sounds of the same kind, in seconds.
-  const SPACING = { hit: 0.03, wall: 0.04, bumper: 0.05, mine: 0.1, bombhit: 0.05, bomb: 0.5, glitchwarn: 0.3, glitch: 0.3, goal: 0.5, countdown: 0.3, serve: 0.3, over: 1 };
+  const SPACING = { hit: 0.03, wall: 0.04, bumper: 0.05, mine: 0.1, bombhit: 0.05, bomb: 0.5, glitchwarn: 0.3, glitch: 0.3, goal: 0.5, countdown: 0.3, serve: 0.3, over: 1, box: 0.12, boxspawn: 0.3, use: 0.15, rocket: 0.4, shieldhit: 0.12, thaw: 0.3, minedrop: 0.15 };
 
   function play(ev, snap) {
     const kind = ev.k;
@@ -283,6 +371,13 @@ export function createAudio() {
       case 'bomb': bomb(t); dur = 1.1; break;
       case 'glitchwarn': glitchwarn(t); dur = 0.2; break;
       case 'glitch': glitch(t); dur = 0.25; break;
+      case 'box': box(t); dur = 0.4; break;
+      case 'boxspawn': boxspawn(t); dur = 0.2; break;
+      case 'use': use(t, ev.item); dur = 0.7; break;
+      case 'rocket': rocket(t); dur = 0.7; break;
+      case 'shieldhit': shieldhit(t, s); dur = 0.5; break;
+      case 'thaw': thaw(t); dur = 0.4; break;
+      case 'minedrop': minedrop(t); dur = 0.3; break;
       case 'goal': {
         const scored = ev.by ? ev.by === perspective || (ev.by === 'host' && perspective === 'solo') : true;
         goal(t, scored);

@@ -42,7 +42,7 @@ const DASH = [5, 6];
 const NO_DASH = [];
 const NO_RD = [0, 0];
 const TRAIL_N = 32;
-const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', bombs: 'Bombs', mines: 'Mines', glitch: 'Glitch' };
+const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', bombs: 'Bombs', mines: 'Mines', glitch: 'Glitch', battle: 'Battle' };
 const MSG_PHASES = { ready: 1, countdown: 1, goal: 1, over: 1 };
 const NO_UI = { held: false, calibrating: false };
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -54,6 +54,24 @@ const BOMB_HIT_MS = 250; // squash and flash after the puck knocks a bomb
 const GLITCH_WARN_MS = 380; // puck jitters this long before a jump
 const GLITCH_GHOST_MS = 450; // fading ghost at the old spot
 const GLITCH_TEAR_MS = 120; // horizontal tear bands
+// Battle mode: items, corner buttons, boxes.
+const ITEM_COL = { rocket: '#ff6a3d', shield: '#5aa6ff', ghost: '#c8a8ff', shrink: '#7cffd4', freeze: '#a8ecff', mine: '#ff5252' };
+const ITEM_RGB = { rocket: '255,106,61', shield: '90,166,255', ghost: '200,168,255', shrink: '124,255,212', freeze: '168,236,255', mine: '255,82,82' };
+const ITEM_LABEL = { rocket: 'ROCKET', shield: 'SHIELD', ghost: 'GHOST', shrink: 'SHRINK', freeze: 'FREEZE', mine: 'MINE' };
+const BTN_PRESS_MS = 120; // squash hold
+const BTN_BACK_MS = 130; // spring back after the squash
+const GOT_PULSE_MS = 1500; // pulsing ring after an item arrives
+const USE_FLY_MS = 420; // icon flying out of the button after a use
+const BOX_FLY_MS = 500; // icon flying from a collected box to the button
+const BOX_FADE_MS = 400; // box fade in
+const BOX_FRAMES = 6; // pre-rendered rainbow hue steps per box
+const SHIELD_FADE_S = 0.2;
+const SHIELD_HIT_MS = 260;
+const ROCKET_TRAIL_MS = 1000;
+const THAW_MS = 320;
+const MINE_DROP_MS = 300;
+const MINE_SCORCH_S = 4;
+const FLY_N = 8;
 const REPLAY_RED = '#ff3b3b';
 const BAR_MS = 200; // replay letterbox slide time
 const DIAG_ROWS = 7;
@@ -91,6 +109,8 @@ export function createView(canvas, role, cfg) {
   const players = cfg.players || 'duo';
   const bottomY = 2 * H + G;
   const solo = role === 'solo';
+  const battle = mode === 'battle';
+  const myIdx = role === 'guest' ? 1 : 0; // the side whose eyes this screen is (solo: the human host)
   const fT = W * 0.03; // frame thickness in world units
   const modeLabel = `${MODE_NAMES[mode] || mode} · first to ${target}`;
 
@@ -140,11 +160,21 @@ export function createView(canvas, role, cfg) {
   let u = 1; // HUD unit: 1 at 820 px wide rink
   let destroyed = false;
 
+  // Battle corner buttons (CSS px, set in layout): radius, icon radius, the score lift that
+  // keeps the own score clear of the button, and one entry per drawn button.
+  let br = 30;
+  let ir = 15;
+  let btnShift = 0;
+  let btnDash = DASH;
+  let btnN = 0;
+  const btns = [0, 1, 2, 3].map(() => ({ side: 'host', idx: 0, x: 0, y: 0, rot: false }));
+
   let bg = null;
   let spr = null; // sprites, rebuilt on resize
   const bumperSprites = new Map();
   const mineSprites = new Map();
   const bombSprites = new Map();
+  const boxSprites = new Map(); // box half-size (px) -> array of BOX_FRAMES rainbow frames
   const goalGrad = {}; // local-space gradients per side, rebuilt on resize
   let rays = null;
   let seamGrad = null;
@@ -158,6 +188,10 @@ export function createView(canvas, role, cfg) {
   const glowRed = makeGlow('255,60,50');
   const glowGreen = makeGlow('80,255,150');
   const glowBlack = makeGlow('0,0,0');
+  const glowOrange = battle ? makeGlow('255,140,40') : null;
+  const glowViolet = battle ? makeGlow('190,150,255') : null;
+  const glowIce = battle ? makeGlow('150,225,255') : null;
+  const itemGlows = {}; // item id -> glow sprite, created on first use
   const bokehGlows = [glowWhite, glowHost, glowGuest];
 
   const map = { X0: 0, kx: 1, Y0: 0, ky: 1, scale: 1, dpr: 1 };
@@ -214,6 +248,7 @@ export function createView(canvas, role, cfg) {
       Y0 = ry - visTop * scale;
     }
     u = clamp(rw / 820, 0.62, 1.6);
+    if (battle) layoutButtons();
     map.X0 = X0;
     map.kx = kx;
     map.Y0 = Y0;
@@ -224,6 +259,44 @@ export function createView(canvas, role, cfg) {
     rpZoom = 1 - (2 * rpBar) / screenH;
     glowH = Math.max(26, rh * 0.05);
     seamR = Math.max(60, rw * 0.3);
+  }
+
+  function addBtn(side, x, y, rot) {
+    const b = btns[btnN++];
+    b.side = side;
+    b.idx = side === 'host' ? 0 : 1;
+    b.x = x;
+    b.y = y;
+    b.rot = rot;
+  }
+
+  // Each side's buttons sit in the two corners of its goal end, br + 14u in from both rails.
+  // Host and guest screens show their own side at the bottom corners; solo shows the host at
+  // the bottom and (pass and play only) the guest at the top, turned to face that player.
+  function layoutButtons() {
+    br = Math.max(30, 36 * u);
+    ir = br * 0.5;
+    btnShift = Math.max(0, 2 * br - 33 * u);
+    btnDash = [br * 0.2, br * 0.16];
+    shTh = Math.max(4, puckR * scale * 0.5);
+    shDash = [shTh * 1.4, shTh];
+    const pad = br + 14 * u;
+    const xl = rx + pad;
+    const xr = rx + rw - pad;
+    const yb = ry + rh - pad;
+    const yt = ry + pad;
+    btnN = 0;
+    if (role === 'guest') {
+      addBtn('guest', xl, yb, false);
+      addBtn('guest', xr, yb, false);
+    } else {
+      addBtn('host', xl, yb, false);
+      addBtn('host', xr, yb, false);
+      if (solo && players === 'pass') {
+        addBtn('guest', xl, yt, true);
+        addBtn('guest', xr, yt, true);
+      }
+    }
   }
 
   function resize() {
@@ -650,7 +723,7 @@ export function createView(canvas, role, cfg) {
   }
 
   // Copy of a sprite with every opaque pixel flooded with one colour (glitch ghosts).
-  function tintSprite(src, col) {
+  function tintSprite(src, col, alpha) {
     const cv = document.createElement('canvas');
     cv.width = src.width;
     cv.height = src.height;
@@ -658,10 +731,342 @@ export function createView(canvas, role, cfg) {
     const c = cv.getContext('2d');
     c.drawImage(src, 0, 0);
     c.globalCompositeOperation = 'source-atop';
-    c.globalAlpha = 0.85;
+    c.globalAlpha = alpha == null ? 0.85 : alpha;
     c.fillStyle = col;
     c.fillRect(0, 0, cv.width, cv.height);
     return cv;
+  }
+
+  // --- battle sprites -------------------------------------------------------------
+
+  // Vector item icons: no fonts, centred on (cx, cy), fitting a circle of radius r.
+  function drawItemIcon(c, item, cx, cy, r) {
+    c.save();
+    c.translate(cx, cy);
+    c.lineJoin = 'round';
+    c.lineCap = 'round';
+    const lw = Math.max(1, r * 0.1);
+    const ink = 'rgba(8,12,34,0.75)';
+    let g;
+    if (item === 'rocket') {
+      c.rotate(Math.PI / 4);
+      g = c.createLinearGradient(0, r * 0.45, 0, r * 1.2);
+      g.addColorStop(0, '#fff6c8');
+      g.addColorStop(0.45, '#ffb13d');
+      g.addColorStop(1, 'rgba(255,80,30,0)');
+      c.fillStyle = g;
+      c.beginPath();
+      c.moveTo(-r * 0.2, r * 0.44);
+      c.quadraticCurveTo(0, r * 1.5, r * 0.2, r * 0.44);
+      c.closePath();
+      c.fill();
+      c.fillStyle = '#ff4d3a';
+      c.strokeStyle = ink;
+      c.lineWidth = lw * 0.8;
+      for (let sgn = -1; sgn <= 1; sgn += 2) {
+        c.beginPath();
+        c.moveTo(sgn * r * 0.32, r * 0.02);
+        c.lineTo(sgn * r * 0.74, r * 0.6);
+        c.lineTo(sgn * r * 0.3, r * 0.46);
+        c.closePath();
+        c.fill();
+        c.stroke();
+      }
+      g = c.createLinearGradient(-r * 0.4, 0, r * 0.4, 0);
+      g.addColorStop(0, '#9aa7cf');
+      g.addColorStop(0.35, '#ffffff');
+      g.addColorStop(1, '#8793bd');
+      c.fillStyle = g;
+      c.beginPath();
+      c.moveTo(0, -r);
+      c.quadraticCurveTo(r * 0.62, -r * 0.35, r * 0.36, r * 0.5);
+      c.lineTo(-r * 0.36, r * 0.5);
+      c.quadraticCurveTo(-r * 0.62, -r * 0.35, 0, -r);
+      c.closePath();
+      c.fill();
+      c.stroke();
+      c.fillStyle = '#ff4d3a';
+      c.beginPath();
+      c.moveTo(0, -r);
+      c.quadraticCurveTo(r * 0.3, -r * 0.72, r * 0.27, -r * 0.5);
+      c.lineTo(-r * 0.27, -r * 0.5);
+      c.quadraticCurveTo(-r * 0.3, -r * 0.72, 0, -r);
+      c.closePath();
+      c.fill();
+      c.fillStyle = '#2b5fd9';
+      c.strokeStyle = '#ffffff';
+      c.lineWidth = lw * 0.9;
+      c.beginPath();
+      c.arc(0, -r * 0.02, r * 0.19, 0, TAU);
+      c.fill();
+      c.stroke();
+    } else if (item === 'shield') {
+      c.beginPath();
+      c.moveTo(0, -r);
+      c.bezierCurveTo(r * 0.35, -r * 0.8, r * 0.65, -r * 0.78, r * 0.86, -r * 0.7);
+      c.bezierCurveTo(r * 0.94, r * 0.15, r * 0.5, r * 0.7, 0, r);
+      c.bezierCurveTo(-r * 0.5, r * 0.7, -r * 0.94, r * 0.15, -r * 0.86, -r * 0.7);
+      c.bezierCurveTo(-r * 0.65, -r * 0.78, -r * 0.35, -r * 0.8, 0, -r);
+      c.closePath();
+      g = c.createLinearGradient(-r, -r, r, r);
+      g.addColorStop(0, '#b4d8ff');
+      g.addColorStop(0.5, '#4a88e8');
+      g.addColorStop(1, '#1d3f94');
+      c.fillStyle = g;
+      c.fill();
+      c.strokeStyle = '#ffffff';
+      c.lineWidth = lw * 1.2;
+      c.stroke();
+      // lit left half and a centre ridge
+      c.fillStyle = 'rgba(255,255,255,0.22)';
+      c.beginPath();
+      c.moveTo(0, -r * 0.82);
+      c.bezierCurveTo(-r * 0.3, -r * 0.66, -r * 0.5, -r * 0.62, -r * 0.7, -r * 0.58);
+      c.bezierCurveTo(-r * 0.72, r * 0.1, -r * 0.4, r * 0.55, 0, r * 0.82);
+      c.closePath();
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.55)';
+      c.lineWidth = lw * 0.7;
+      c.beginPath();
+      c.moveTo(0, -r * 0.82);
+      c.lineTo(0, r * 0.82);
+      c.stroke();
+    } else if (item === 'ghost') {
+      const w = r * 0.78;
+      const bw = (2 * w) / 3;
+      c.beginPath();
+      c.moveTo(-w, r * 0.72);
+      c.lineTo(-w, -r * 0.15);
+      c.arc(0, -r * 0.15, w, Math.PI, TAU);
+      c.lineTo(w, r * 0.72);
+      for (let k = 0; k < 3; k++) c.quadraticCurveTo(w - bw * (k + 0.5), r * 1.14, w - bw * (k + 1), r * 0.72);
+      c.closePath();
+      g = c.createLinearGradient(0, -r, 0, r);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(1, '#c4b0ff');
+      c.fillStyle = g;
+      c.fill();
+      c.strokeStyle = 'rgba(70,40,140,0.8)';
+      c.lineWidth = lw * 0.9;
+      c.stroke();
+      c.fillStyle = '#2a1b5c';
+      c.beginPath();
+      c.ellipse(-w * 0.4, -r * 0.2, r * 0.12, r * 0.17, 0, 0, TAU);
+      c.ellipse(w * 0.4, -r * 0.2, r * 0.12, r * 0.17, 0, 0, TAU);
+      c.fill();
+      c.beginPath();
+      c.ellipse(0, r * 0.22, r * 0.1, r * 0.13, 0, 0, TAU);
+      c.fill();
+    } else if (item === 'shrink') {
+      // four arrows closing in on a small disc
+      c.fillStyle = '#ffd36b';
+      c.strokeStyle = ink;
+      c.lineWidth = lw * 0.8;
+      c.beginPath();
+      c.arc(0, 0, r * 0.25, 0, TAU);
+      c.fill();
+      c.stroke();
+      c.fillStyle = '#7cffd4';
+      c.strokeStyle = '#7cffd4';
+      const q = 0.7071;
+      for (let k = 0; k < 4; k++) {
+        const dx = k & 1 ? q : -q;
+        const dy = k & 2 ? q : -q;
+        const nx = -dy;
+        const ny = dx;
+        c.lineWidth = lw * 1.7;
+        c.beginPath();
+        c.moveTo(dx * r * 0.98, dy * r * 0.98);
+        c.lineTo(dx * r * 0.66, dy * r * 0.66);
+        c.stroke();
+        c.beginPath();
+        c.moveTo(dx * r * 0.42, dy * r * 0.42);
+        c.lineTo(dx * r * 0.74 + nx * r * 0.22, dy * r * 0.74 + ny * r * 0.22);
+        c.lineTo(dx * r * 0.74 - nx * r * 0.22, dy * r * 0.74 - ny * r * 0.22);
+        c.closePath();
+        c.fill();
+      }
+    } else if (item === 'freeze') {
+      for (let pass = 0; pass < 2; pass++) {
+        c.strokeStyle = pass ? '#e6f9ff' : 'rgba(20,70,140,0.7)';
+        c.lineWidth = pass ? lw * 1.4 : lw * 2.6;
+        for (let k = 0; k < 6; k++) {
+          c.save();
+          c.rotate((k * Math.PI) / 3);
+          c.beginPath();
+          c.moveTo(0, 0);
+          c.lineTo(r * 0.98, 0);
+          c.moveTo(r * 0.55, 0);
+          c.lineTo(r * 0.82, -r * 0.22);
+          c.moveTo(r * 0.55, 0);
+          c.lineTo(r * 0.82, r * 0.22);
+          c.stroke();
+          c.restore();
+        }
+      }
+      c.fillStyle = '#ffffff';
+      c.beginPath();
+      c.arc(0, 0, r * 0.12, 0, TAU);
+      c.fill();
+    } else if (item === 'mine') {
+      c.strokeStyle = '#aab2cc';
+      c.lineWidth = lw * 2;
+      c.beginPath();
+      for (let k = 0; k < 8; k++) {
+        const a = k * (TAU / 8);
+        c.moveTo(Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6);
+        c.lineTo(Math.cos(a) * r * 0.95, Math.sin(a) * r * 0.95);
+      }
+      c.stroke();
+      g = c.createRadialGradient(-r * 0.2, -r * 0.25, r * 0.05, 0, 0, r * 0.7);
+      g.addColorStop(0, '#6b7390');
+      g.addColorStop(0.55, '#2c3144');
+      g.addColorStop(1, '#0e1018');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(0, 0, r * 0.68, 0, TAU);
+      c.fill();
+      c.strokeStyle = 'rgba(210,218,240,0.7)';
+      c.lineWidth = lw * 0.9;
+      c.stroke();
+      c.fillStyle = '#ff4638';
+      c.beginPath();
+      c.arc(0, 0, r * 0.2, 0, TAU);
+      c.fill();
+      c.fillStyle = '#ffd6cf';
+      c.beginPath();
+      c.arc(-r * 0.06, -r * 0.07, r * 0.07, 0, TAU);
+      c.fill();
+    }
+    c.restore();
+  }
+
+  function makeItemIcon(item, r) {
+    const pad = Math.ceil(r * 0.3) + 2;
+    return makeSprite((r + pad) * 2, (c, cx, cy) => drawItemIcon(c, item, cx, cy, r));
+  }
+
+  // Round corner button: dark glass disc with a rim in the side's colour.
+  function makeBtn(side) {
+    const pad = Math.ceil(br * 0.35) + 2;
+    const rgb = side === 'host' ? HOST_RGB : GUEST_RGB;
+    return makeSprite((br + pad) * 2, (c, cx, cy) => {
+      discShadow(c, cx, cy, br, br * 0.5, 0, br * 0.12, 0.55);
+      let g = c.createRadialGradient(cx - br * 0.3, cy - br * 0.35, br * 0.05, cx, cy, br);
+      g.addColorStop(0, 'rgba(62,80,128,0.9)');
+      g.addColorStop(0.7, 'rgba(16,22,46,0.9)');
+      g.addColorStop(1, 'rgba(6,10,26,0.94)');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(cx, cy, br, 0, TAU);
+      c.fill();
+      const lw = Math.max(2.5, br * 0.09);
+      c.strokeStyle = `rgba(${rgb},0.95)`;
+      c.lineWidth = lw;
+      c.beginPath();
+      c.arc(cx, cy, br - lw / 2, 0, TAU);
+      c.stroke();
+      g = c.createLinearGradient(cx - br, cy - br, cx + br, cy + br);
+      g.addColorStop(0, 'rgba(255,255,255,0.55)');
+      g.addColorStop(0.45, 'rgba(255,255,255,0)');
+      g.addColorStop(1, 'rgba(0,0,0,0.35)');
+      c.strokeStyle = g;
+      c.lineWidth = lw * 0.7;
+      c.beginPath();
+      c.arc(cx, cy, br - lw * 1.4, 0, TAU);
+      c.stroke();
+    });
+  }
+
+  // One rainbow frame of the spinning item box: rounded square, hue stops shifted by `shift`,
+  // glossy bevel and a white "?".
+  function makeBoxFrame(rpx, shift) {
+    const side = rpx * 2.1;
+    const pad = 3;
+    return makeSprite(side + pad * 2, (c, cx, cy) => {
+      const h = side / 2;
+      const rad = side * 0.24;
+      c.beginPath();
+      rrPath(c, cx - h, cy - h, side, side, rad, rad);
+      const g = c.createLinearGradient(cx - h, cy - h, cx + h, cy + h);
+      for (let i = 0; i <= 6; i++) g.addColorStop(i / 6, `hsl(${(shift + i * 60) % 360},95%,60%)`);
+      c.fillStyle = g;
+      c.fill();
+      // glossy top-left sheen
+      c.save();
+      c.clip();
+      const sg = c.createLinearGradient(cx - h, cy - h, cx + h * 0.2, cy + h * 0.2);
+      sg.addColorStop(0, 'rgba(255,255,255,0.55)');
+      sg.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = sg;
+      c.fillRect(cx - h, cy - h, side, side);
+      const dg = c.createLinearGradient(cx, cy, cx + h, cy + h);
+      dg.addColorStop(0, 'rgba(0,0,60,0)');
+      dg.addColorStop(1, 'rgba(0,0,60,0.3)');
+      c.fillStyle = dg;
+      c.fillRect(cx - h, cy - h, side, side);
+      c.restore();
+      c.lineJoin = 'round';
+      c.strokeStyle = 'rgba(255,255,255,0.9)';
+      c.lineWidth = Math.max(1.5, side * 0.06);
+      c.beginPath();
+      rrPath(c, cx - h + c.lineWidth / 2, cy - h + c.lineWidth / 2, side - c.lineWidth, side - c.lineWidth, rad, rad);
+      c.stroke();
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.font = font(side * 0.78, 900);
+      c.strokeStyle = 'rgba(30,10,90,0.85)';
+      c.lineWidth = Math.max(1.5, side * 0.09);
+      c.strokeText('?', cx, cy + side * 0.04);
+      c.fillStyle = '#ffffff';
+      c.fillText('?', cx, cy + side * 0.04);
+    });
+  }
+
+  function getBoxFrames(rCss) {
+    const key = Math.max(4, Math.round(rCss * 2));
+    let f = boxSprites.get(key);
+    if (!f) {
+      f = [];
+      for (let i = 0; i < BOX_FRAMES; i++) f.push(makeBoxFrame(key / 2, (i * 360) / BOX_FRAMES));
+      boxSprites.set(key, f);
+    }
+    return f;
+  }
+
+  function itemGlow(item) {
+    return itemGlows[item] || (itemGlows[item] = makeGlow(ITEM_RGB[item]));
+  }
+
+  function freeCv(cv) {
+    if (cv) {
+      cv.width = 0;
+      cv.height = 0;
+    }
+  }
+
+  function freeBattleSprites() {
+    for (const frames of boxSprites.values()) for (const cv of frames) freeCv(cv);
+    boxSprites.clear();
+    if (!spr) return;
+    freeCv(spr.puckIce);
+    spr.puckIce = null;
+    if (spr.btn) {
+      freeCv(spr.btn.host);
+      freeCv(spr.btn.guest);
+      spr.btn = null;
+    }
+    if (spr.items) {
+      for (const k in spr.items) freeCv(spr.items[k]);
+      spr.items = null;
+    }
+  }
+
+  function buildBattleSprites() {
+    spr.puckIce = tintSprite(spr.puck, '#bfe9ff', 0.62);
+    spr.btn = { host: makeBtn('host'), guest: makeBtn('guest') };
+    spr.items = {};
+    for (const k in ITEM_COL) spr.items[k] = makeItemIcon(k, ir);
   }
 
   // Fan of light rays shining from a goal mouth into the rink. Origin at the top centre.
@@ -696,6 +1101,7 @@ export function createView(canvas, role, cfg) {
   }
 
   function buildSprites() {
+    if (battle) freeBattleSprites();
     const pr = puckR * scale;
     const mr = malletR * scale;
     const puck = makePuck(pr);
@@ -711,6 +1117,7 @@ export function createView(canvas, role, cfg) {
     mineSprites.clear();
     bombSprites.clear();
     rays = { host: makeRays(HOST_RGB), guest: makeRays(GUEST_RGB) };
+    if (battle) buildBattleSprites();
   }
 
   function buildGradients() {
@@ -1231,6 +1638,41 @@ export function createView(canvas, role, cfg) {
   let uiNow = NO_UI;
   let gA = 1; // alpha multiplier for message text (phase transitions)
 
+  // Battle state: everything is timestamped with performance.now() and cleared by resetBattleFx().
+  const prevIt = ['', ''];
+  const gotT = [-1e9, -1e9]; // when each side's held item lands (pulse + pop)
+  const useT = [-1e9, -1e9];
+  const useItemId = ['', ''];
+  const useLeft = [false, false]; // which corner the used icon flies out of
+  const shT = [-1e9, -1e9]; // shield start per goal side
+  const shHitT = [-1e9, -1e9];
+  const prevSh = [0, 0];
+  let prevFz = 0;
+  let fzT = -1e9;
+  let thawT = -1e9;
+  let rocketT = -1e9;
+  let btSync = false; // false: the next snapshot only syncs the trackers, no triggers
+  const boxPrevA = [-1, -1, -1, -1, -1, -1, -1, -1];
+  const boxInT = [-1e9, -1e9, -1e9, -1e9, -1e9, -1e9, -1e9, -1e9]; // by box ordinal in snap.ob
+  const mrDraw = [malletR, malletR]; // smoothed drawn mallet radius per side (world units)
+  let dtNow = 0.016;
+  let ghWas = false;
+  let ghX = 0;
+  let ghY = 0;
+  let shTh = 4; // shield bar thickness (px)
+  let shDash = DASH;
+  let tgtX = 0;
+  let tgtY = 0;
+  let pillX = 0;
+  let pillY = 0;
+  const flights = [];
+  for (let i = 0; i < FLY_N; i++) flights.push({ on: false, kind: 0, item: '', t0: 0, wx: 0, wy: 0, idx: 0, left: false });
+  let flyHead = 0;
+  const mineDrops = [0, 1, 2, 3, 4, 5].map(() => ({ x: 0, y: 0, t0: -1e9 }));
+  let mineDropHead = 0;
+  const blasts = [0, 1, 2, 3].map(() => ({ x: 0, y: 0, t0: -1e9 })); // dropped mines vanish when they blast
+  let blastHead = 0;
+
   // Instant replay treatment (ui.replay): letterbox bars, REPLAY badge, progress line.
   let replayOn = false;
   let rpK = 0; // 0..1 slide progress of the bars (eased when drawn)
@@ -1330,6 +1772,7 @@ export function createView(canvas, role, cfg) {
       liveM = snap.m;
     }
     const ev = seenLive ? null : snap.ev;
+    if (battle) trackBattle(snap, now);
     if (ev && ev.length) {
       const n = Math.min(ev.length, 16);
       for (let i = 0; i < n; i++) {
@@ -1337,7 +1780,10 @@ export function createView(canvas, role, cfg) {
         if (!e) continue;
         fx.onEvent(e, now, snap);
         if (e.k === 'bumper' && snap.ob) markObstacle(snap.ob, e, now, 'bumper', bumperFlashT);
-        else if (e.k === 'mine' && snap.ob) markObstacle(snap.ob, e, now, 'mine', mineFlashT);
+        else if (e.k === 'mine') {
+          if (battle) addBlast(e.x, e.y, now);
+          else if (snap.ob) markObstacle(snap.ob, e, now, 'mine', mineFlashT);
+        }
         else if (e.k === 'bomb' && snap.ob) markObstacle(snap.ob, e, now, 'bomb', bombFlashT);
         else if (e.k === 'bombhit' && snap.ob) markObstacle(snap.ob, e, now, 'bomb', bombHitT);
         else if (e.k === 'goal') goalWhy = e.why || '';
@@ -1349,6 +1795,7 @@ export function createView(canvas, role, cfg) {
           glitchFy = e.fy == null ? e.y : e.fy;
           trCount = 0; // no streak across the jump
         } else if (e.k === 'go' && !replayOn) goT = now;
+        else if (battle) battleEvent(e, snap, now);
       }
     }
     curSnap = snap;
@@ -1368,6 +1815,143 @@ export function createView(canvas, role, cfg) {
       }
     }
     if (best >= 0) arr[best] = now;
+  }
+
+  // --- battle bookkeeping -------------------------------------------------------
+
+  const sideIdx = (by) => (by === 'guest' ? 1 : by === 'host' ? 0 : -1);
+
+  // Transitions read from successive snapshots: item received, shield up, freeze start, box back.
+  function trackBattle(snap, now) {
+    const it = snap.it;
+    if (it) {
+      for (let i = 0; i < 2; i++) {
+        const v = it[i] || '';
+        if (btSync && v && v !== prevIt[i] && !replayOn) gotT[i] = now;
+        prevIt[i] = v;
+      }
+    }
+    const bt = snap.bt;
+    if (bt) {
+      const sh = bt.sh || NO_RD;
+      for (let i = 0; i < 2; i++) {
+        const v = sh[i] || 0;
+        if (btSync && v > 0 && !(prevSh[i] > 0)) shT[i] = now;
+        prevSh[i] = v;
+      }
+      const fz = bt.fz || 0;
+      if (btSync && fz > 0 && !(prevFz > 0)) fzT = now;
+      prevFz = fz;
+    }
+    if (snap.ob) {
+      let ord = 0;
+      for (let i = 0; i < snap.ob.length && ord < boxPrevA.length; i++) {
+        const o = snap.ob[i];
+        if (o.k !== 'box') continue;
+        if (btSync && o.a === 1 && boxPrevA[ord] !== 1) boxInT[ord] = now;
+        boxPrevA[ord] = o.a;
+        ord++;
+      }
+    }
+    btSync = true;
+  }
+
+  function battleEvent(e, snap, now) {
+    const k = e.k;
+    if (k === 'box') {
+      const si = sideIdx(e.by);
+      if (si >= 0 && e.item && !replayOn) {
+        // the held item lands when the flying icon does
+        gotT[si] = now + BOX_FLY_MS * 0.85;
+        addFlight(0, e.item, e.x, e.y, si, false, now);
+      }
+    } else if (k === 'boxspawn') {
+      if (snap.ob) markBox(snap.ob, e, now);
+    } else if (k === 'use') {
+      const si = sideIdx(e.by);
+      if (si >= 0) {
+        useT[si] = now;
+        useItemId[si] = e.item || '';
+        useLeft[si] = sxw(e.x == null ? W / 2 : e.x) < rx + rw / 2;
+        if (e.item && !replayOn) addFlight(1, e.item, 0, 0, si, useLeft[si], now);
+      }
+    } else if (k === 'rocket') rocketT = now;
+    else if (k === 'shieldhit') {
+      const si = sideIdx(e.by);
+      if (si >= 0) shHitT[si] = now;
+    } else if (k === 'thaw') thawT = now;
+    else if (k === 'minedrop') {
+      const d = mineDrops[mineDropHead];
+      mineDropHead = (mineDropHead + 1) % mineDrops.length;
+      d.x = e.x;
+      d.y = e.y;
+      d.t0 = now;
+    }
+  }
+
+  // The n-th box of snap.ob nearest the event (boxes keep their slot, so the ordinal is stable
+  // even when mines are spliced out of the list).
+  function markBox(ob, e, now) {
+    let best = -1;
+    let bd = 1e12;
+    let ord = 0;
+    for (let i = 0; i < ob.length; i++) {
+      if (ob[i].k !== 'box') continue;
+      const d = (ob[i].x - e.x) * (ob[i].x - e.x) + (ob[i].y - e.y) * (ob[i].y - e.y);
+      if (d < bd) {
+        bd = d;
+        best = ord;
+      }
+      ord++;
+    }
+    if (best >= 0 && best < boxInT.length) boxInT[best] = now;
+  }
+
+  function addBlast(x, y, now) {
+    const b = blasts[blastHead];
+    blastHead = (blastHead + 1) % blasts.length;
+    b.x = x;
+    b.y = y;
+    b.t0 = now;
+  }
+
+  function addFlight(kind, item, wx, wy, idx, left, now) {
+    if (!spr || !spr.items || !spr.items[item]) return;
+    const f = flights[flyHead];
+    flyHead = (flyHead + 1) % FLY_N;
+    f.on = true;
+    f.kind = kind;
+    f.item = item;
+    f.t0 = now;
+    f.wx = wx;
+    f.wy = wy;
+    f.idx = idx;
+    f.left = left;
+  }
+
+  // Replay enter/leave and destroy: no stale item state or effects survive.
+  function resetBattleFx() {
+    for (let i = 0; i < FLY_N; i++) flights[i].on = false;
+    for (let i = 0; i < mineDrops.length; i++) mineDrops[i].t0 = -1e9;
+    for (let i = 0; i < blasts.length; i++) blasts[i].t0 = -1e9;
+    for (let i = 0; i < 2; i++) {
+      gotT[i] = -1e9;
+      useT[i] = -1e9;
+      shT[i] = -1e9;
+      shHitT[i] = -1e9;
+      prevSh[i] = 0;
+      prevIt[i] = '';
+    }
+    for (let i = 0; i < boxInT.length; i++) {
+      boxInT[i] = -1e9;
+      boxPrevA[i] = -1;
+    }
+    prevFz = 0;
+    fzT = -1e9;
+    thawT = -1e9;
+    rocketT = -1e9;
+    ghWas = false;
+    btSync = false;
   }
 
   // --- drawing helpers ----------------------------------------------------------
@@ -1661,13 +2245,114 @@ export function createView(canvas, role, cfg) {
     ctx.globalAlpha = 1;
   }
 
+  function drawMineScorch(sx, sy, r, bt) {
+    if (bt >= 0 && bt < MINE_SCORCH_S) {
+      drawGlow(glowBlack, sx, sy, r * 2.4, 0.6 * (1 - bt / MINE_SCORCH_S));
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // bt: seconds since the blast.
+  function drawMineBurst(sx, sy, r, bt) {
+    if (bt >= 0 && bt < 0.55) {
+      const t = bt / 0.55;
+      const rr = r * (1.2 + 4.2 * easeOutCubic(t));
+      ctx.globalCompositeOperation = 'lighter';
+      drawGlow(glowGold, sx, sy, rr, (1 - t) * (1 - t));
+      drawGlow(glowRed, sx, sy, rr * 1.35, (1 - t) * 0.8);
+      if (t < 0.25) {
+        ctx.globalAlpha = (1 - t / 0.25) * 0.95;
+        ctx.fillStyle = '#fff3d6';
+        ctx.beginPath();
+        ctx.arc(sx, sy, r * (0.8 + 1.8 * t * 4), 0, TAU);
+        ctx.fill();
+      }
+      ctx.globalAlpha = (1 - t) * 0.8;
+      ctx.strokeStyle = '#ffb35a';
+      ctx.lineWidth = Math.max(2, r * 0.18 * (1 - t));
+      ctx.beginPath();
+      ctx.arc(sx, sy, r * (1 + 3.4 * easeOutCubic(t)), 0, TAU);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Battle mines vanish from the list when they blast, so the blast is a free-standing effect.
+  function drawBlasts(now) {
+    const r = malletR * 0.45 * scale;
+    for (let i = 0; i < blasts.length; i++) {
+      const b = blasts[i];
+      const bt = (now - b.t0) / 1000;
+      if (bt < 0 || bt >= MINE_SCORCH_S) continue;
+      const sx = sxw(b.x);
+      const sy = syw(b.y);
+      drawMineScorch(sx, sy, r, bt);
+      drawMineBurst(sx, sy, r, bt);
+    }
+  }
+
+  // Scale of a mine that has just landed (it drops in from above), 1 otherwise.
+  function mineDropK(o, now) {
+    for (let i = 0; i < mineDrops.length; i++) {
+      const d = mineDrops[i];
+      const age = now - d.t0;
+      if (age < 0 || age >= MINE_DROP_MS) continue;
+      if (Math.abs(d.x - o.x) < 2 && Math.abs(d.y - o.y) < 2) return 1 + 0.9 * (1 - easeOutCubic(age / MINE_DROP_MS));
+    }
+    return 1;
+  }
+
+  // Spinning rainbow item box. ord: its slot among the boxes in the snapshot.
+  function drawBox(o, ord, sx, sy, r, now) {
+    if (o.a !== 1) return;
+    const inT = clamp((now - boxInT[ord < boxInT.length ? ord : 0]) / BOX_FADE_MS, 0, 1);
+    const frames = getBoxFrames(Math.max(5, r));
+    const fr = frames[((now / 120) | 0) % BOX_FRAMES];
+    const spin = now / 540 + ord * 1.9;
+    const w = 0.3 + 0.7 * Math.abs(Math.cos(spin));
+    const pop = 0.55 + 0.45 * easeOutBack(inT);
+    const bob = Math.sin(now / 430 + ord * 2.1) * r * 0.12;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 300 + ord);
+    drawGlow(glowBlack, sx + r * 0.1, sy + r * 0.85, r * 1.15, 0.38 * inT);
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(glowWhite, sx, sy + bob, r * (2.2 + 0.3 * pulse), (0.28 + 0.14 * pulse) * inT);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.save();
+    ctx.translate(sx, sy + bob);
+    ctx.rotate(0.16 * Math.sin(now / 700 + ord));
+    ctx.scale(w * pop, pop);
+    ctx.globalAlpha = inT;
+    const cs = fr.cs;
+    ctx.drawImage(fr, -cs / 2, -cs / 2, cs, cs);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    if (inT < 1) {
+      // materialising ring
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = (1 - inT) * 0.6;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(1.5, r * 0.12);
+      ctx.beginPath();
+      ctx.arc(sx, sy, r * (1 + 1.4 * (1 - easeOutCubic(inT))), 0, TAU);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+  }
+
   function drawObstacles(ob, now) {
+    let boxOrd = 0;
     for (let i = 0; i < ob.length; i++) {
       const o = ob[i];
       const sx = sxw(o.x);
       const sy = syw(o.y);
       const r = o.r * scale;
-      if (o.k === 'bumper') {
+      if (o.k === 'box') {
+        if (!battle) continue;
+        drawBox(o, boxOrd, sx, sy, r, now);
+        boxOrd++;
+      } else if (o.k === 'bumper') {
         const ft = (now - (bumperFlashT[i] || -1e9)) / 380;
         const flashing = ft >= 0 && ft < 1;
         // idle warm halo
@@ -1704,17 +2389,14 @@ export function createView(canvas, role, cfg) {
         const armed = o.a === 1;
         const bt = (now - (mineFlashT[i] || -1e9)) / 1000;
         // scorch mark left by the last blast
-        if (bt >= 0 && bt < 4) {
-          drawGlow(glowBlack, sx, sy, r * 2.4, 0.6 * (1 - bt / 4));
-          ctx.globalAlpha = 1;
-        }
+        drawMineScorch(sx, sy, r, bt);
         if (armed) {
           const pulse = 0.5 + 0.5 * Math.sin(now / 260 + o.x * 0.013);
           ctx.globalCompositeOperation = 'lighter';
           drawGlow(glowRed, sx, sy, r * (1.9 + 0.3 * pulse), 0.18 + 0.2 * pulse);
           ctx.globalCompositeOperation = 'source-over';
           ctx.globalAlpha = 1;
-          drawSprite(getMineSprite(r), sx, sy);
+          drawSprite(getMineSprite(r), sx, sy, battle ? mineDropK(o, now) : 1);
           // danger ring
           ctx.globalAlpha = 0.35 + 0.3 * pulse;
           ctx.strokeStyle = '#ff3b3b';
@@ -1748,8 +2430,9 @@ export function createView(canvas, role, cfg) {
             ctx.fill();
           }
         } else {
-          ctx.globalAlpha = 0.62;
-          drawSprite(getMineSprite(r), sx, sy);
+          // unarmed: dim, and in Battle a dropped mine blinks at 4 Hz while its fuse burns
+          ctx.globalAlpha = battle ? (((now / 125) | 0) & 1 ? 0.8 : 0.3) : 0.62;
+          drawSprite(getMineSprite(r), sx, sy, battle ? mineDropK(o, now) : 1);
           ctx.globalAlpha = 1;
           const lr = Math.max(2.5, r * 0.15);
           ctx.fillStyle = '#6d7488';
@@ -1762,28 +2445,7 @@ export function createView(canvas, role, cfg) {
           ctx.fill();
         }
         // explosion burst
-        if (bt >= 0 && bt < 0.55) {
-          const t = bt / 0.55;
-          const rr = r * (1.2 + 4.2 * easeOutCubic(t));
-          ctx.globalCompositeOperation = 'lighter';
-          drawGlow(glowGold, sx, sy, rr, (1 - t) * (1 - t));
-          drawGlow(glowRed, sx, sy, rr * 1.35, (1 - t) * 0.8);
-          if (t < 0.25) {
-            ctx.globalAlpha = (1 - t / 0.25) * 0.95;
-            ctx.fillStyle = '#fff3d6';
-            ctx.beginPath();
-            ctx.arc(sx, sy, r * (0.8 + 1.8 * t * 4), 0, TAU);
-            ctx.fill();
-          }
-          ctx.globalAlpha = (1 - t) * 0.8;
-          ctx.strokeStyle = '#ffb35a';
-          ctx.lineWidth = Math.max(2, r * 0.18 * (1 - t));
-          ctx.beginPath();
-          ctx.arc(sx, sy, r * (1 + 3.4 * easeOutCubic(t)), 0, TAU);
-          ctx.stroke();
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.globalAlpha = 1;
-        }
+        drawMineBurst(sx, sy, r, bt);
         ctx.globalAlpha = 1;
       }
     }
@@ -1811,9 +2473,13 @@ export function createView(canvas, role, cfg) {
   function drawTrail(px, py, speed, now) {
     if (speed < 160) return;
     const k = clamp((speed - 160) / 2000, 0, 1);
-    const life = 0.07 + 0.27 * k;
+    // A rocket hit lights the trail for a second: longer, fatter, orange to white.
+    const rkAge = (now - rocketT) / ROCKET_TRAIL_MS;
+    const rocket = rkAge >= 0 && rkAge < 1;
+    const rkF = rocket ? 1 - rkAge * rkAge : 0;
+    const life = (0.07 + 0.27 * k) * (1 + 0.6 * rkF);
     // Length is capped at about 9 puck radii so a fast puck never leaves a long streak.
-    const maxLen = 9 * puckR * scale;
+    const maxLen = (9 + 4 * rkF) * puckR * scale;
     let m = 1;
     let dist = 0;
     rbX[0] = sxw(px);
@@ -1844,17 +2510,18 @@ export function createView(canvas, role, cfg) {
       rbNX[j] = -dy / len;
       rbNY[j] = dx / len;
     }
-    const wMax = puckR * scale * (0.5 + 0.4 * k);
+    const wMax = puckR * scale * (0.5 + 0.4 * k) * (1 + 0.35 * rkF);
     const hot = speed > 1500;
+    const am = 1 + 2.4 * rkF;
     ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = hot ? '#ffb27a' : '#8fc4ff';
-    ctx.globalAlpha = 0.04 + 0.06 * k;
+    ctx.fillStyle = rocket ? '#ff6a2e' : hot ? '#ffb27a' : '#8fc4ff';
+    ctx.globalAlpha = Math.min(1, (0.04 + 0.06 * k) * am);
     ribbon(m, wMax * 1.2, 1);
-    ctx.fillStyle = hot ? '#ffd9a8' : '#bfe3ff';
-    ctx.globalAlpha = 0.05 + 0.08 * k;
+    ctx.fillStyle = rocket ? '#ffb347' : hot ? '#ffd9a8' : '#bfe3ff';
+    ctx.globalAlpha = Math.min(1, (0.05 + 0.08 * k) * am);
     ribbon(Math.max(3, (m * 0.72) | 0), wMax, 0.7);
-    ctx.fillStyle = '#ffffff';
-    ctx.globalAlpha = 0.06 + 0.12 * k;
+    ctx.fillStyle = rocket ? '#fff3d0' : '#ffffff';
+    ctx.globalAlpha = Math.min(1, (0.06 + 0.12 * k) * am);
     ribbon(Math.max(3, (m * 0.42) | 0), wMax, 0.34);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
@@ -1888,11 +2555,17 @@ export function createView(canvas, role, cfg) {
     if (wy < visTop - malletR || wy > visBot + malletR) return;
     const sx = sxw(wx);
     const sy = syw(wy);
-    const R = malletR * scale;
+    const idx = i >> 1;
+    // Battle: the radius follows snap.bt.mr (shrink) but is smoothed so it does not pop.
+    const bt = battle ? curSnap.bt : null;
+    const mrT = bt && bt.mr && bt.mr[idx] > 0 ? bt.mr[idx] : malletR;
+    mrDraw[idx] += (mrT - mrDraw[idx]) * (1 - Math.exp(-dtNow * 12));
+    if (Math.abs(mrT - mrDraw[idx]) < 0.01 * malletR) mrDraw[idx] = mrT;
+    const R = mrDraw[idx] * scale;
+    const mk = mrDraw[idx] === malletR ? 1 : mrDraw[idx] / malletR;
     const glowSpr = side === 'host' ? glowHost : glowGuest;
     const colr = side === 'host' ? HOST_COL : GUEST_COL;
     const rgb = side === 'host' ? HOST_RGB : GUEST_RGB;
-    const idx = i >> 1;
     let sp;
     if (local) {
       sp = Math.hypot(lmVx, lmVy) * Math.exp(-(now - lmT) / 140);
@@ -1954,7 +2627,9 @@ export function createView(canvas, role, cfg) {
       ctx.globalAlpha = 1;
     }
 
-    drawSprite(side === 'host' ? spr.host : spr.guest, sx, sy);
+    if (bt && bt.rk && bt.rk[idx]) drawRocketHalo(sx, sy, R, now);
+
+    drawSprite(side === 'host' ? spr.host : spr.guest, sx, sy, mk);
 
     // ready check badge
     if (readyPhase && isReady) {
@@ -2038,6 +2713,378 @@ export function createView(canvas, role, cfg) {
     ctx.restore();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+  }
+
+  // --- battle drawing ------------------------------------------------------------
+
+  // The puck is hidden from this player: a few flickering question marks and static
+  // where it was when the ghost began.
+  function drawGhostHint(now) {
+    const cx = sxw(ghX);
+    const cy = syw(ghY);
+    const pr = puckR * scale;
+    const q = (now / 110) | 0;
+    ctx.font = font(Math.max(14, pr * 1.2), 800);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#d6e4ff';
+    for (let k = 0; k < 3; k++) {
+      const h1 = Math.sin(q * 12.9898 + k * 78.233) * 43758.5453;
+      const h2 = Math.sin(q * 39.3468 + k * 11.135) * 24634.6345;
+      const f1 = h1 - Math.floor(h1);
+      const f2 = h2 - Math.floor(h2);
+      ctx.globalAlpha = f1 > 0.3 ? 0.3 : 0.1;
+      ctx.fillText('?', cx + (f1 - 0.5) * pr * 3.6, cy + (f2 - 0.5) * pr * 3.6);
+    }
+    ctx.fillStyle = '#ffffff';
+    for (let k = 0; k < 8; k++) {
+      const h1 = Math.sin(q * 5.123 + k * 31.7) * 43758.5453;
+      const h2 = Math.sin(q * 9.771 + k * 17.3) * 24634.6345;
+      const f1 = h1 - Math.floor(h1);
+      const f2 = h2 - Math.floor(h2);
+      ctx.globalAlpha = 0.3 * (f2 > 0.4 ? 1 : 0.4);
+      ctx.fillRect(cx + (f1 - 0.5) * pr * 3.2, cy + (f2 - 0.5) * pr * 3.2, 2, 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Soft violet halo and outline on a puck the other player cannot see.
+  function drawSpectral(sx, sy, pr, now) {
+    const pulse = 0.5 + 0.5 * Math.sin(now / 240);
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(glowViolet, sx, sy, pr * (2.3 + 0.2 * pulse), 0.5);
+    ctx.globalAlpha = 0.5 + 0.2 * pulse;
+    ctx.strokeStyle = '#d8c4ff';
+    ctx.lineWidth = Math.max(1.5, pr * 0.1);
+    ctx.beginPath();
+    ctx.arc(sx, sy, pr * (1.18 + 0.04 * pulse), 0, TAU);
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  // Frost ring and ice crystals on the frozen puck.
+  function drawFrost(sx, sy, pr, fk, now) {
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(glowIce, sx, sy, pr * 2.7, 0.5 * fk);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#d8f6ff';
+    ctx.globalAlpha = 0.7 * fk;
+    ctx.lineWidth = Math.max(1.5, pr * 0.09);
+    ctx.beginPath();
+    ctx.arc(sx, sy, pr * (1.18 + 0.14 * fk), 0, TAU);
+    ctx.stroke();
+    ctx.globalAlpha = 0.9 * fk;
+    ctx.lineWidth = Math.max(1.8, pr * 0.13);
+    ctx.beginPath();
+    for (let k = 0; k < 9; k++) {
+      const a = k * (TAU / 9) + 0.35;
+      const r0 = pr * 1.12;
+      const len = pr * (k & 1 ? 0.3 : 0.5) * fk;
+      ctx.moveTo(sx + Math.cos(a) * r0, sy + Math.sin(a) * r0);
+      ctx.lineTo(sx + Math.cos(a) * (r0 + len), sy + Math.sin(a) * (r0 + len));
+    }
+    ctx.stroke();
+    // a twinkle that wanders round the ring
+    const ta = now / 420;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = (0.5 + 0.5 * Math.sin(now / 130)) * fk;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(sx + Math.cos(ta) * pr * 1.3, sy + Math.sin(ta) * pr * 1.3, Math.max(1.5, pr * 0.1), 0, TAU);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineCap = 'butt';
+    ctx.globalAlpha = 1;
+  }
+
+  // Glowing bar across a goal mouth, one puck radius in from the rail.
+  function drawShield(g, secs, now) {
+    const idx = g.idx;
+    const a = Math.min(1, secs / SHIELD_FADE_S) * clamp((now - shT[idx]) / 120, 0, 1);
+    if (a <= 0.01) return;
+    const y = g.top ? ry + puckR * scale : ry + rh - puckR * scale;
+    const cx = rx + rw / 2;
+    const wpx = g.w * scale;
+    const th = shTh;
+    const col = idx === 0 ? HOST_COL : GUEST_COL;
+    const pulse = 0.78 + 0.22 * Math.sin(now / 85 + idx * 2);
+    const ht = (now - shHitT[idx]) / SHIELD_HIT_MS;
+    const flash = ht >= 0 && ht < 1 ? 1 - ht : 0;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = a * (0.5 * pulse + 0.45 * flash);
+    ctx.drawImage(idx === 0 ? glowHost : glowGuest, cx - wpx * 0.62, y - th * 3.2, wpx * 1.24, th * 6.4);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = a * (0.6 + 0.3 * pulse);
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    rrPath(ctx, cx - wpx / 2, y - th / 2, wpx, th, th / 2, th / 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'lighter';
+    // energy running along the bar
+    ctx.globalAlpha = a * (0.5 + 0.4 * flash);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(1.5, th * 0.34);
+    ctx.lineCap = 'round';
+    ctx.setLineDash(shDash);
+    ctx.lineDashOffset = -now / 28;
+    ctx.beginPath();
+    ctx.moveTo(cx - wpx / 2 + th * 0.5, y);
+    ctx.lineTo(cx + wpx / 2 - th * 0.5, y);
+    ctx.stroke();
+    ctx.setLineDash(NO_DASH);
+    ctx.lineCap = 'butt';
+    if (flash > 0) {
+      ctx.globalAlpha = a * flash * 0.85;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      rrPath(ctx, cx - wpx / 2, y - th / 2, wpx, th, th / 2, th / 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  // Flame tongues and a hot glow round a mallet whose next hit is a rocket.
+  function drawRocketHalo(sx, sy, R, now) {
+    const f = 0.7 + 0.3 * Math.sin(now / 55) * Math.sin(now / 83);
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(glowOrange, sx, sy, R * (2.3 + 0.3 * f), 0.7);
+    drawGlow(glowGold, sx, sy, R * 1.6, 0.3);
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.fillStyle = pass ? '#fff0b8' : '#ff9a3a';
+      ctx.globalAlpha = pass ? 0.8 : 0.7;
+      const k = pass ? 0.55 : 1;
+      ctx.beginPath();
+      for (let n = 0; n < 9; n++) {
+        const a = n * (TAU / 9) + now / 700 * (pass ? -1 : 1);
+        const len = R * k * (0.3 + 0.24 * (0.5 + 0.5 * Math.sin(now / 60 + n * 2.1 + pass)));
+        const r0 = R * 0.94;
+        ctx.moveTo(sx + Math.cos(a - 0.2) * r0, sy + Math.sin(a - 0.2) * r0);
+        ctx.lineTo(sx + Math.cos(a) * (r0 + len), sy + Math.sin(a) * (r0 + len));
+        ctx.lineTo(sx + Math.cos(a + 0.2) * r0, sy + Math.sin(a + 0.2) * r0);
+      }
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  // The button of `idx` nearest (in x) to sxRef, or null when this screen has none.
+  function findBtn(idx, sxRef) {
+    let best = null;
+    let bd = 1e12;
+    for (let i = 0; i < btnN; i++) {
+      const b = btns[i];
+      if (b.idx !== idx) continue;
+      const d = Math.abs(b.x - sxRef);
+      if (d < bd) {
+        bd = d;
+        best = b;
+      }
+    }
+    return best;
+  }
+
+  // Opponent item pill, to the left of their score (guest score row in solo).
+  function pillXY() {
+    pillX = rx + rw - 66 * u - 58 * u;
+    pillY = solo ? ry + 104 * u : ry + 86 * u;
+  }
+
+  // Where an item landing for `idx` ends up: its nearest corner button, else the pill.
+  function flightTarget(idx, sxRef) {
+    const b = findBtn(idx, sxRef);
+    if (b) {
+      tgtX = b.x;
+      tgtY = b.y;
+    } else {
+      pillXY();
+      tgtX = pillX;
+      tgtY = pillY;
+    }
+  }
+
+  function drawPill(idx, item, now) {
+    pillXY();
+    const w = 52 * u;
+    const h = 30 * u;
+    const col = idx === 0 ? HOST_COL : GUEST_COL;
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#050a1a';
+    ctx.beginPath();
+    rrPath(ctx, pillX - w / 2, pillY - h / 2, w, h, h / 2, h / 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.6;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = Math.max(1.5, 2 * u);
+    ctx.stroke();
+    const gt = now - gotT[idx];
+    if (item && gt >= 0 && spr.items && spr.items[item]) {
+      const pop = gt < 300 ? easeOutBack(gt / 300) : 1;
+      ctx.globalCompositeOperation = 'lighter';
+      drawGlow(itemGlow(item), pillX, pillY, h * 0.9, 0.35);
+      if (gt < 700) {
+        ctx.globalAlpha = (1 - gt / 700) * 0.8;
+        ctx.strokeStyle = ITEM_COL[item];
+        ctx.beginPath();
+        ctx.arc(pillX, pillY, h * (0.5 + 0.5 * easeOutCubic(gt / 700)), 0, TAU);
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      drawSprite(spr.items[item], pillX, pillY, ((h * 0.38) / ir) * pop);
+    } else {
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(1.2, 1.5 * u);
+      ctx.setLineDash(DASH);
+      ctx.beginPath();
+      ctx.arc(pillX, pillY, h * 0.28, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash(NO_DASH);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawButton(b, snap, now) {
+    const idx = b.idx;
+    const item = (snap.it && snap.it[idx]) || '';
+    const gt = now - gotT[idx];
+    const ut = now - useT[idx];
+    let sc = 1;
+    let wob = 0;
+    const bp = uiNow.btnPress;
+    if (bp && bp.side === b.side) {
+      const age = now - bp.t;
+      if (age >= 0 && age < BTN_PRESS_MS + BTN_BACK_MS) {
+        sc = age < BTN_PRESS_MS ? 0.9 : 0.9 + 0.1 * easeOutBack((age - BTN_PRESS_MS) / BTN_BACK_MS);
+      }
+      if (!item && age >= 0 && age < 420) wob = Math.sin(age / 32) * Math.exp(-age / 130) * 0.26;
+    }
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    if (b.rot) ctx.rotate(Math.PI);
+    if (wob) ctx.rotate(wob);
+    ctx.scale(sc, sc);
+    ctx.globalAlpha = 1;
+    drawSprite(spr.btn[b.side], 0, 0);
+    if (item && gt >= 0 && spr.items[item]) {
+      const pulse = 0.5 + 0.5 * Math.sin(now / 260);
+      ctx.globalCompositeOperation = 'lighter';
+      drawGlow(itemGlow(item), 0, 0, br * (1.35 + 0.1 * pulse), 0.3 + 0.14 * pulse);
+      if (gt < GOT_PULSE_MS) {
+        const fade = 1 - gt / GOT_PULSE_MS;
+        const ph = (gt / 500) % 1;
+        ctx.strokeStyle = ITEM_COL[item];
+        ctx.lineWidth = Math.max(2, br * 0.07);
+        for (let q = 0; q < 2; q++) {
+          const t = (ph + q * 0.5) % 1;
+          ctx.globalAlpha = fade * (1 - t) * 0.9;
+          ctx.beginPath();
+          ctx.arc(0, 0, br * (1 + 0.45 * t), 0, TAU);
+          ctx.stroke();
+        }
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      const pop = gt < 320 ? easeOutBack(gt / 320) : 1;
+      drawSprite(spr.items[item], 0, -br * 0.14, pop * (1 + 0.04 * pulse));
+      ctx.font = font(Math.max(8, br * 0.26), 800);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = 0.92 * pop;
+      ctx.fillText(ITEM_LABEL[item], 0, br * 0.6);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.globalAlpha = 0.26;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(1.5, br * 0.06);
+      ctx.setLineDash(btnDash);
+      ctx.beginPath();
+      ctx.arc(0, 0, br * 0.7, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash(NO_DASH);
+      ctx.globalAlpha = 1;
+    }
+    if (ut >= 0 && ut < 320) {
+      const t = ut / 320;
+      const uc = useItemId[idx] && ITEM_COL[useItemId[idx]] ? ITEM_COL[useItemId[idx]] : '#ffffff';
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = (1 - t) * 0.45;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(0, 0, br * 0.96, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = (1 - t) * 0.9;
+      ctx.strokeStyle = uc;
+      ctx.lineWidth = Math.max(2, br * 0.1 * (1 - t));
+      ctx.beginPath();
+      ctx.arc(0, 0, br * (1 + 0.6 * easeOutCubic(t)), 0, TAU);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  function drawButtons(snap, now) {
+    if (!spr || !spr.btn) return;
+    for (let i = 0; i < btnN; i++) drawButton(btns[i], snap, now);
+  }
+
+  // Item icons in flight: a collected box's icon to the player's button (or the opponent pill),
+  // and a used item's icon out of its button towards the middle, fading.
+  function drawFlights(now) {
+    if (!spr || !spr.items) return;
+    for (let i = 0; i < FLY_N; i++) {
+      const f = flights[i];
+      if (!f.on) continue;
+      const age = now - f.t0;
+      const dur = f.kind ? USE_FLY_MS : BOX_FLY_MS;
+      if (age >= dur) {
+        f.on = false;
+        continue;
+      }
+      if (age < 0) continue;
+      const p = age / dur;
+      const icon = spr.items[f.item];
+      let x;
+      let y;
+      let k;
+      let a;
+      if (f.kind === 0) {
+        const x0 = sxw(f.wx);
+        const y0 = syw(f.wy);
+        flightTarget(f.idx, x0);
+        const e = p * p * (3 - 2 * p);
+        x = x0 + (tgtX - x0) * e;
+        y = y0 + (tgtY - y0) * e - Math.sin(Math.PI * p) * br * 0.7;
+        k = 0.8 + 0.45 * Math.sin(Math.PI * p);
+        a = p < 0.85 ? 1 : (1 - p) / 0.15;
+        ctx.globalCompositeOperation = 'lighter';
+        drawGlow(itemGlow(f.item), x, y, ir * 2.2, 0.6 * a);
+        ctx.globalCompositeOperation = 'source-over';
+      } else {
+        const b = findBtn(f.idx, f.left ? rx : rx + rw);
+        if (!b) {
+          f.on = false;
+          continue;
+        }
+        const e = easeOutCubic(p);
+        const cx = rx + rw / 2;
+        const cy = syw(H + G / 2);
+        x = b.x + (cx - b.x) * 0.6 * e;
+        y = b.y + (cy - b.y) * 0.6 * e;
+        k = 1 + 0.8 * e;
+        a = 1 - p;
+      }
+      ctx.globalAlpha = a;
+      drawSprite(icon, x, y, k);
+    }
+    ctx.globalAlpha = 1;
   }
 
   // --- text ---------------------------------------------------------------------
@@ -2152,14 +3199,20 @@ export function createView(canvas, role, cfg) {
     const padX = 66 * u;
     gA = 1;
     if (snap.ph === 'ready' && uiNow.calibrating) return; // host's calibration bar sits here
+    // Battle: scores next to a corner button move toward the middle so the button clears them.
+    const lift = battle ? btnShift : 0;
     if (solo) {
-      drawScore(rx + padX, ry + rh - 104 * u, false, sc[0], labels[0], 'host', 0, popT[0], now);
-      drawScore(rx + rw - padX, ry + 104 * u, true, sc[1], labels[1], 'guest', 1, popT[1], now);
+      drawScore(rx + padX, ry + rh - 104 * u - lift, false, sc[0], labels[0], 'host', 0, popT[0], now);
+      drawScore(rx + rw - padX, ry + 104 * u + (players === 'pass' ? lift : 0), true, sc[1], labels[1], 'guest', 1, popT[1], now);
     } else {
       const mine = role === 'host' ? 0 : 1;
       const other = 1 - mine;
-      drawScore(rx + padX, ry + rh - 104 * u, false, sc[mine], labels[0], role, mine, popT[mine], now);
+      drawScore(rx + padX, ry + rh - 104 * u - lift, false, sc[mine], labels[0], role, mine, popT[mine], now);
       drawScore(rx + rw - padX, ry + 86 * u, false, sc[other], labels[1], role === 'host' ? 'guest' : 'host', other, popT[other], now);
+    }
+    if (battle && !replayOn && spr && spr.items && (!solo || players === 'bot')) {
+      const oi = solo ? 1 : 1 - myIdx;
+      drawPill(oi, (snap.it && snap.it[oi]) || '', now);
     }
   }
 
@@ -2724,6 +3777,7 @@ export function createView(canvas, role, cfg) {
     if (destroyed || !snap || !snap.p || !snap.m || !bg || !spr) return; // also a no-op after destroy()
     const dt = lastNow < 0 ? 0.016 : clamp((now - lastNow) / 1000, 0, 0.1);
     lastNow = now;
+    dtNow = dt;
     uiNow = ui || NO_UI;
     const rp = uiNow.replay || null;
     if (!!rp !== replayOn) {
@@ -2732,6 +3786,7 @@ export function createView(canvas, role, cfg) {
       outSnap = null;
       trCount = 0;
       fx.reset();
+      if (battle) resetBattleFx();
     }
     if (rp) {
       rpT = clamp(Number(rp.t) || 0, 0, 1);
@@ -2798,12 +3853,25 @@ export function createView(canvas, role, cfg) {
     const speed = Math.hypot(pvx, pvy);
     const playing = s.ph === 'play';
 
+    // Battle: ghost hides the puck from the targeted screen (solo: the human host); the
+    // side that fired it sees the puck with a spectral outline instead.
+    const bt = battle ? s.bt || null : null;
+    const ghArr = bt && bt.gh ? bt.gh : NO_RD;
+    const ghosted = ghArr[myIdx] > 0;
+    const ghSeen = !ghosted && ghArr[1 - myIdx] > 0;
+    if (ghosted && !ghWas) {
+      ghX = px;
+      ghY = py;
+    }
+    if (ghosted !== ghWas) trCount = 0; // no streak across the ghost
+    ghWas = ghosted;
+
     if (s.ph === 'ready' && uiNow.calibrating) drawCalibration(now);
 
     drawHud(s, now, dt);
 
     // Seam glow: the puck is about to cross to the other iPad.
-    if (playing) {
+    if (playing && !ghosted) {
       const sxp = sxw(px);
       if (solo) {
         // No physical seam without a gap: nothing crosses to another device.
@@ -2820,11 +3888,20 @@ export function createView(canvas, role, cfg) {
     }
 
     if (s.ob && s.ob.length) drawObstacles(s.ob, now);
+    if (battle) {
+      drawBlasts(now);
+      if (bt && bt.sh) {
+        for (let i = 0; i < goals.length; i++) {
+          const sh = bt.sh[goals[i].idx];
+          if (sh > 0) drawShield(goals[i], sh, now);
+        }
+      }
+    }
 
     if (s.ph === 'countdown') drawServeHint(s, now);
 
     // Trail, shadow, glow and puck.
-    if (playing) {
+    if (playing && !ghosted) {
       pushTrail(px, py, now);
       drawTrail(px, py, speed, now);
     }
@@ -2848,56 +3925,83 @@ export function createView(canvas, role, cfg) {
       shOx += (tox - shOx) * sk;
       shOy += (toy - shOy) * sk;
       const dim = playing ? 1 : 0.6 + 0.12 * Math.sin(now / 260);
-      ctx.globalAlpha = dim;
-      drawSprite(spr.puckShadow, sx + shOx, sy + shOy);
-      const hitT = (now - fx.state.hitAt) / 1000;
-      const gk = clamp((speed - 500) / 1800, 0, 1) * 0.35 + (hitT >= 0 && hitT < 0.22 ? 0.85 * Math.pow(1 - hitT / 0.22, 2) : 0);
-      if (gk > 0.02 && playing) {
-        ctx.globalCompositeOperation = 'lighter';
-        drawGlow(glowWhite, sx, sy, pr * 2.8, Math.min(1, gk));
-        ctx.globalCompositeOperation = 'source-over';
-      }
       glitchPy = sy;
-      // Glitch ghost at the old spot, fading with a growing cyan / magenta split.
-      const gt = now - glitchT;
-      if (gt >= 0 && gt < GLITCH_GHOST_MS) {
-        const ge = gt / GLITCH_GHOST_MS;
-        const gx = sxw(glitchFx);
-        const gy = syw(glitchFy);
-        const off = 3 + 6 * ge;
-        ctx.globalAlpha = 0.45 * (1 - ge) * (1 - ge);
-        drawSprite(spr.puck, gx, gy);
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.5 * (1 - ge);
-        drawSprite(spr.puckCyan, gx - off, gy);
-        drawSprite(spr.puckMag, gx + off, gy);
-        ctx.globalCompositeOperation = 'source-over';
+      if (ghosted) drawGhostHint(now);
+      else {
+        ctx.globalAlpha = dim;
+        drawSprite(spr.puckShadow, sx + shOx, sy + shOy);
+        const hitT = (now - fx.state.hitAt) / 1000;
+        const gk = clamp((speed - 500) / 1800, 0, 1) * 0.35 + (hitT >= 0 && hitT < 0.22 ? 0.85 * Math.pow(1 - hitT / 0.22, 2) : 0);
+        if (gk > 0.02 && playing) {
+          ctx.globalCompositeOperation = 'lighter';
+          drawGlow(glowWhite, sx, sy, pr * 2.8, Math.min(1, gk));
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        // Rocket flame hugging the puck for a moment after the hit.
+        const rkAge = (now - rocketT) / ROCKET_TRAIL_MS;
+        if (rkAge >= 0 && rkAge < 1) {
+          ctx.globalCompositeOperation = 'lighter';
+          drawGlow(glowOrange, sx, sy, pr * 3.4, 0.75 * (1 - rkAge));
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+        }
+        if (ghSeen) drawSpectral(sx, sy, pr, now);
+        // Glitch ghost at the old spot, fading with a growing cyan / magenta split.
+        const gt = now - glitchT;
+        if (gt >= 0 && gt < GLITCH_GHOST_MS) {
+          const ge = gt / GLITCH_GHOST_MS;
+          const gx = sxw(glitchFx);
+          const gy = syw(glitchFy);
+          const off = 3 + 6 * ge;
+          ctx.globalAlpha = 0.45 * (1 - ge) * (1 - ge);
+          drawSprite(spr.puck, gx, gy);
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = 0.5 * (1 - ge);
+          drawSprite(spr.puckCyan, gx - off, gy);
+          drawSprite(spr.puckMag, gx + off, gy);
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        // Glitch warning: the puck jitters and splits into cyan / magenta ghosts.
+        const gw = now - glitchWarnT;
+        let jx = 0;
+        let jy = 0;
+        const warn = gw >= 0 && gw < GLITCH_WARN_MS;
+        if (warn) {
+          const q = (gw / 40) | 0;
+          const h1 = Math.sin(q * 12.9898) * 43758.5453;
+          const h2 = Math.sin(q * 78.233) * 12345.6789;
+          jx = (h1 - Math.floor(h1) - 0.5) * 8;
+          jy = (h2 - Math.floor(h2) - 0.5) * 8;
+        }
+        ctx.globalAlpha = dim;
+        drawSprite(spr.puck, sx + jx, sy + jy);
+        if (warn) {
+          // The split has to read from across a table: a quarter puck radius each way.
+          const woff = Math.max(6, pr * 0.28);
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = 0.55;
+          drawSprite(spr.puckCyan, sx + jx - woff, sy + jy);
+          drawSprite(spr.puckMag, sx + jx + woff, sy + jy);
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        ctx.globalAlpha = 1;
+        // Frozen: pale blue tint, frost ring and crystals; a brief flash when it thaws.
+        if (bt && bt.fz > 0) {
+          const fk = easeOutCubic(clamp((now - fzT) / 200, 0, 1));
+          ctx.globalAlpha = fk;
+          drawSprite(spr.puckIce, sx, sy);
+          ctx.globalAlpha = 1;
+          drawFrost(sx, sy, pr, fk, now);
+        }
+        const tt = (now - thawT) / THAW_MS;
+        if (tt >= 0 && tt < 1) {
+          ctx.globalCompositeOperation = 'lighter';
+          drawGlow(glowIce, sx, sy, pr * (2 + 1.6 * tt), (1 - tt) * 0.8);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+        }
       }
-      // Glitch warning: the puck jitters and splits into cyan / magenta ghosts.
-      const gw = now - glitchWarnT;
-      let jx = 0;
-      let jy = 0;
-      const warn = gw >= 0 && gw < GLITCH_WARN_MS;
-      if (warn) {
-        const q = (gw / 40) | 0;
-        const h1 = Math.sin(q * 12.9898) * 43758.5453;
-        const h2 = Math.sin(q * 78.233) * 12345.6789;
-        jx = (h1 - Math.floor(h1) - 0.5) * 8;
-        jy = (h2 - Math.floor(h2) - 0.5) * 8;
-      }
-      ctx.globalAlpha = dim;
-      drawSprite(spr.puck, sx + jx, sy + jy);
-      if (warn) {
-        // The split has to read from across a table: a quarter puck radius each way.
-        const woff = Math.max(6, pr * 0.28);
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.55;
-        drawSprite(spr.puckCyan, sx + jx - woff, sy + jy);
-        drawSprite(spr.puckMag, sx + jx + woff, sy + jy);
-        ctx.globalCompositeOperation = 'source-over';
-      }
-      ctx.globalAlpha = 1;
-      predK += ((uiNow.predicted ? 1 : 0) - predK) * (1 - Math.exp(-dt * 12));
+      predK += ((uiNow.predicted && !ghosted ? 1 : 0) - predK) * (1 - Math.exp(-dt * 12));
       if (predK > 0.02) drawPredRing(sx, sy, pr, now);
     }
 
@@ -2926,6 +4030,11 @@ export function createView(canvas, role, cfg) {
         lmInit = false;
       }
       drawMallet('guest', 2, now, local);
+    }
+
+    if (battle) {
+      if (!replayOn) drawButtons(s, now);
+      drawFlights(now);
     }
 
     if (!replayOn) drawMessages(s, now, false);
@@ -2971,6 +4080,7 @@ export function createView(canvas, role, cfg) {
 
   function destroy() {
     destroyed = true;
+    freeBattleSprites(); // item, button and box sprites, before spr is dropped
     window.removeEventListener('resize', onResize);
     window.removeEventListener('orientationchange', onResize);
     // Zero out offscreen canvases so Safari reclaims their backing stores promptly.
@@ -3009,6 +4119,11 @@ export function createView(canvas, role, cfg) {
     free(glowRed);
     free(glowGreen);
     free(glowBlack);
+    free(glowOrange);
+    free(glowViolet);
+    free(glowIce);
+    for (const k in itemGlows) free(itemGlows[k]);
+    resetBattleFx();
     free(vignette);
     free(grain);
     vignette = null;
@@ -3017,5 +4132,26 @@ export function createView(canvas, role, cfg) {
     fx.reset();
   }
 
-  return { render, screenToWorld, worldToScreen, resize, setLatency, destroy };
+  /**
+   * Battle only (null in other modes): the side whose corner button contains the screen point
+   * (CSS px, same space as the pointer events). The hit radius is 1.3 x the drawn radius.
+   */
+  function buttonAt(sx, sy) {
+    if (!battle) return null;
+    const hr = br * 1.3;
+    for (let i = 0; i < btnN; i++) {
+      const b = btns[i];
+      const dx = sx - b.x;
+      const dy = sy - b.y;
+      if (dx * dx + dy * dy <= hr * hr) return b.side;
+    }
+    return null;
+  }
+
+  /** Drawn radius of a corner button in CSS px. */
+  function itemRadius() {
+    return br;
+  }
+
+  return { render, screenToWorld, worldToScreen, resize, setLatency, destroy, buttonAt, itemRadius };
 }

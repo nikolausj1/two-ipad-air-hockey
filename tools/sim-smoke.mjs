@@ -17,6 +17,9 @@ const base = {
 let bottom = 2 * H + G;
 const DT = 1 / 60;
 const SECONDS = 20;
+const ITEMS_ALL = ['rocket', 'shield', 'ghost', 'shrink', 'freeze', 'mine'];
+const ITEMS_OK = ITEMS_ALL;
+const ROCKET_CAP = 3900;
 
 function rngFor(seed) {
   let a = seed >>> 0;
@@ -735,6 +738,491 @@ console.log('\nGlitch: warning, short hops, only during play');
   check(badLand === 0, `${badLand} glitches landing outside the rink or near a goal mouth`);
   check(badPhase === 0, `${badPhase} glitches outside the play phase`);
   check(badS === 0, `${badS} glitch-run events with s outside 0..5`);
+}
+
+// ---- battle ------------------------------------------------------------------------------
+console.log('\nBattle: boxes, items, bot');
+{
+  const mR = base.malletR;
+  const pR = base.puckR;
+  const newBattle = (extra = {}, seed = 31) => {
+    const cfg = { ...base, mode: 'battle', players: 'pass', ...extra };
+    const sim = createSim(cfg, { rng: rngFor(seed) });
+    return { cfg, sim, st: sim.state, clock: { now: 1000 } };
+  };
+  const stepN = (b, sec, each) => {
+    const evs = [];
+    for (let i = 0; i < Math.round(sec / DT); i++) {
+      b.clock.now += DT * 1000;
+      if (each) each();
+      b.sim.step(DT, b.clock.now);
+      for (const e of b.sim.snapshot().ev) evs.push(e);
+    }
+    return evs;
+  };
+  const toPlay = (b) => {
+    b.sim.setReady('host');
+    b.sim.setReady('guest');
+    for (let i = 0; i < 400 && b.st.phase !== PHASE.PLAY; i++) {
+      b.clock.now += DT * 1000;
+      b.sim.step(DT, b.clock.now);
+      b.sim.snapshot();
+    }
+  };
+  /** Skip the serve: a bare play phase with a still puck and no box timers. */
+  const barePlay = (b, x = W * 0.1, y = H + G + H * 0.2) => {
+    b.st.phase = PHASE.PLAY;
+    Object.assign(b.st.puck, { x, y, vx: 0, vy: 0 });
+  };
+  const speed = (p) => Math.hypot(p.vx, p.vy);
+
+  // Mode wiring and the snapshot shape.
+  check(MODES.includes('battle') && MODE_PHYS.battle.max === 2600 && MODE_PHYS.battle.fric === MODE_PHYS.classic.fric, 'battle in MODES and MODE_PHYS');
+  for (const mode of MODES) {
+    const sn = createSim({ ...base, mode }).snapshot();
+    if (mode === 'battle') {
+      check(Array.isArray(sn.it) && sn.it.join() === ',' && sn.bt && sn.bt.mr.join() === `${mR},${mR}`, `battle snapshot it/bt (${JSON.stringify(sn.it)})`);
+      check(sn.bt.sh.length === 2 && sn.bt.gh.length === 2 && sn.bt.sk.length === 2 && sn.bt.rk.length === 2 && sn.bt.fz === 0, 'battle bt fields');
+    } else {
+      check(sn.it === undefined && sn.bt === undefined, `${mode}: no it/bt in the snapshot`);
+      check(createSim({ ...base, mode }).state.bt === undefined && createSim({ ...base, mode }).useItem('host') === false, `${mode}: no battle state, useItem refuses`);
+    }
+  }
+
+  // Boxes: two slots, hidden until 1 s after the first serve, one per half.
+  {
+    const b = newBattle();
+    const ob0 = b.sim.snapshot().ob;
+    check(ob0.length === 2 && ob0.every((o) => o.k === 'box' && o.a === 0), 'boxes start as two inactive slots');
+    check(Math.abs(ob0[0].r - mR * 0.55) < 0.06, `box radius ${ob0[0].r}`);
+    toPlay(b);
+    check(b.st.phase === PHASE.PLAY, 'battle: reached play');
+    const parkCorner = () => Object.assign(b.st.puck, { x: pR + 2, y: H + G + 60, vx: 0, vy: 0 });
+    const early = stepN(b, 0.9, parkCorner);
+    check(b.sim.snapshot().ob.every((o) => o.a === 0) && !early.some((e) => e.k === 'boxspawn'), 'no box before 1 s after the serve');
+    const late = stepN(b, 0.3, parkCorner);
+    const ob1 = b.sim.snapshot().ob;
+    check(ob1.length === 2 && ob1.every((o) => o.a === 1), 'both boxes present 1 s after the serve');
+    check(late.filter((e) => e.k === 'boxspawn').length === 2, 'two boxspawn events');
+    const ys = ob1.map((o) => o.y).sort((p, q) => p - q);
+    check(ys[0] < H && ys[1] > H + G, 'one box in each half');
+    check(Math.abs(ob1[0].x - (W - ob1[1].x)) < 0.2 && Math.abs(ob1[0].y - (bottom - ob1[1].y)) < 0.2, 'opening boxes are a mirrored pair');
+    check(b.st.obs === b.sim.obstacles, 'state.obs is the obstacle array');
+  }
+
+  // Collection: credit follows lastHit, then the box's half; a full slot passes.
+  {
+    const b = newBattle({}, 32);
+    toPlay(b);
+    stepN(b, 1.3);
+    const boxes = b.sim.obstacles.filter((o) => o.k === 'box');
+    const hostBox = boxes.find((o) => o.y > H + G);
+    const guestBox = boxes.find((o) => o.y < H);
+    const parkOn = (o) => {
+      Object.assign(b.st.puck, { x: o.x, y: o.y, vx: 0, vy: 0 });
+    };
+    // Credited to lastHit even in the other half.
+    b.st.lastHit = 'guest';
+    parkOn(hostBox);
+    let evs = stepN(b, DT);
+    const ev = evs.find((e) => e.k === 'box');
+    check(!!ev && ev.by === 'guest' && ITEMS_OK.includes(ev.item) && b.st.items.guest === ev.item && b.st.items.host === null, `box credits lastHit (${JSON.stringify(ev)})`);
+    check(ev && ev.x === Math.round(hostBox.x * 10) / 10 && ev.s === 1, 'box event at the box');
+    check(!hostBox.on && b.sim.snapshot().ob.filter((o) => o.a === 1).length === 1, 'collected box switches off');
+    // Respawns 6..8 s later at a (new) free spot.
+    const t0 = b.st.time;
+    parkOn({ x: W * 0.1, y: H + G + H * 0.2 });
+    let respawn = null;
+    for (let i = 0; i < Math.round(9 / DT) && !respawn; i++) {
+      const out = stepN(b, DT, () => Object.assign(b.st.puck, { x: W * 0.1, y: H + G + H * 0.2, vx: 0, vy: 0 }));
+      respawn = out.find((e) => e.k === 'boxspawn') || null;
+    }
+    check(!!respawn && b.st.time - t0 >= 5.95 && b.st.time - t0 <= 8.1, `respawn 6..8 s later (${(b.st.time - t0).toFixed(2)})`);
+    // lastHit null: the half decides. Guest already holds an item, so give host first.
+    b.st.lastHit = null;
+    b.st.items.host = null;
+    b.st.items.guest = null;
+    const gb = b.sim.obstacles.filter((o) => o.k === 'box' && o.on && o.y < H)[0] || null;
+    if (gb) {
+      parkOn(gb);
+      evs = stepN(b, DT);
+      const e2 = evs.find((e) => e.k === 'box');
+      check(!!e2 && e2.by === 'guest', 'box in the guest half credits the guest when nobody hit the puck');
+    }
+    // Full slot: puck passes through, box stays, item unchanged.
+    b.st.items.host = 'freeze';
+    b.st.lastHit = 'host';
+    const hb = b.sim.obstacles.filter((o) => o.k === 'box' && o.on)[0];
+    if (hb) {
+      parkOn(hb);
+      evs = stepN(b, DT);
+      check(!evs.some((e) => e.k === 'box') && hb.on && b.st.items.host === 'freeze', 'a full slot does not collect');
+    } else check(true, 'no live box left for the full-slot check');
+  }
+
+  // Item roll: seeded, catch-up weighting.
+  {
+    const counts = (hostScore, guestScore, extra = { players: 'duo' }) => {
+      const b = newBattle(extra, 33);
+      b.st.score.host = hostScore;
+      b.st.score.guest = guestScore;
+      const n = {};
+      for (let i = 0; i < 4000; i++) {
+        b.st.phase = PHASE.PLAY;
+        b.st.items.host = null;
+        b.st.lastHit = 'host';
+        b.st.time = 100;
+        const bx = b.sim.obstacles[0];
+        bx.on = true;
+        bx.x = b.st.puck.x;
+        bx.y = b.st.puck.y;
+        b.sim.obstacles[1].on = false;
+        b.sim.obstacles[1].spawnAt = Infinity;
+        bx.spawnAt = Infinity;
+        b.sim.step(DT, 1000 + i);
+        const it = b.st.items.host;
+        if (it) n[it] = (n[it] || 0) + 1;
+        b.sim.snapshot();
+      }
+      return n;
+    };
+    const even = counts(0, 0);
+    const behind = counts(0, 3);
+    const ahead = counts(5, 0);
+    const off = (n) => ((n.rocket || 0) + (n.ghost || 0) + (n.shrink || 0) + (n.mine || 0)) / Object.values(n).reduce((a, c) => a + c, 0);
+    console.log(`  offensive share: even ${off(even).toFixed(2)}, behind ${off(behind).toFixed(2)}, ahead ${off(ahead).toFixed(2)}`);
+    check(ITEMS_ALL.every((id) => even[id] > 100), `every item can roll (${JSON.stringify(even)})`);
+    const pass = counts(0, 0, { players: 'pass' });
+    check(!pass.ghost && ITEMS_ALL.filter((id) => id !== 'ghost').every((id) => pass[id] > 100), `pass and play never rolls ghost (${JSON.stringify(pass)})`);
+    check(off(behind) > off(even) + 0.05 && off(ahead) < off(even) - 0.05, 'catch-up weighting favours offence when behind');
+  }
+
+  // Items.
+  {
+    // rocket
+    const b = newBattle({}, 34);
+    barePlay(b);
+    b.st.items.host = 'rocket';
+    check(b.sim.useItem('host') === true && b.st.bt.rk[0] === 1 && b.st.items.host === null, 'rocket: armed, item consumed');
+    check(b.sim.useItem('host') === false, 'useItem with an empty hand is false');
+    const ue = b.sim.snapshot().ev.find((e) => e.k === 'use');
+    check(ue && ue.by === 'host' && ue.item === 'rocket' && ue.s === 1, `use event ${JSON.stringify(ue)}`);
+    // Stage a fast mallet moving +x into a still puck.
+    const STEP = 50;
+    Object.assign(b.st.puck, { x: 700, y: H + G + 400, vx: 0, vy: 0 });
+    let mx = 700 - 80 - STEP * 10;
+    b.clock.now = 2000;
+    b.sim.setMallet('host', mx, b.st.puck.y, b.clock.now, true);
+    for (let i = 0; i < 10; i++) {
+      b.clock.now += DT * 1000;
+      mx += STEP;
+      b.sim.setMallet('host', mx, b.st.puck.y, b.clock.now);
+    }
+    b.clock.now += DT * 1000;
+    b.sim.setMallet('host', mx + STEP, b.st.puck.y, b.clock.now);
+    const hitEv = b.sim.snapshot().ev;
+    const re = hitEv.find((e) => e.k === 'rocket');
+    check(!!re && re.by === 'host' && re.s === 1, `rocket event ${JSON.stringify(re)}`);
+    const sp0 = speed(b.st.puck);
+    check(sp0 > 3800 && sp0 <= 3900 + 1e-6, `rocket launch speed ${Math.round(sp0)} (cap 3900)`);
+    check(b.st.bt.rk[0] === 0 && b.st.bt.rk[1] === 0, 'rocket consumed by the hit');
+    let peak = sp0;
+    let late = 0;
+    let t = 0;
+    const evs = stepN(b, 0.8, () => {
+      t += DT;
+      peak = Math.max(peak, speed(b.st.puck));
+      if (t > 0.1) late = Math.max(late, speed(b.st.puck));
+    });
+    check(peak <= 3900 + 1e-6 && b.st.phase === PHASE.PLAY, `rocket flight speed stays under 3900 (${Math.round(peak)})`);
+    check(late > 2700, `puck keeps speed above the normal cap during the flight (${Math.round(late)})`);
+    stepN(b, 0.6);
+    check(speed(b.st.puck) <= 2600 + 1e-6, `normal cap resumes (${Math.round(speed(b.st.puck))})`);
+    check(evs.every((e) => e.s >= 0 && e.s <= 5), 'rocket events in range');
+  }
+  {
+    // rocket arming survives a goal; a slow rocket hit still reaches the minimum 1800
+    const b = newBattle({}, 35);
+    barePlay(b);
+    b.st.items.host = 'rocket';
+    b.sim.useItem('host');
+    b.sim.snapshot();
+    Object.assign(b.st.puck, { x: W / 2, y: 30, vx: 0, vy: -900 });
+    stepN(b, 0.3);
+    check(b.st.phase === PHASE.GOAL && b.st.bt.rk[0] === 1, 'rocket arming survives a goal');
+    const STEP = 8;
+    barePlay(b);
+    Object.assign(b.st.puck, { x: 700, y: H + G + 400 });
+    let mx = 700 - 80 - STEP * 10;
+    b.sim.setMallet('host', mx, b.st.puck.y, 3000, true);
+    let now = 3000;
+    for (let i = 0; i < 13; i++) {
+      now += DT * 1000;
+      mx += STEP;
+      b.sim.setMallet('host', mx, b.st.puck.y, now);
+    }
+    const sp = speed(b.st.puck);
+    check(sp >= 1800 - 1e-6 && sp <= 1900, `slow rocket hit is lifted to the minimum (${Math.round(sp)})`);
+  }
+  {
+    // shield
+    const b = newBattle({}, 36);
+    barePlay(b);
+    b.sim.setMallet('host', W * 0.15, bottom - 400, 100, true);
+    b.st.items.host = 'shield';
+    check(b.sim.useItem('host') && b.st.bt.sh[0] === 1 && b.st.bt.sh[1] === 0, 'shield: timer on the holder side');
+    Object.assign(b.st.puck, { x: W / 2 + 40, y: bottom - 120, vx: 0, vy: 1600 });
+    const evs = stepN(b, 0.5);
+    const se = evs.find((e) => e.k === 'shieldhit');
+    check(!!se && se.by === 'host' && se.s > 0 && se.s <= 1, `shieldhit event ${JSON.stringify(se)}`);
+    check(b.st.phase === PHASE.PLAY && b.st.score.guest === 0, 'shield keeps the goal closed');
+    check(b.st.puck.vy < 0, 'shield bounce reverses the puck');
+    const impact = 1600 * Math.pow(0.8, 0.07);
+    check(speed(b.st.puck) > impact * 0.5, 'shield bounce keeps its speed');
+    // Without a shield the same shot scores.
+    const c = newBattle({}, 36);
+    barePlay(c);
+    c.sim.setMallet('host', W * 0.15, bottom - 400, 100, true);
+    Object.assign(c.st.puck, { x: W / 2 + 40, y: bottom - 120, vx: 0, vy: 1600 });
+    stepN(c, 0.5);
+    check(c.st.score.guest === 1, 'control: same shot scores without a shield');
+    // Timer runs out, then the goal is open again.
+    stepN(b, 0.6);
+    check(b.st.bt.sh[0] === 0, 'shield expires');
+    // Guest shield protects the guest goal.
+    const g = newBattle({}, 36);
+    barePlay(g);
+    g.sim.setMallet('guest', W * 0.85, 400, 100, true);
+    g.st.items.guest = 'shield';
+    g.sim.useItem('guest');
+    Object.assign(g.st.puck, { x: W / 2 - 30, y: 120, vx: 0, vy: -1600 });
+    const gev = stepN(g, 0.5);
+    check(gev.some((e) => e.k === 'shieldhit' && e.by === 'guest') && g.st.score.host === 0 && g.st.puck.vy > 0, 'guest shield bounces the puck');
+  }
+  {
+    // ghost
+    const b = newBattle({}, 37);
+    barePlay(b);
+    b.st.items.host = 'ghost';
+    b.sim.useItem('host');
+    check(b.st.bt.gh[1] === 2 && b.st.bt.gh[0] === 0, 'ghost: target side only');
+    stepN(b, 1);
+    check(Math.abs(b.st.bt.gh[1] - 1) < 0.02, `ghost counts down (${b.st.bt.gh[1]})`);
+    stepN(b, 1.1);
+    check(b.st.bt.gh[1] === 0, 'ghost expires');
+  }
+  {
+    // shrink
+    const b = newBattle({}, 38);
+    barePlay(b);
+    b.st.items.host = 'shrink';
+    b.sim.useItem('host');
+    check(b.st.bt.sk[1] === 4 && Math.abs(b.st.bt.mr[1] - mR * 0.6) < 1e-9 && b.st.bt.mr[0] === mR, 'shrink: target radius 0.6 x malletR');
+    const sn = b.sim.snapshot();
+    check(sn.bt.mr[1] === Math.round(mR * 0.6 * 10) / 10 && sn.bt.mr[0] === mR && sn.bt.sk[1] === 4, `snapshot mr ${JSON.stringify(sn.bt.mr)}`);
+    b.sim.setMallet('guest', -50, -50, 5000, true);
+    check(Math.abs(b.st.mallets.guest.x - mR * 0.6) < 1e-9 && Math.abs(b.st.mallets.guest.y - mR * 0.6) < 1e-9, 'shrunk guest mallet clamps with the smaller radius');
+    b.sim.setMallet('host', -50, 99999, 5000, true);
+    check(b.st.mallets.host.x === mR, 'host mallet keeps its full radius');
+    // Puck just outside the shrunk radius but inside the full radius: no contact.
+    b.sim.setMallet('guest', W / 2, 200, 5100, true);
+    const gap = pR + mR * 0.6 + 3;
+    Object.assign(b.st.puck, { x: W / 2, y: 200 + gap, vx: 0, vy: 0 });
+    stepN(b, DT);
+    check(Math.abs(b.st.puck.y - (200 + gap)) < 1e-9 && b.st.puck.vy === 0, 'shrunk mallet does not touch at the old radius');
+    // The unshrunk host mallet still collides at its normal radius.
+    b.sim.setMallet('host', W / 2, bottom - 300, 5200, true);
+    Object.assign(b.st.puck, { x: W / 2, y: bottom - 300 - (pR + mR - 4), vx: 0, vy: 0 });
+    b.st.mallets.host.vy = 300;
+    b.sim.setMallet('host', W / 2, bottom - 300, 5216);
+    check(Math.hypot(b.st.puck.x - W / 2, b.st.puck.y - (bottom - 300)) >= pR + mR - 1e-6, 'host mallet pushes the puck out at full radius');
+    stepN(b, 4.1);
+    check(b.st.bt.sk[1] === 0 && b.st.bt.mr[1] === mR, 'shrink expires and the radius is restored');
+    // A shrunk mallet grown back next to a wall is clamped.
+    const c = newBattle({}, 38);
+    barePlay(c);
+    c.st.items.host = 'shrink';
+    c.sim.useItem('host');
+    c.sim.setMallet('guest', 0, 400, 100, true);
+    stepN(c, 4.1);
+    check(c.st.mallets.guest.x >= mR - 1e-9, 'grown mallet is clamped back inside');
+  }
+  {
+    // freeze
+    const b = newBattle({}, 39);
+    barePlay(b, W * 0.3, bottom / 2);
+    b.st.puck.vx = 800;
+    b.st.puck.vy = -500;
+    b.st.items.guest = 'freeze';
+    b.sim.useItem('guest');
+    const sn = b.sim.snapshot();
+    check(sn.p[2] === 0 && sn.p[3] === 0 && sn.bt.fz === 0.5, `frozen snapshot has zero velocity (${JSON.stringify(sn.p)}, fz ${sn.bt.fz})`);
+    const px = b.st.puck.x;
+    const py = b.st.puck.y;
+    stepN(b, 0.3);
+    check(b.st.puck.x === px && b.st.puck.y === py, 'frozen puck does not move');
+    // A mallet pushed onto the frozen puck does nothing to it.
+    b.sim.setMallet('host', px, py, 6000, true);
+    b.sim.setMallet('host', px + 3, py + 3, 6016);
+    check(b.st.puck.x === px && b.st.puck.y === py && b.st.puck.vx === 0, 'frozen puck ignores mallets');
+    b.sim.setMallet('host', W / 2, bottom - H * 0.2, 6032, true);
+    const evs = stepN(b, 0.4);
+    const te = evs.find((e) => e.k === 'thaw');
+    check(!!te && b.st.bt.fz === 0, 'thaw event after 0.5 s');
+    check(b.st.puck.vx > 700 && b.st.puck.vx <= 800 && b.st.puck.vy < -400, `velocity restored (${Math.round(b.st.puck.vx)}, ${Math.round(b.st.puck.vy)})`);
+    check(b.st.puck.x !== px, 'puck moves again after the thaw');
+  }
+  {
+    // mine: fuse, armed, hit, expiry; the obstacle array reference never changes
+    const b = newBattle({}, 40);
+    barePlay(b);
+    const ref = b.sim.obstacles;
+    b.st.items.host = 'mine';
+    check(b.sim.useItem('host') === true, 'mine: dropped');
+    const dropEvs = b.sim.snapshot();
+    const md = dropEvs.ev.find((e) => e.k === 'minedrop');
+    check(!!md && md.by === 'host' && dropEvs.ev.some((e) => e.k === 'use' && e.item === 'mine'), `minedrop event ${JSON.stringify(md)}`);
+    const mine = b.sim.obstacles.find((o) => o.k === 'mine');
+    check(!!mine && mine.drop === true && mine.y < H && Math.abs(mine.r - mR * 0.45) < 1e-9, 'mine lands in the target half (guest) with the mine radius');
+    check(Math.abs(mine.rearmAt - (b.st.time + 1)) < 1e-9 && Math.abs(mine.expireAt - (b.st.time + 11)) < 1e-9, 'fuse 1 s, live 10 s');
+    const m0 = dropEvs.ob.find((o) => o.k === 'mine');
+    check(m0 && m0.a === 0, 'mine unarmed during the fuse');
+    check(Math.hypot(mine.x - b.st.mallets.guest.x, mine.y - b.st.mallets.guest.y) >= mR * 2.5 + mine.r - 1e-9, 'mine clear of the guest mallet');
+    // On the fuse it is inert.
+    Object.assign(b.st.puck, { x: mine.x, y: mine.y, vx: 0, vy: 0 });
+    let evs = stepN(b, 0.5, () => Object.assign(b.st.puck, { x: mine.x, y: mine.y, vx: 0, vy: 0 }));
+    check(!evs.some((e) => e.k === 'mine') && b.sim.obstacles.includes(mine), 'unarmed mine does not blast');
+    Object.assign(b.st.puck, { x: W * 0.1, y: H * 0.5, vx: 0, vy: 0 });
+    stepN(b, 0.6, () => Object.assign(b.st.puck, { x: W * 0.1, y: H * 0.5, vx: 0, vy: 0 }));
+    check(b.sim.snapshot().ob.find((o) => o.k === 'mine').a === 1, 'mine armed after the fuse');
+    // Hit: blast, removed, same array.
+    Object.assign(b.st.puck, { x: mine.x, y: mine.y, vx: 0, vy: 0 });
+    evs = stepN(b, DT);
+    const me = evs.find((e) => e.k === 'mine');
+    check(!!me && me.s === 1, 'armed mine blasts the puck');
+    check(speed(b.st.puck) > 2000, `blast speed ${Math.round(speed(b.st.puck))}`);
+    check(!b.sim.obstacles.includes(mine) && b.sim.obstacles === ref && b.st.obs === ref, 'hit mine is removed in place');
+    check(b.sim.snapshot().ob.every((o) => o.k !== 'mine'), 'mine gone from the snapshot');
+    // Expiry.
+    barePlay(b);
+    b.st.items.host = 'mine';
+    check(b.sim.useItem('host'), 'second mine dropped');
+    const keep = () => Object.assign(b.st.puck, { x: W * 0.1, y: H + G + H * 0.2, vx: 0, vy: 0 });
+    stepN(b, 10.5, keep);
+    check(b.sim.obstacles.some((o) => o.k === 'mine'), 'mine still live at 10.5 s');
+    stepN(b, 1, keep);
+    check(!b.sim.obstacles.some((o) => o.k === 'mine') && b.sim.obstacles === ref, 'mine expires after 11 s, array unchanged');
+    // Goal clears an un-hit dropped mine.
+    barePlay(b);
+    b.st.items.guest = 'mine';
+    b.sim.useItem('guest');
+    check(b.sim.obstacles.some((o) => o.drop), 'guest mine dropped (host half)');
+    Object.assign(b.st.puck, { x: W / 2, y: bottom - 30, vx: 0, vy: 900 });
+    stepN(b, 0.3);
+    check(b.st.phase === PHASE.GOAL && !b.sim.obstacles.some((o) => o.drop), 'goal clears dropped mines');
+  }
+  {
+    // Not in play / wrong role.
+    const b = newBattle({}, 41);
+    b.st.items.host = 'freeze';
+    check(b.sim.useItem('host') === false && b.st.items.host === 'freeze', 'useItem refused outside play, item kept');
+    barePlay(b);
+    check(b.sim.useItem('nobody') === false, 'useItem rejects a bad role');
+    // Goal clears timers but keeps held items.
+    b.st.items.guest = 'ghost';
+    b.st.bt.sh[0] = 1;
+    b.st.bt.gh[1] = 2;
+    b.st.bt.sk[0] = 3;
+    b.sim.useItem('guest');
+    b.st.items.host = 'mine';
+    Object.assign(b.st.puck, { x: W / 2, y: 30, vx: 0, vy: -900 });
+    stepN(b, 0.3);
+    const bt = b.st.bt;
+    check(b.st.phase === PHASE.GOAL && bt.sh[0] === 0 && bt.gh[1] === 0 && bt.sk[0] === 0 && bt.mr[0] === mR && bt.fz === 0, 'goal clears shield, ghost, shrink and freeze');
+    check(b.st.items.host === 'mine', 'held items survive goals');
+    b.sim.restart();
+    check(b.st.items.host === null && b.st.items.guest === null && b.st.bt.rk.join() === '0,0', 'restart clears held items and arming');
+    const sn = b.sim.snapshot();
+    check(sn.ob.length === 2 && sn.ob.every((o) => o.k === 'box' && o.a === 0), 'restart puts the boxes back to the initial state');
+  }
+  {
+    // setGap rebuilds the initial box state and keeps the array.
+    const b = newBattle({}, 42);
+    const ref = b.sim.obstacles;
+    check(b.sim.setGap(120) && b.sim.obstacles === ref && ref.length === 2 && ref.every((o) => o.k === 'box' && !o.on), 'setGap rebuilds boxes in place');
+    b.sim.setGap(G);
+  }
+
+  // Bot: uses its item within a few seconds (shield and freeze wait for a cue).
+  for (const item of ['rocket', 'ghost', 'shrink', 'mine']) {
+    const b = newBattle({ players: 'bot', botLevel: 'medium' }, 43);
+    b.sim.setReady('host');
+    barePlay(b);
+    b.st.items.guest = item;
+    const evs = stepN(b, 2.6, () => Object.assign(b.st.puck, { x: W * 0.1, y: H + G + H * 0.2, vx: 0, vy: 0 }));
+    const ue = evs.find((e) => e.k === 'use');
+    check(!!ue && ue.by === 'guest' && ue.item === item && b.st.items.guest === null, `bot uses ${item} within 2.6 s`);
+    check(ue && ue.s === 1, 'bot use event strength');
+  }
+  for (const item of ['shield', 'freeze']) {
+    const b = newBattle({ players: 'bot', botLevel: 'medium' }, 44);
+    b.sim.setReady('host');
+    barePlay(b);
+    b.st.items.guest = item;
+    const park = () => Object.assign(b.st.puck, { x: W * 0.1, y: H + G + H * 0.2, vx: 0, vy: 0 });
+    stepN(b, 6, park);
+    check(b.st.items.guest === item, `bot holds ${item} without a cue`);
+    stepN(b, 8, park);
+    check(b.st.items.guest === null, `bot uses ${item} after the fallback wait`);
+    // With the cue it fires right after the hold time.
+    const c = newBattle({ players: 'bot', botLevel: 'medium' }, 44);
+    c.sim.setReady('host');
+    barePlay(c);
+    c.st.items.guest = item;
+    const evs = stepN(c, 2.7, () => Object.assign(c.st.puck, { x: W / 2, y: item === 'shield' ? H * 0.5 : H * 0.4, vx: 0, vy: item === 'shield' ? -900 : -1200 }));
+    check(evs.some((e) => e.k === 'use' && e.item === item), `bot uses ${item} when the puck is coming`);
+  }
+
+  // Full battle runs against the bot, both sides firing whatever they hold.
+  let totals = { box: 0, use: 0 };
+  for (const botLevel of ['easy', 'medium', 'hard', 'impossible']) {
+    for (const seed of [1, 2, 3]) {
+      const b = newBattle({ players: 'bot', botLevel }, seed);
+      const ref = b.sim.obstacles;
+      b.sim.setReady('host');
+      let bad = 0;
+      let overCap = 0;
+      const kinds = {};
+      for (let i = 0; i < Math.round(30 / DT); i++) {
+        b.clock.now += DT * 1000;
+        hostScript(b.sim, b.clock.now, 'chase');
+        if (b.st.items.host && i % 90 === 0) b.sim.useItem('host');
+        b.sim.step(DT, b.clock.now);
+        const s = b.st;
+        const p = s.puck;
+        if (![p.x, p.y, p.vx, p.vy, s.mallets.host.x, s.mallets.host.y, s.mallets.guest.x, s.mallets.guest.y, ...s.bt.mr, ...s.bt.sh, ...s.bt.gh, ...s.bt.sk, s.bt.fz].every(Number.isFinite)) bad++;
+        if (speed(p) > ROCKET_CAP + 1e-6) overCap++;
+        if (s.bt.mr.some((v) => v < mR * 0.6 - 1e-9 || v > mR + 1e-9)) bad++;
+        for (const m of [s.mallets.host, s.mallets.guest]) if (m.x < 0 || m.x > W || m.y < 0 || m.y > bottom) bad++;
+        const sn = b.sim.snapshot();
+        if (sn.ob.some((o) => !Number.isFinite(o.x + o.y + o.r + o.a)) || sn.ob.filter((o) => o.k === 'box').length !== 2) bad++;
+        if (sn.ev.length > 16) bad++;
+        for (const e of sn.ev) {
+          kinds[e.k] = (kinds[e.k] || 0) + 1;
+          if (!(e.s >= 0 && e.s <= 5)) bad++;
+        }
+        if (!sn.it || sn.it.length !== 2 || !sn.bt || sn.bt.mr.length !== 2) bad++;
+        if (s.phase === PHASE.OVER) break;
+      }
+      totals.box += kinds.box || 0;
+      totals.use += kinds.use || 0;
+      check(bad === 0, `battle/${botLevel} seed ${seed}: ${bad} bad values or events`);
+      check(overCap === 0, `battle/${botLevel} seed ${seed}: puck over 3900 px/s`);
+      check(b.sim.obstacles === ref && b.st.obs === ref, `battle/${botLevel} seed ${seed}: obstacle array reference kept`);
+    }
+  }
+  console.log(`  12 x 30 s battle runs: ${totals.box} boxes collected, ${totals.use} items used`);
+  check(totals.box > 0 && totals.use > 0, 'battle runs collect and use items');
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL OK');

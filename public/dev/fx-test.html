@@ -8,6 +8,7 @@
     html, body { margin: 0; height: 100%; background: #0b1020; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
     #rink { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
     #bar { position: fixed; top: 8px; left: 8px; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; max-width: 70vw; }
+    #bar button[data-bt].on, #bar #b-cycle.on { background: #4fd1ff; color: #001018; border-color: transparent; }
     #bar button { font: inherit; font-size: 13px; font-weight: 600; color: #eef2ff; background: rgba(29,39,68,0.9); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
     #bar button.on { background: #ff7a45; color: #1a0a00; border-color: transparent; }
     #info { position: fixed; right: 8px; top: 100px; text-align: right; z-index: 5; color: rgba(255,255,255,0.55); font-size: 11px; font-family: ui-monospace, monospace; white-space: pre; pointer-events: none; }
@@ -45,6 +46,28 @@
     <button id="diag">diag: off</button>
     <button id="pred">predicted: off</button>
     <button id="sv">sv: infer</button>
+    <span id="bbar" style="display:contents">
+      <button id="b-ih">host item: -</button>
+      <button id="b-ig">guest item: -</button>
+      <button data-bt="gh0">ghost on host</button>
+      <button data-bt="gh1">ghost on guest</button>
+      <button data-bt="sh0">shield host</button>
+      <button data-bt="sh1">shield guest</button>
+      <button data-bt="fz">freeze</button>
+      <button data-bt="rk0">rocket armed host</button>
+      <button data-bt="rk1">rocket armed guest</button>
+      <button data-bt="sk0">shrink host</button>
+      <button data-bt="sk1">shrink guest</button>
+      <button data-fire="box">box</button>
+      <button data-fire="boxspawn">boxspawn</button>
+      <button data-fire="use">use</button>
+      <button data-fire="rocket">rocket</button>
+      <button data-fire="shieldhit">shieldhit</button>
+      <button data-fire="thaw">thaw</button>
+      <button data-fire="minedrop">minedrop</button>
+      <button data-fire="mine">mine blast</button>
+      <button id="b-cycle">box cycle: off</button>
+    </span>
   </div>
   <div id="info"></div>
 
@@ -72,7 +95,16 @@ let pointerWorld = null; // set by dragging, tests screenToWorld
 let sdForce = 0; // 0 = natural (stage 0, then 1 for the last second), 1 = force sd=1 in goal phase
 let diagOn = false;
 let predicted = false;
-let svForce = null; // null = omit snapshot.sv (view infers), else 'host' | 'guest'
+let svForce = null;
+const ITEMS = ['', 'rocket', 'shield', 'ghost', 'shrink', 'freeze', 'mine'];
+const items = [0, 0]; // indexes into ITEMS
+const bt = { sh: [0, 0], gh: [0, 0], sk: [0, 0], fz: 0, rk: [0, 0], mr: [46, 46] };
+const boxes = [{ k: 'box', x: 250, y: 1350, r: 25, a: 1 }, { k: 'box', x: 570, y: 870, r: 25, a: 1 }];
+const dropped = { k: 'mine', x: 400, y: 1500, r: 21, a: 1 };
+let btnPress = null;
+let boxCycle = false;
+let lastCycle = 0;
+let minePhaseT = 0; // null = omit snapshot.sv (view infers), else 'host' | 'guest'
 const diag = { fps: 60, frameMs: 4.2, rtt: 18, jitter: 2.4, kind: 'p2p', seq: 0, drops: 0 }; // mutated in place
 // Replay: a ring of the last 2 s of built snapshots (deep-enough copies) and the playback state.
 const REPLAY_SPAN = 2000, REPLAY_SPEED = 0.5;
@@ -106,7 +138,7 @@ let lastSec = -1;
 let lastCount = 4;
 let mineDisarm = -1e9;
 
-function ev(k, x, y, s, by) { const e = { k, x, y, s }; if (by) e.by = by; evq.push(e); }
+function ev(k, x, y, s, by, item) { const e = { k, x, y, s }; if (by) e.by = by; if (item) e.item = item; evq.push(e); }
 
 function setPhase(p, dur, now) { phase = p; phaseEnd = now + dur; if (p === 'ready') phaseEnd = Infinity; }
 
@@ -188,7 +220,14 @@ function build(now) {
     else { mallets[0] = pointerWorld[0]; mallets[1] = Math.min(BOTTOM - 46, Math.max(H + G + 46, pointerWorld[1])); }
   }
   const armedAge = now - mineDisarm;
-  const ob = mode === 'mines' ? [
+  if (mode === 'battle' && boxCycle && now - lastCycle > 2500) {
+    lastCycle = now;
+    const b = boxes[0];
+    if (b.a) { b.a = 0; ev('box', b.x, b.y, 1, 'host'); evq[evq.length - 1].item = ITEMS[1 + ((now / 2500) | 0) % 6]; items[0] = 1 + ((now / 2500) | 0) % 6; }
+    else { b.a = 1; b.x = 150 + Math.random() * 500; b.y = 900 + Math.random() * 1200; ev('boxspawn', b.x, b.y, 1); }
+  }
+  dropped.a = ((now - minePhaseT) / 1000) % 6 > 1 ? 1 : 0;
+  const ob = mode === 'battle' ? [boxes[0], boxes[1], dropped] : mode === 'mines' ? [
     { ...MINES[0], a: armedAge > 4000 ? 1 : 0 }, MINES[1], MINES[2], MINES[3],
   ] : mode === 'bumpers' ? [MINES[2], MINES[3]] : [];
   const left = Math.max(0, (phaseEnd - now) / 1000);
@@ -206,6 +245,11 @@ function build(now) {
     rd: rd.slice(),
     ev: evq,
   };
+  if (mode === 'battle') {
+    snap.it = [ITEMS[items[0]], ITEMS[items[1]]];
+    for (let i = 0; i < 2; i++) bt.mr[i] = bt.sk[i] > 0 ? 27.6 : 46;
+    snap.bt = { sh: bt.sh.slice(), gh: bt.gh.slice(), sk: bt.sk.slice(), fz: bt.fz, rk: bt.rk.slice(), mr: bt.mr.slice() };
+  }
   evq = [];
   return snap;
 }
@@ -258,7 +302,7 @@ function frame(now) {
     diag.rtt = 20 + 14 * Math.sin(now / 1300) + (Math.random() < 0.01 ? 90 : 0); diag.jitter = 2.5 + 2 * Math.abs(Math.sin(now / 900));
     diag.seq = (diag.seq + 1) % 100000; if (Math.random() < 0.004) diag.drops++;
   }
-  view.render(drawSnap, 0, now, local, { held, calibrating, replay: replayUi, diag: diagOn ? diag : null, predicted });
+  view.render(drawSnap, 0, now, local, { held, calibrating, replay: replayUi, diag: diagOn ? diag : null, predicted, btnPress });
   frames++;
   if (now - fpsT > 500) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
   info.textContent = `role=${role} players=${players} mode=${mode}  fps=${fps}  phase=${phase} sd=${snap.sd} rd=${rd.join('')} held=${+held} calib=${+calibrating}  score=${sc[0]}-${sc[1]}  audio.muted=${audio.muted}`;
@@ -304,15 +348,39 @@ $('evready').onclick = () => ev('ready', 0, 0, 1, role === 'guest' ? 'guest' : '
 $('evgo').onclick = () => ev('go', puck.x, puck.y, 1);
 $('destroy').onclick = () => { const v = view; v.destroy(); let err = 'ok'; try { v.render(snap, 0, performance.now(), null, { held: true }); v.resize(); } catch (e) { err = String(e); } console.log('render after destroy:', err); $('destroy').textContent = 'after destroy: ' + err; makeView(); };
 $('goalnow').onclick = () => { lg = 'host'; phase = 'goal'; phaseEnd = performance.now() + 1600; };
-$('mode').onclick = () => { mode = mode === 'mines' ? 'bumpers' : mode === 'bumpers' ? 'ice' : mode === 'ice' ? 'classic' : 'mines'; $('mode').textContent = 'mode: ' + mode; makeView(); };
+$('mode').onclick = () => { mode = mode === 'mines' ? 'bumpers' : mode === 'bumpers' ? 'ice' : mode === 'ice' ? 'classic' : mode === 'classic' ? 'battle' : 'mines'; $('mode').textContent = 'mode: ' + mode; makeView(); };
 $('unlock').onclick = () => { audio.unlock(); evq.push({ k: 'hit', x: W / 2, y: BOTTOM / 2, s: 0.8 }); };
 $('mute').onclick = () => { audio.setMuted(!audio.muted); $('mute').textContent = 'mute: ' + (audio.muted ? 'on' : 'off'); };
 $('narrow').onclick = () => { narrow = !narrow; $('narrow').classList.toggle('on', narrow); };
 $('lat').onclick = () => { latencyOn = !latencyOn; $('lat').textContent = 'latency: ' + (latencyOn ? 'on' : 'off'); view.setLatency(latencyOn ? 12 + Math.random() * 60 : null); };
 $('reuse').onclick = () => { reuse = !reuse; $('reuse').textContent = 'reuse snapshot: ' + (reuse ? 'on' : 'off'); };
-canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); pointerWorld = view.screenToWorld(e.clientX, e.clientY); });
+canvas.addEventListener('pointerdown', (e) => {
+  const side = view.buttonAt(e.clientX, e.clientY);
+  if (side) { btnPress = { side, t: performance.now() }; const i = side === 'host' ? 0 : 1; const it = ITEMS[items[i]]; if (it) { ev('use', mallets[i * 2], mallets[i * 2 + 1], 1, side, it); items[i] = 0; } return; }
+  canvas.setPointerCapture(e.pointerId); pointerWorld = view.screenToWorld(e.clientX, e.clientY); });
 canvas.addEventListener('pointermove', (e) => { if (pointerWorld) pointerWorld = view.screenToWorld(e.clientX, e.clientY); });
 canvas.addEventListener('pointerup', () => { pointerWorld = null; });
+for (const b of document.querySelectorAll('[data-bt]')) b.onclick = () => {
+  const k = b.dataset.bt;
+  if (k === 'fz') { bt.fz = bt.fz ? 0 : 99; if (!bt.fz) ev('thaw', puck.x, puck.y, 1); b.classList.toggle('on', !!bt.fz); return; }
+  const name = k.slice(0, 2); const i = +k[2];
+  bt[name][i] = bt[name][i] ? 0 : (name === 'rk' ? 1 : 99);
+  b.classList.toggle('on', !!bt[name][i]);
+};
+for (const b of document.querySelectorAll('[data-fire]')) b.onclick = () => {
+  const k = b.dataset.fire;
+  if (k === 'box') { ev('box', boxes[1].x, boxes[1].y, 1, role === 'guest' ? 'guest' : 'host', ITEMS[1 + ((Math.random() * 6) | 0)]); const e = evq[evq.length - 1]; items[e.by === 'guest' ? 1 : 0] = ITEMS.indexOf(e.item); }
+  else if (k === 'boxspawn') ev('boxspawn', boxes[1].x, boxes[1].y, 1);
+  else if (k === 'use') ev('use', mallets[0], mallets[1], 1, 'host', ITEMS[items[0]] || 'rocket');
+  else if (k === 'rocket') ev('rocket', puck.x, puck.y, 1, 'host');
+  else if (k === 'shieldhit') ev('shieldhit', puck.x, bt.sh[1] ? 28 : BOTTOM - 28, 0.8, 'host');
+  else if (k === 'thaw') ev('thaw', puck.x, puck.y, 1);
+  else if (k === 'minedrop') { ev('minedrop', dropped.x, dropped.y, 1, 'host'); minePhaseT = performance.now(); }
+  else if (k === 'mine') ev('mine', dropped.x, dropped.y, 1);
+};
+$('b-ih').onclick = () => { items[0] = (items[0] + 1) % ITEMS.length; $('b-ih').textContent = 'host item: ' + (ITEMS[items[0]] || '-'); };
+$('b-ig').onclick = () => { items[1] = (items[1] + 1) % ITEMS.length; $('b-ig').textContent = 'guest item: ' + (ITEMS[items[1]] || '-'); };
+$('b-cycle').onclick = () => { boxCycle = !boxCycle; $('b-cycle').textContent = 'box cycle: ' + (boxCycle ? 'on' : 'off'); $('b-cycle').classList.toggle('on', boxCycle); };
 // Browsers need a gesture before audio can start.
 window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
 

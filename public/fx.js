@@ -33,6 +33,20 @@ const SIDE_COLS = {
   guest: ['#4fd1ff', '#a8ecff', '#7cffd4', '#ffffff', '#3b8bff'],
 };
 const BOTH_COLS = ['#ff7a45', '#4fd1ff', '#ffd36b', '#ffffff', '#7cffd4'];
+const RAINBOW_COLS = ['#ff4d4d', '#ffa63d', '#ffe84d', '#5dff7a', '#4dc8ff', '#b06bff'];
+const ROCKET_COLS = ['#ff6a2e', '#ffb347', '#fff3d0', '#ffffff'];
+const ICE_COLS = ['#d8f6ff', '#9fe8ff', '#ffffff', '#6fc8ff'];
+const SHIELD_COLS = ['#ffffff', '#9fd0ff', '#5aa6ff'];
+const DUST_COLS = ['#8a8f9e', '#a2a7b6', '#6c7080'];
+// Item id -> burst colours for the 'use' event.
+const ITEM_COLS = {
+  rocket: ROCKET_COLS,
+  shield: SHIELD_COLS,
+  ghost: ['#c8a8ff', '#e6d8ff', '#ffffff'],
+  shrink: ['#7cffd4', '#c4ffee', '#ffffff'],
+  freeze: ICE_COLS,
+  mine: ['#ff5252', '#ffb0a0', '#ffffff'],
+};
 const RAIN_RATE = 46; // confetti per second while the game-over rain is on
 
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -322,6 +336,119 @@ export function createFx(opts) {
         addRing(ox, oy, puckR * 0.8, puckR * 3, 0.3, '#49f2ff', 2, now, 0.6);
         addRing(x, y, puckR * 0.8, puckR * 3, 0.3, '#ff4bd8', 2, now, 0.6);
         shake(3, now);
+        break;
+      }
+      case 'box': {
+        // Item box collected: rainbow pixels and sparks, a ring that snaps outwards.
+        if (!visible(x, y, 100)) return;
+        for (let i = 0; i < 30; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(70, 560);
+          spawn(PIXEL, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.35, 0.7), rnd(3.5, 7), RAINBOW_COLS[i % RAINBOW_COLS.length], 3);
+        }
+        sparkBurst(x, y, 8, 120, 480, GOLD_COLS, 0.2, 0.45, 3);
+        spawn(GLOW, x, y, 0, 0, 0.3, 30, '#ffffff', 0);
+        addRing(x, y, puckR * 0.8, puckR * 3.2, 0.34, '#ffffff', 5, now, 0.8);
+        addRing(x, y, puckR * 0.5, puckR * 2.1, 0.26, RAINBOW_COLS[(now / 100 | 0) % RAINBOW_COLS.length], 4, now, 0.7);
+        break;
+      }
+      case 'boxspawn': {
+        // A box materialises: a ring that shrinks onto it and a few pixels drifting in.
+        if (!visible(x, y, 80)) return;
+        addRing(x, y, puckR * 3.4, puckR * 0.8, 0.4, '#ffffff', 3, now, 0.55);
+        for (let i = 0; i < 6; i++) {
+          const a = rnd(0, TAU);
+          const d = rnd(puckR * 1.8, puckR * 3);
+          const sp = rnd(70, 110);
+          spawn(PIXEL, x + Math.cos(a) * d, y + Math.sin(a) * d, -Math.cos(a) * sp, -Math.sin(a) * sp, 0.3, rnd(3, 5), RAINBOW_COLS[i % RAINBOW_COLS.length], 0);
+        }
+        break;
+      }
+      case 'use': {
+        if (!visible(x, y, 100)) return;
+        const cols = ITEM_COLS[ev.item] || BOTH_COLS;
+        sparkBurst(x, y, 14, 120, 520, cols, 0.22, 0.5, 3);
+        for (let i = 0; i < 8; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(60, 340);
+          spawn(PIXEL, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.25, 0.5), rnd(3, 5), pick(cols), 3);
+        }
+        if (ev.item === 'shrink') addRing(x, y, puckR * 3.6, puckR * 0.9, 0.34, cols[0], 4, now, 0.8);
+        else addRing(x, y, puckR * 1.1, puckR * 3.6, 0.34, cols[0], 5, now, 0.8);
+        addRing(x, y, puckR * 0.8, puckR * 2.2, 0.22, '#ffffff', 3, now, 0.6);
+        break;
+      }
+      case 'rocket': {
+        // The rocket hit: a flame burst at the puck and a solid shake.
+        if (!visible(x, y, 140)) {
+          shake(6, now);
+          return;
+        }
+        for (let i = 0; i < 38; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(140, 980);
+          spawn(SPARK, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.3, 0.7), rnd(2, 4), pick(ROCKET_COLS), 2.4);
+        }
+        for (let i = 0; i < 10; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(30, 190);
+          const p = spawn(PUFF, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.5, 0.9), rnd(8, 14), pick(SMOKE_COLS), 2.5);
+          p.grow = rnd(34, 74);
+        }
+        for (let i = 0; i < 6; i++) {
+          const a = rnd(0, TAU);
+          spawn(GLOW, x, y, Math.cos(a) * rnd(20, 120), Math.sin(a) * rnd(20, 120), rnd(0.25, 0.5), rnd(10, 18), '#ff9a3a', 3);
+        }
+        spawn(GLOW, x, y, 0, 0, 0.26, 42, '#ffd9a0', 0);
+        addRing(x, y, 8, puckR * 5.2, 0.45, '#ff7a1a', 7, now, 0.9);
+        addRing(x, y, 4, puckR * 3, 0.28, '#ffffff', 4, now, 0.8);
+        shake(6, now);
+        break;
+      }
+      case 'shieldhit': {
+        if (!visible(x, y, 100)) return;
+        const cnt = 6 + Math.round(s * 10);
+        for (let i = 0; i < cnt; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(120, 380 + 520 * s);
+          spawn(SPARK, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.15, 0.35), rnd(1.4, 2.8), pick(SHIELD_COLS), 3.4);
+        }
+        addRing(x, y, puckR * 0.9, puckR * (2 + 1.4 * s), 0.24, '#9fd0ff', 5, now, 0.85);
+        addRing(x, y, puckR * 0.6, puckR * 1.4, 0.16, '#ffffff', 3, now, 0.7);
+        if (s > 0.4) shake(1 + s * 2, now);
+        break;
+      }
+      case 'thaw': {
+        if (!visible(x, y, 100)) return;
+        for (let i = 0; i < 24; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(100, 560);
+          spawn(SPARK, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.25, 0.55), rnd(1.6, 3.2), pick(ICE_COLS), 2.8);
+        }
+        for (let i = 0; i < 8; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(40, 150);
+          const p = spawn(PUFF, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.35, 0.6), rnd(5, 9), pick(PUFF_COLS), 4);
+          p.grow = rnd(20, 44);
+        }
+        spawn(GLOW, x, y, 0, 0, 0.22, 34, '#d8f6ff', 0);
+        addRing(x, y, puckR * 0.9, puckR * 3.6, 0.38, '#9fe8ff', 5, now, 0.85);
+        addRing(x, y, puckR * 0.6, puckR * 2.2, 0.24, '#ffffff', 3, now, 0.7);
+        shake(2, now);
+        break;
+      }
+      case 'minedrop': {
+        // Dust puff where the mine lands.
+        if (!visible(x, y, 80)) return;
+        for (let i = 0; i < 10; i++) {
+          const a = rnd(0, TAU);
+          const sp = rnd(40, 200);
+          const p = spawn(PUFF, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.3, 0.55), rnd(4, 8), pick(DUST_COLS), 5);
+          p.grow = rnd(14, 30);
+        }
+        sparkBurst(x, y, 4, 80, 240, SPARK_COLS, 0.12, 0.24, 4);
+        addRing(x, y, puckR * 0.8, puckR * 2.6, 0.26, '#c8ccd8', 4, now, 0.45);
+        shake(1, now);
         break;
       }
       case 'goal': {

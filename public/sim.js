@@ -22,7 +22,7 @@ export const PHASE = {
   OVER: 'over',
 };
 
-export const MODES = ['classic', 'bumpers', 'ice', 'mines', 'bombs', 'glitch'];
+export const MODES = ['classic', 'bumpers', 'ice', 'mines', 'bombs', 'glitch', 'battle'];
 
 // Per-mode physics. fric = fraction of puck speed kept after one second of
 // sliding, wall = rail restitution, mallet = mallet restitution, max = puck
@@ -34,6 +34,7 @@ export const MODE_PHYS = {
   mines: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   bombs: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   glitch: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  battle: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   ice: { fric: 0.95, wall: 1.0, mallet: 0.85, max: 3000 },
 };
 
@@ -62,6 +63,29 @@ const GLITCH_WARN_S = 0.35;
 const GLITCH_GIVE_UP_S = 0.6;
 const GLITCH_TRIES = 12;
 const GLITCH_MIN_SPEED = 350; // px/s
+// Battle mode: item boxes, one held item per player (see the battle section in createSim).
+const BOX_R_FACTOR = 0.55; // of malletR
+const BOX_RESPAWN_MIN_S = 6;
+const BOX_RESPAWN_MAX_S = 8;
+const BOX_FIRST_SPAWN_S = 1; // after the first serve of the match
+const BOX_TRIES = 12;
+const ITEMS = ['rocket', 'shield', 'ghost', 'shrink', 'freeze', 'mine'];
+const OFFENSIVE_ITEMS = ['rocket', 'ghost', 'shrink', 'mine'];
+const ROCKET_MULT = 1.6;
+const ROCKET_MIN = 1800; // px/s
+const ROCKET_MAX = 3900; // px/s, puck cap while the rocket flight timer runs
+const ROCKET_FLIGHT_S = 1;
+const SHIELD_S = 1;
+const SHIELD_BOUNCE = 1.15;
+const GHOST_S = 2;
+const SHRINK_S = 4;
+const SHRINK_FACTOR = 0.6; // of malletR
+const FREEZE_S = 0.5;
+const DROP_FUSE_S = 1;
+const DROP_LIVE_S = 10;
+const BOT_HOLD_MIN_S = 1;
+const BOT_HOLD_MAX_S = 2.5;
+const BOT_WAIT_S = 10; // shield / freeze: use anyway this long after the hold time
 const MAX_MALLET_SPEED = 3200; // px/s
 const SERVE_SPEED = 600;
 const SUBSTEPS = 4;
@@ -83,6 +107,8 @@ const MINE_LAYOUTS = {
   3: [[0.22, 0.32], [0.78, 0.32], [0.5, 0.62]],
 };
 const BOMB_LAYOUT = [[0.24, 0.3], [0.76, 0.3], [0.5, 0.58]];
+// Item box spots in the host half; the guest half is the point reflection.
+const BOX_SPOTS = [[0.25, 0.35], [0.75, 0.35], [0.5, 0.55], [0.3, 0.72], [0.7, 0.72]];
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -296,11 +322,16 @@ export function createSim(cfg, opts = {}) {
   let G = cfg.G; // seam gap; adjustable through setGap() while phase is 'ready'
   const rng = opts.rng || Math.random;
   const phys = MODE_PHYS[mode];
+  const battleMode = mode === 'battle';
+  const physRocket = { ...phys, max: ROCKET_MAX }; // puck cap while a rocket flies
   const MAX_PUCK_SPEED = phys.max;
   const seamTop = H; // where the guest half ends
   let seamBottom = H + G; // where the host half starts
   let bottom = 2 * H + G;
   const geom = { puckR, malletR, W, bottom }; // shared-helper geometry; bottom follows setGap()
+  // Per-side geometry for mallet hits: in battle mode a shrunk mallet has its
+  // own radius, so host and guest each get their own object.
+  const sideGeom = battleMode ? { host: { ...geom }, guest: { ...geom } } : { host: geom, guest: geom };
 
   const state = {
     phase: PHASE.READY,
@@ -319,6 +350,11 @@ export function createSim(cfg, opts = {}) {
     lastGoalBy: null,
     winner: null,
   };
+  if (battleMode) {
+    state.items = { host: null, guest: null };
+    state.lastHit = null; // side whose mallet last touched the puck; null after each serve
+    state.bt = { sh: [0, 0], gh: [0, 0], sk: [0, 0], fz: 0, rk: [0, 0], mr: [malletR, malletR] };
+  }
 
   let events = [];
   let seq = 0;
@@ -329,6 +365,15 @@ export function createSim(cfg, opts = {}) {
   let glitchAt = Infinity; // sim time of the next glitch
   let glitchWarned = false;
   let glitchN = 0; // glitches (or skipped attempts) this rally
+  // Battle mode bookkeeping (unused in the other modes).
+  let boxes = []; // the two item box slots (also in `obstacles`)
+  let boxesStarted = false; // first serve of the match seen
+  let firstPair = false; // the opening pair of boxes is still to spawn
+  let rocketT = 0; // seconds of rocket flight left (raises the puck speed cap)
+  let frozenVx = 0; // puck velocity held aside while it is frozen
+  let frozenVy = 0;
+  let botUseAt = -1; // sim time at which the bot may use its item (-1 = not holding)
+  const lastUsed = { host: null, guest: null };
 
   function emit(k, x, y, s, extra) {
     if (events.length >= EVENT_CAP) return;
@@ -343,6 +388,7 @@ export function createSim(cfg, opts = {}) {
   state.obs = obstacles; // the bot reads this (same array reference)
 
   function buildObstacles() {
+    if (battleMode) return makeBoxes();
     const list = [];
     if (mode !== 'bumpers' && mode !== 'mines' && mode !== 'bombs') return list;
     const isBumper = mode === 'bumpers';
@@ -382,6 +428,7 @@ export function createSim(cfg, opts = {}) {
   /** Mines rearm; bombs go home, at rest, unarmed. */
   function rearmAll() {
     for (const o of obstacles) {
+      if (o.k === 'box' || o.drop) continue; // item boxes and dropped mines have their own timers
       o.rearmAt = 0;
       if (o.k === 'bomb') {
         o.x = o.hx;
@@ -396,8 +443,9 @@ export function createSim(cfg, opts = {}) {
 
   function collideObstacles() {
     const p = state.puck;
-    for (const o of obstacles) {
-      if (o.k === 'bomb') continue; // bombs are bodies, see stepBombs()
+    for (let i = 0; i < obstacles.length; i++) {
+      const o = obstacles[i];
+      if (o.k === 'bomb' || o.k === 'box') continue; // bombs are bodies, see stepBombs(); boxes are not solid
       const dx = p.x - o.x;
       const dy = p.y - o.y;
       const minDist = puckR + o.r;
@@ -412,8 +460,13 @@ export function createSim(cfg, opts = {}) {
         // Start the puck just outside the mine so it cannot re-trigger.
         p.x = o.x + Math.cos(a) * (minDist + 1);
         p.y = o.y + Math.sin(a) * (minDist + 1);
-        o.rearmAt = state.time + MINE_REARM_S;
         emit('mine', o.x, o.y, 1);
+        if (o.drop) {
+          obstacles.splice(i, 1); // a dropped mine goes off once
+          i--;
+        } else {
+          o.rearmAt = state.time + MINE_REARM_S;
+        }
         continue;
       }
       let dist = Math.sqrt(d2);
@@ -633,6 +686,14 @@ export function createSim(cfg, opts = {}) {
     p.vy = Math.cos(angle) * SERVE_SPEED * dir;
     seamStill = 0;
     rearmAll();
+    if (battleMode) {
+      state.lastHit = null;
+      if (!boxesStarted) {
+        boxesStarted = true;
+        firstPair = true;
+        for (const b of boxes) b.spawnAt = state.time + BOX_FIRST_SPAWN_S;
+      }
+    }
     if (glitchMode) {
       glitchAt = state.time + rand(1.8, 3.0);
       glitchWarned = false;
@@ -644,7 +705,7 @@ export function createSim(cfg, opts = {}) {
   // --- mallets --------------------------------------------------------------
 
   function clampMallet(role, m) {
-    const rr = malletR;
+    const rr = battleMode ? state.bt.mr[role === 'host' ? 0 : 1] : malletR;
     m.x = Math.min(W - rr, Math.max(rr, m.x));
     if (role === 'host') m.y = Math.min(bottom - rr, Math.max(seamBottom + rr, m.y));
     else m.y = Math.min(seamTop - rr, Math.max(rr, m.y));
@@ -718,6 +779,18 @@ export function createSim(cfg, opts = {}) {
   function collideMallet(m, role) {
     if (bombMode && detonateCheck(m, role)) return;
     const p = state.puck;
+    if (battleMode) {
+      if (state.bt.fz > 0) return; // a frozen puck ignores mallets
+      const hit = malletHit(p, m, role, sideGeom[role], rocketT > 0 ? physRocket : phys, mouthB);
+      if (!hit) return;
+      state.lastHit = role;
+      if (hit.vn < 0) {
+        const s = Math.min(1, -hit.vn / 2000);
+        if (s > 0.03) emit('hit', p.x - hit.nx * puckR, p.y - hit.ny * puckR, s);
+        rocketHit(role, hit);
+      }
+      return;
+    }
     const hit = malletHit(p, m, role, geom, phys, inMouth);
     if (hit && hit.vn < 0) {
       const s = Math.min(1, -hit.vn / 2000);
@@ -758,6 +831,7 @@ export function createSim(cfg, opts = {}) {
       state.stage = 0;
       state.timer = GOAL_PAUSE_S;
     }
+    if (battleMode) battleClear();
     placePuckForServe();
   }
 
@@ -765,12 +839,37 @@ export function createSim(cfg, opts = {}) {
 
   function stepPuck(dt) {
     const p = state.puck;
-    frictionStep(p, phys, dt);
+    if (battleMode && state.bt.fz > 0) return; // frozen: no motion, no collisions
+    const ph = battleMode && rocketT > 0 ? physRocket : phys;
+    frictionStep(p, ph, dt);
     p.x += p.vx * dt;
     p.y += p.vy * dt;
 
+    // Shield: an end rail bounce inside a shielded mouth is a shield bounce.
+    let shield = -1;
+    let shieldVn = 0;
+    if (battleMode) {
+      if (state.bt.sh[0] > 0 && p.y > bottom - puckR && p.vy > 0 && inMouth(p.x, 'host')) {
+        shield = 0;
+        shieldVn = p.vy;
+      } else if (state.bt.sh[1] > 0 && p.y < puckR && p.vy < 0 && inMouth(p.x, 'guest')) {
+        shield = 1;
+        shieldVn = -p.vy;
+      }
+    }
+
     // Rails and goals.
-    const scoredOn = railBounce(p, geom, phys, inMouth, wallBounce);
+    const scoredOn = railBounce(p, geom, ph, battleMode ? mouthB : inMouth, shield >= 0 ? noWall : wallBounce);
+    if (shield >= 0) {
+      p.vx *= SHIELD_BOUNCE;
+      p.vy *= SHIELD_BOUNCE;
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > ph.max) {
+        p.vx *= ph.max / sp;
+        p.vy *= ph.max / sp;
+      }
+      emit('shieldhit', p.x, p.y, Math.min(1, shieldVn / 2000), { by: shield === 0 ? 'host' : 'guest' });
+    }
     if (scoredOn) return goal(scoredOn);
 
     // Mallets first, obstacles last, so a mallet can never shove the puck
@@ -788,10 +887,11 @@ export function createSim(cfg, opts = {}) {
       stepBombs(dt);
       if (state.phase !== PHASE.PLAY) return;
     }
+    if (battleMode) collectBoxes();
     // Still overlapping a mallet = squeezed between it and an obstacle or rail:
     // the puck just rides along with half the mallet's velocity.
-    const minDist = puckR + malletR - 0.5;
     for (const m of [mh, mg]) {
+      const minDist = puckR + (battleMode ? state.bt.mr[m === mh ? 0 : 1] : malletR) - 0.5;
       if (Math.hypot(p.x - m.x, p.y - m.y) < minDist) {
         p.vx = m.vx * 0.5;
         p.vy = m.vy * 0.5;
@@ -817,6 +917,339 @@ export function createSim(cfg, opts = {}) {
         seamStill = 0;
       }
     }
+  }
+
+  // --- battle ---------------------------------------------------------------
+  // Item boxes sit on the rink; the puck collects them for whoever touched it
+  // last. Each player holds one item and fires it with useItem(). Everything
+  // here is a no-op outside battle mode.
+
+  const sideIdx = (role) => (role === 'host' ? 0 : 1);
+
+  /** Goal mouths, except that a shielded side's mouth is solid. */
+  function mouthB(x, side) {
+    if (state.bt.sh[side === 'host' ? 0 : 1] > 0) return false;
+    return inMouth(x, side);
+  }
+
+  /** World box spot j (0..9): even = host half, odd = its point reflection. */
+  function boxSpot(j) {
+    const [fx, fv0] = BOX_SPOTS[j >> 1];
+    const rad = malletR * BOX_R_FACTOR;
+    const creaseLimit = goalW / 2 + malletR * 2 + rad;
+    const x = fx * W;
+    let fv = Math.max(fv0, 0.2);
+    while (fv > 0.2 && Math.hypot(x - W / 2, (1 - fv) * H) < creaseLimit) fv -= 0.02;
+    const y = seamBottom + fv * H;
+    return j & 1 ? { x: W - x, y: bottom - y } : { x, y };
+  }
+
+  /** The two box slots in their initial (not yet spawned) state. */
+  function makeBoxes() {
+    const rad = malletR * BOX_R_FACTOR;
+    const a = boxSpot(4);
+    const b = boxSpot(5);
+    boxes = [
+      { k: 'box', x: a.x, y: a.y, r: rad, on: false, spawnAt: Infinity },
+      { k: 'box', x: b.x, y: b.y, r: rad, on: false, spawnAt: Infinity },
+    ];
+    boxesStarted = false;
+    firstPair = false;
+    return boxes.slice();
+  }
+
+  function removeDroppedMines() {
+    for (let i = obstacles.length - 1; i >= 0; i--) if (obstacles[i].drop) obstacles.splice(i, 1);
+  }
+
+  /** Change a side's mallet radius (physics and clamping follow). */
+  function setMalletRadius(idx, rad) {
+    const role = idx === 0 ? 'host' : 'guest';
+    state.bt.mr[idx] = rad;
+    sideGeom[role].malletR = rad;
+    clampMallet(role, state.mallets[role]);
+  }
+
+  /** Drop every timed effect except rocket arming (goals and restart). The
+   *  frozen puck is not thawed: the caller repositions it. */
+  function battleClear() {
+    const bt = state.bt;
+    bt.sh[0] = bt.sh[1] = 0;
+    bt.gh[0] = bt.gh[1] = 0;
+    bt.sk[0] = bt.sk[1] = 0;
+    bt.fz = 0;
+    rocketT = 0;
+    for (let i = 0; i < 2; i++) if (bt.mr[i] !== malletR) setMalletRadius(i, malletR);
+    removeDroppedMines();
+  }
+
+  /** New match: held items, rocket arming, boxes and the bot's hold clock. */
+  function battleReset() {
+    battleClear();
+    state.items.host = null;
+    state.items.guest = null;
+    state.lastHit = null;
+    state.bt.rk[0] = state.bt.rk[1] = 0;
+    lastUsed.host = lastUsed.guest = null;
+    botUseAt = -1;
+    const a = boxSpot(4);
+    const b = boxSpot(5);
+    boxes[0].x = a.x;
+    boxes[0].y = a.y;
+    boxes[1].x = b.x;
+    boxes[1].y = b.y;
+    for (const bx of boxes) {
+      bx.on = false;
+      bx.spawnAt = Infinity;
+    }
+    boxesStarted = false;
+    firstPair = false;
+  }
+
+  /** Weighted item for `side`: offensive items favour the player who is behind. */
+  function rollItem(side) {
+    const other = side === 'host' ? 'guest' : 'host';
+    const d = state.score[other] - state.score[side];
+    const off = d >= 1 ? 1 + 0.5 * d : d <= -2 ? 0.5 : 1;
+    const pick = () => {
+      let total = 0;
+      for (const id of ITEMS) total += OFFENSIVE_ITEMS.includes(id) ? off : 1;
+      let t = rng() * total;
+      for (const id of ITEMS) {
+        t -= OFFENSIVE_ITEMS.includes(id) ? off : 1;
+        if (t < 0) return id;
+      }
+      return ITEMS[ITEMS.length - 1];
+    };
+    let item = pick();
+    if (item === lastUsed[side]) item = pick(); // re-roll once
+    // Pass and play shares one screen: a ghost would blind both players.
+    if (item === 'ghost' && cfg.players === 'pass') item = pick();
+    if (item === 'ghost' && cfg.players === 'pass') item = 'shield';
+    return item;
+  }
+
+  /** The puck touches an active box: the credited player gets an item. */
+  function collectBoxes() {
+    const p = state.puck;
+    for (const b of boxes) {
+      if (!b.on) continue;
+      if (Math.hypot(p.x - b.x, p.y - b.y) >= puckR + b.r) continue;
+      const side = state.lastHit || (b.y > H + G / 2 ? 'host' : 'guest');
+      if (state.items[side]) continue; // a full slot cannot collect: the puck passes through
+      const item = rollItem(side);
+      state.items[side] = item;
+      b.on = false;
+      b.spawnAt = state.time + rand(BOX_RESPAWN_MIN_S, BOX_RESPAWN_MAX_S);
+      emit('box', b.x, b.y, 1, { by: side, item });
+    }
+  }
+
+  /** A spot for a new box: clear of the puck, both mallets and dropped mines. */
+  function boxSpotOk(sp, rad) {
+    const p = state.puck;
+    if (Math.hypot(sp.x - p.x, sp.y - p.y) < puckR * 3) return false;
+    for (const role of ['host', 'guest']) {
+      const m = state.mallets[role];
+      if (Math.hypot(sp.x - m.x, sp.y - m.y) < malletR * 2.5 + rad) return false;
+    }
+    for (const o of obstacles) {
+      if (o.drop && Math.hypot(sp.x - o.x, sp.y - o.y) < o.r + rad) return false;
+    }
+    return true;
+  }
+
+  function spawnBox(b, sp) {
+    b.x = sp.x;
+    b.y = sp.y;
+    b.on = true;
+    emit('boxspawn', b.x, b.y, 1);
+  }
+
+  /** Spawn boxes whose timers are due. The opening pair is a random spot and
+   *  its mirror; later boxes pick any free spot. Gives up for this tick after
+   *  BOX_TRIES attempts. */
+  function boxTick() {
+    if (!boxesStarted) return;
+    const rad = malletR * BOX_R_FACTOR;
+    if (firstPair) {
+      if (state.time < boxes[0].spawnAt) return;
+      for (let t = 0; t < BOX_TRIES; t++) {
+        const j = Math.floor(rng() * 10);
+        const a = boxSpot(j);
+        const b = boxSpot(j ^ 1);
+        if (!boxSpotOk(a, rad) || !boxSpotOk(b, rad)) continue;
+        spawnBox(boxes[0], a);
+        spawnBox(boxes[1], b);
+        firstPair = false;
+        return;
+      }
+      return;
+    }
+    for (const b of boxes) {
+      if (b.on || state.time < b.spawnAt) continue;
+      const other = boxes[0] === b ? boxes[1] : boxes[0];
+      for (let t = 0; t < BOX_TRIES; t++) {
+        const sp = boxSpot(Math.floor(rng() * 10));
+        if (other.on && Math.hypot(sp.x - other.x, sp.y - other.y) < 1) continue;
+        if (!boxSpotOk(sp, rad)) continue;
+        spawnBox(b, sp);
+        break;
+      }
+    }
+  }
+
+  /** A mallet hit by a side with a rocket armed: speed x1.6 (min 1800, cap 3900)
+   *  and the puck keeps that cap for the flight time. */
+  function rocketHit(role, hit) {
+    const idx = sideIdx(role);
+    if (!state.bt.rk[idx]) return;
+    state.bt.rk[idx] = 0;
+    const p = state.puck;
+    const sp = Math.hypot(p.vx, p.vy);
+    const ux = sp > 1e-6 ? p.vx / sp : hit.nx;
+    const uy = sp > 1e-6 ? p.vy / sp : hit.ny;
+    const ns = Math.min(ROCKET_MAX, Math.max(ROCKET_MIN, sp * ROCKET_MULT));
+    p.vx = ux * ns;
+    p.vy = uy * ns;
+    rocketT = ROCKET_FLIGHT_S;
+    emit('rocket', p.x, p.y, 1, { by: role });
+  }
+
+  /** Random spot in `ti`'s half for a dropped mine, or null. */
+  function findMineSpot(ti) {
+    const rad = malletR * MINE_R_FACTOR;
+    const lo = ti === 0 ? seamBottom + malletR * 2 : malletR * 2;
+    const hi = ti === 0 ? bottom - malletR * 2 : seamTop - malletR * 2;
+    const creaseLimit = goalW / 2 + malletR * 2 + rad;
+    const p = state.puck;
+    for (let t = 0; t < BOX_TRIES; t++) {
+      const x = rand(puckR * 3, W - puckR * 3);
+      const y = rand(lo, hi);
+      if (Math.hypot(x - W / 2, y) < creaseLimit || Math.hypot(x - W / 2, y - bottom) < creaseLimit) continue;
+      let ok = true;
+      for (const role of ['host', 'guest']) {
+        const m = state.mallets[role];
+        if (Math.hypot(x - m.x, y - m.y) < malletR * 2.5 + rad) ok = false;
+      }
+      if (Math.hypot(x - p.x, y - p.y) < puckR * 3 + rad) ok = false;
+      for (const o of obstacles) {
+        if (o.k === 'box' && !o.on) continue;
+        if (Math.hypot(x - o.x, y - o.y) < Math.max(2 * rad, rad + o.r)) ok = false;
+      }
+      if (ok) return { x, y, r: rad };
+    }
+    return null;
+  }
+
+  /** Fire the item `role` holds. Returns true when it was used (phase 'play',
+   *  an item in hand, and for a mine a free spot); otherwise false and the
+   *  item is kept. */
+  function useItem(role) {
+    if (!battleMode || state.phase !== PHASE.PLAY) return false;
+    if (role !== 'host' && role !== 'guest') return false;
+    const item = state.items[role];
+    if (!item) return false;
+    const idx = sideIdx(role);
+    const ti = 1 - idx; // the target
+    const bt = state.bt;
+    const p = state.puck;
+    let mineSpot = null;
+    if (item === 'mine') {
+      mineSpot = findMineSpot(ti);
+      if (!mineSpot) return false;
+    }
+    switch (item) {
+      case 'rocket':
+        bt.rk[idx] = 1;
+        break;
+      case 'shield':
+        bt.sh[idx] = SHIELD_S;
+        break;
+      case 'ghost':
+        bt.gh[ti] = GHOST_S;
+        break;
+      case 'shrink':
+        bt.sk[ti] = SHRINK_S;
+        setMalletRadius(ti, malletR * SHRINK_FACTOR);
+        break;
+      case 'freeze':
+        if (bt.fz <= 0) {
+          frozenVx = p.vx;
+          frozenVy = p.vy;
+          p.vx = 0;
+          p.vy = 0;
+        }
+        bt.fz = FREEZE_S;
+        break;
+      case 'mine':
+        obstacles.push({
+          k: 'mine',
+          x: mineSpot.x,
+          y: mineSpot.y,
+          r: mineSpot.r,
+          rearmAt: state.time + DROP_FUSE_S,
+          expireAt: state.time + DROP_FUSE_S + DROP_LIVE_S,
+          drop: true,
+        });
+        emit('minedrop', mineSpot.x, mineSpot.y, 1, { by: role });
+        break;
+    }
+    state.items[role] = null;
+    lastUsed[role] = item;
+    const m = state.mallets[role];
+    emit('use', m.x, m.y, 1, { by: role, item });
+    return true;
+  }
+
+  /** The bot (guest) fires its item after a short hold. */
+  function botItemTick() {
+    const item = state.items.guest;
+    if (!item) {
+      botUseAt = -1;
+      return;
+    }
+    if (botUseAt < 0) botUseAt = state.time + rand(BOT_HOLD_MIN_S, BOT_HOLD_MAX_S);
+    if (state.time < botUseAt) return;
+    const p = state.puck;
+    const late = state.time >= botUseAt + BOT_WAIT_S;
+    let go = true;
+    if (item === 'shield') go = late || (p.vy < 0 && Math.hypot(p.vx, p.vy) > 600 && p.y < 0.6 * H);
+    else if (item === 'freeze') go = late || (p.y < H && p.vy < -800 && p.y < 0.5 * H);
+    if (go && useItem('guest')) botUseAt = -1;
+  }
+
+  /** Per-step battle upkeep while playing: effect timers, thaw, mine expiry,
+   *  box spawns and the bot's item use. */
+  function battleTick(dt) {
+    const bt = state.bt;
+    if (rocketT > 0) rocketT = Math.max(0, rocketT - dt);
+    for (let i = 0; i < 2; i++) {
+      if (bt.sh[i] > 0) bt.sh[i] = Math.max(0, bt.sh[i] - dt);
+      if (bt.gh[i] > 0) bt.gh[i] = Math.max(0, bt.gh[i] - dt);
+      if (bt.sk[i] > 0) {
+        bt.sk[i] -= dt;
+        if (bt.sk[i] <= 0) {
+          bt.sk[i] = 0;
+          setMalletRadius(i, malletR);
+        }
+      }
+    }
+    if (bt.fz > 0) {
+      bt.fz -= dt;
+      if (bt.fz <= 0) {
+        bt.fz = 0;
+        const p = state.puck;
+        p.vx = frozenVx;
+        p.vy = frozenVy;
+        emit('thaw', p.x, p.y, 1);
+      }
+    }
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      if (obstacles[i].drop && state.time >= obstacles[i].expireAt) obstacles.splice(i, 1);
+    }
+    boxTick();
+    if (bot) botItemTick();
   }
 
   // --- glitch ---------------------------------------------------------------
@@ -874,6 +1307,8 @@ export function createSim(cfg, opts = {}) {
     }
     glitchReschedule();
   }
+
+  const noWall = () => {}; // a shield bounce is not a rail tick
 
   function wallBounce(vn) {
     const s = Math.min(1, vn / 2600);
@@ -948,6 +1383,7 @@ export function createSim(cfg, opts = {}) {
         }
         break;
       case PHASE.PLAY: {
+        if (battleMode) battleTick(dt);
         const h = dt / SUBSTEPS;
         for (let i = 0; i < SUBSTEPS && state.phase === PHASE.PLAY; i++) stepPuck(h);
         if (glitchMode && state.phase === PHASE.PLAY) glitchTick();
@@ -972,6 +1408,7 @@ export function createSim(cfg, opts = {}) {
     seamStill = 0;
     state.serveTo = rng() < 0.5 ? 'host' : 'guest';
     updateGoalWidths();
+    if (battleMode) battleReset();
     rearmAll();
     placePuckForServe();
   }
@@ -1009,6 +1446,8 @@ export function createSim(cfg, opts = {}) {
     seamBottom = H + G;
     bottom = 2 * H + G;
     geom.bottom = bottom;
+    sideGeom.host.bottom = bottom;
+    sideGeom.guest.bottom = bottom;
     // The host's half slides down with the gap; keep the mallet at the same
     // place relative to the host's own goal, then clamp it into the half.
     const mh = state.mallets.host;
@@ -1043,9 +1482,9 @@ export function createSim(cfg, opts = {}) {
       x: r(o.x),
       y: r(o.y),
       r: r(o.r),
-      a: o.k === 'bumper' ? 1 : o.k === 'bomb' ? (o.armed ? 1 : 0) : state.time >= o.rearmAt ? 1 : 0,
+      a: o.k === 'bumper' ? 1 : o.k === 'bomb' ? (o.armed ? 1 : 0) : o.k === 'box' ? (o.on ? 1 : 0) : state.time >= o.rearmAt ? 1 : 0,
     }));
-    return {
+    const snap = {
       t: 's',
       seq: ++seq,
       ts: Math.round(state.time * 1000) / 1000,
@@ -1062,13 +1501,28 @@ export function createSim(cfg, opts = {}) {
       wn: state.winner,
       gw: [r(state.gw[0]), r(state.gw[1])],
       ob,
-      ev: drainEvents(),
+      ev: null,
     };
+    if (battleMode) {
+      const b = state.bt;
+      const r2 = (v) => Math.round(v * 100) / 100;
+      snap.it = [state.items.host || '', state.items.guest || ''];
+      snap.bt = {
+        sh: [r2(b.sh[0]), r2(b.sh[1])],
+        gh: [r2(b.gh[0]), r2(b.gh[1])],
+        sk: [r2(b.sk[0]), r2(b.sk[1])],
+        fz: r2(b.fz),
+        rk: [b.rk[0], b.rk[1]],
+        mr: [r(b.mr[0]), r(b.mr[1])],
+      };
+    }
+    snap.ev = drainEvents();
+    return snap;
   }
 
   updateGoalWidths();
   placePuckForServe();
-  return { state, cfg, step, setMallet, setReady, setGap, restart, snapshot, drainEvents, obstacles };
+  return { state, cfg, step, setMallet, setReady, setGap, restart, snapshot, drainEvents, obstacles, useItem };
 }
 
 function r(v) {

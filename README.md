@@ -112,7 +112,13 @@ the other.
   Mines (touch one and the puck blasts off; it re-arms after a few seconds),
   Glitch (every few seconds the puck flickers, then skips a short distance and
   changes direction a little; the flicker is the tell, and it never skips into
-  a goal crease or onto a mallet).
+  a goal crease or onto a mallet), Battle (item boxes on the rink; hit the puck
+  through one and you get an item: Rocket, Shield, Ghost, Shrink, Freeze or
+  Mine. Tap the corner button to use it. Rocket makes your next hit a cannon
+  shot, Shield bars your goal for a second, Ghost hides the puck on the other
+  iPad, Shrink shrinks their mallet, Freeze stops the puck dead, Mine drops a
+  mine in their half. Players who are behind draw the nastier items more
+  often).
 - **Comeback goals** (on by default): the player who is behind gets a narrower
   goal mouth, so no lead is safe.
 - **Bot** with Easy, Medium, Hard and Impossible levels. Hard and above predict
@@ -186,6 +192,10 @@ snapshot (puck, mallets, score, phase, obstacles, goal widths, and the events
 since the last snapshot) about 60 times a second. The guest sends its mallet
 position in world coordinates and renders the latest snapshot, extrapolating
 the puck along its velocity to hide the few milliseconds of network delay.
+In Battle the guest's item button sends `{t:'use'}`; the host's sim decides
+what happens and the snapshot carries the held items and effect timers, so
+effects that only one iPad should show (Ghost) are drawn by the view of the
+affected side.
 Effects and sounds on both iPads are driven by the same event stream.
 
 **Ready, calibrate, rematch.** Every match (and every rematch) starts in the

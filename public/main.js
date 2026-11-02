@@ -11,7 +11,8 @@
 // their own half, then the countdown runs. The two-iPad host can adjust the
 // seam gap during 'ready' (a calibration ring is drawn on both screens).
 // Messages added on top of the relay: {t:'ready'} (guest pressed down),
-// {t:'calib', on:0|1} (host -> guest: draw the calibration ring).
+// {t:'calib', on:0|1} (host -> guest: draw the calibration ring),
+// {t:'use'} (guest tapped its item button in Battle mode).
 //
 // Networking goes through ./transport.js: 'p2p' (WebRTC data channel, works
 // from static hosting, no computer needed) or 'ws' (the optional Node server).
@@ -43,7 +44,7 @@ const DEFAULTS = {
   conn: 'auto', // 'auto' | 'p2p' | 'ws' (see pickKind)
   diag: false, // diagnostics panel (fps, rtt, jitter...) in the pause menu
 };
-const MODES = ['classic', 'bumpers', 'ice', 'bombs', 'mines', 'glitch'];
+const MODES = ['classic', 'bumpers', 'ice', 'bombs', 'mines', 'glitch', 'battle'];
 const PLAYS = ['duo', 'bot', 'pass'];
 const BOT_LEVELS = ['easy', 'medium', 'hard', 'impossible'];
 const TARGETS = [5, 7, 11];
@@ -937,6 +938,10 @@ function onMessage(msg) {
       if (sim && intent.role === 'host' && !modeChange) sim.restart(); // not while the host is picking a new mode
       break;
 
+    case 'use': // guest tapped its item button (Battle mode)
+      if (sim && intent.role === 'host' && typeof sim.useItem === 'function') sim.useItem('guest');
+      break;
+
     case 'rpskip': // the other player tapped to skip the instant replay
       skipReplay(false);
       break;
@@ -1234,6 +1239,7 @@ function stopGame() {
   overShown = false;
   calibSent = false;
   ui.held = ui.calibrating = false;
+  ui.btnPress = null;
   $('btn-menu').classList.add('hidden');
   $('menu').classList.add('hidden');
   $('over').classList.add('hidden');
@@ -1264,6 +1270,22 @@ function requestRestart() {
   if (sim) sim.restart();
   else if (tr) sendNet({ t: 'restart' });
   calibSent = false;
+}
+
+/** Does this device control `side`'s mallet (and item button)? */
+function ownsSide(side) {
+  if (gamePlay === 'pass') return true;
+  if (gamePlay === 'bot') return side === 'host';
+  return side === role;
+}
+
+/** Battle mode: fire the item `side` holds (the sim decides if it can). */
+function useItem(side) {
+  if (sim) {
+    if (typeof sim.useItem === 'function') sim.useItem(side);
+  } else if (tr && side === 'guest') {
+    sendNet({ t: 'use' });
+  }
 }
 
 /** `jump` = first sample of a new touch: teleport the mallet, do not sweep. */
@@ -1297,6 +1319,18 @@ canvas.addEventListener('pointerdown', (e) => {
   if (ph === 'over') {
     if (performance.now() - overSince > 700) requestRestart();
     return;
+  }
+
+  // Battle mode: a touch that starts on a corner item button is a button
+  // press, never a mallet (except in 'ready', where every touch is the ready
+  // press). The sim decides whether anything happens.
+  if (ph !== 'ready' && cfg && cfg.mode === 'battle' && typeof view.buttonAt === 'function') {
+    const btn = view.buttonAt(e.clientX, e.clientY);
+    if (btn && ownsSide(btn)) {
+      ui.btnPress = { side: btn, t: performance.now() };
+      useItem(btn);
+      return;
+    }
   }
 
   let side;
@@ -1667,6 +1701,7 @@ const suppress = []; // predicted hits whose host copy has not arrived yet: {x, 
 const mal = { x: 0, y: 0, vx: 0, vy: 0, t: 0, ok: false }; // guest finger as a mallet (world px, px/s)
 const predSnap = { p: null, g: 0, gw: null }; // scratch argument of predictMalletHit
 const predMallet = { x: 0, y: 0, vx: 0, vy: 0 };
+const predCfg = {}; // cfg with the guest's current mallet radius (Battle shrink)
 const localM = { x: 0, y: 0 };
 const predStats = { hits: 0, suppressed: 0, confirmed: 0, timeouts: 0 }; // for window.__dbg()
 
@@ -1679,10 +1714,18 @@ function resetGuestFeel() {
   mal.vx = mal.vy = 0;
 }
 
+/** The guest mallet's current radius: smaller while a Battle shrink runs. */
+function guestMalletR() {
+  const bt = lastSnapshot && lastSnapshot.bt;
+  const mr = bt && bt.mr ? bt.mr[1] : 0;
+  return mr > 0 ? mr : cfg.malletR;
+}
+
 /** Feed the local mallet model one finger sample (world coordinates), clamped like the sim. */
 function feedMal(wx, wy, t, jump) {
-  const x = clamp(wx, cfg.malletR, cfg.W - cfg.malletR);
-  const y = clamp(wy, cfg.malletR, cfg.H - cfg.malletR);
+  const rr = guestMalletR();
+  const x = clamp(wx, rr, cfg.W - rr);
+  const y = clamp(wy, rr, cfg.H - rr);
   if (!jump && mal.ok) {
     const dtS = clamp((t - mal.t) / 1000, 0.004, 0.05);
     let vx = (x - mal.x) / dtS;
@@ -1767,9 +1810,10 @@ function renderGuest(latest, now, dt) {
 
   // The local mallet: the clamped finger while one is down.
   let hasLocal = false;
+  const rr = guestMalletR();
   for (const p of pointers.values()) {
-    localM.x = clamp(p.x, cfg.malletR, cfg.W - cfg.malletR);
-    localM.y = clamp(p.y, cfg.malletR, cfg.H - cfg.malletR);
+    localM.x = clamp(p.x, rr, cfg.W - rr);
+    localM.y = clamp(p.y, rr, cfg.H - rr);
     hasLocal = true;
     break;
   }
@@ -1809,9 +1853,13 @@ function renderGuest(latest, now, dt) {
   if (pred.active) bp = pred.p = advancePuck(pred.p, cfg, dt);
   else bp = auth || advancePuck(latest.p, cfg, ageS);
 
-  // 3. Would the local mallet hit it within the next frame?
+  // 3. Would the local mallet hit it within the next frame? (Not a frozen puck:
+  //    the host ignores mallets while a Battle freeze runs.)
   let hitEv = null;
-  if (hasLocal) {
+  // No prediction for a frozen puck (the host ignores mallets) or an armed
+  // rocket (the host's hit will be much faster than the prediction).
+  const noPred = !!(latest.bt && (latest.bt.fz > 0 || latest.bt.rk[1]));
+  if (hasLocal && !noPred) {
     predMallet.x = localM.x;
     predMallet.y = localM.y;
     predMallet.vx = mal.vx;
@@ -1819,7 +1867,15 @@ function renderGuest(latest, now, dt) {
     predSnap.p = bp;
     predSnap.g = latest.g;
     predSnap.gw = latest.gw;
-    const hit = predictMalletHit(predSnap, cfg, 'guest', predMallet, clamp(dt, 0.008, 0.034));
+    // A shrunk guest mallet (Battle) predicts with its current radius.
+    let pc = cfg;
+    const mr = latest.bt && latest.bt.mr ? latest.bt.mr[1] : 0;
+    if (mr > 0 && Math.abs(mr - cfg.malletR) > 0.5) {
+      Object.assign(predCfg, cfg);
+      predCfg.malletR = mr;
+      pc = predCfg;
+    }
+    const hit = predictMalletHit(predSnap, pc, 'guest', predMallet, clamp(dt, 0.008, 0.034));
     if (hit) {
       const dv = Math.hypot(hit[2] - bp[2], hit[3] - bp[3]);
       if (!pred.active) {
