@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battle items: keep or remove</title>
+<link rel="stylesheet" href="./ideas.css">
+<style>
+  .queued { margin-top: 16px; max-width: 760px; padding: 12px 14px; border-radius: 14px; background: rgba(255, 209, 102, 0.1); border: 1px solid rgba(255, 209, 102, 0.45); }
+  .queued h3 { margin: 0 0 4px; font-size: 14px; color: var(--warn); }
+  .queued p { margin: 0; color: var(--text); font-size: 14px; }
+  .queued p + p { margin-top: 6px; }
+</style>
+</head>
+<body data-page="battle-items" data-labels="Keep|Maybe|Remove">
+<div class="wrap">
+  <header class="page">
+    <h1>Battle <b>items</b></h1>
+    <p>All 17 items in Battle mode, exactly as they are built in the game today: the 6 that shipped first plus the 11 added tonight. Each card has a looping sketch of the item on a top-down rink (you at the bottom), then the real numbers from the game code.</p>
+    <p>How to answer: press Keep, Maybe or Remove on each card, type any notes in the box, then press "Copy feedback for Claude" at the bottom and paste it into the chat. Your answers are saved in this browser, so you can come back to it.</p>
+    <div class="legend"><span class="you">Orange = you</span><span class="them">Blue = them</span></div>
+    <div class="queued">
+      <h3>How items are dealt</h3>
+      <p>A box only counts when you shoot the puck through a box on the other player's side. Dribbling through a box in your own half does nothing. You hold one item at a time and fire it from your corner button.</p>
+      <p>A player who is behind on the score draws the offensive items more often: Rocket, Ghost, Shrink, Mine, Magnet, Wide goal, Mirror, Quake, Decoys and Steal. Those cards carry the tag "More when behind"; the rest are "Even odds".</p>
+    </div>
+  </header>
+
+  <main class="grid">
+
+  <article class="idea" data-id="rocket">
+    <h2><span class="num">01</span>Rocket</h2>
+    <p class="hook">Your next hit leaves like a missile.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="rocket"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: firing it arms your mallet. Your next hit multiplies the puck speed by 1.6, and never sends it slower than 1800 px/s. For 1 s of flight after that hit the puck may go up to 3900 px/s instead of the normal speed cap.</p>
+    <p>In play: the simplest item to understand. Arm it, wait for a clean look at the goal, and hit. A hit that was going to be weak still leaves at 1800 px/s, so even a nudge becomes a real shot.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">Shipped</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="shield">
+    <h2><span class="num">02</span>Shield</h2>
+    <p class="hook">Your goal mouth turns into a wall for a second.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="shield"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: for 1 s your goal mouth is solid. A puck that reaches it bounces off like a rail, and comes back 1.15 times faster than it arrived (still within the normal speed cap).</p>
+    <p>In play: a panic button. It is short, so it is about timing: fire it when a shot is already on its way and you are out of position. Fired too early it runs out before the puck arrives.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">Shipped</span><span class="tag">Even odds</span></div>
+  </article>
+
+  <article class="idea" data-id="ghost">
+    <h2><span class="num">03</span>Ghost</h2>
+    <p class="hook">The puck vanishes from their iPad.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="ghost"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: for 2 s the puck is invisible on their iPad. On yours it shows as a faint spectral outline, so you still know where it is. The physics do not change, only what they see. It is never rolled in pass and play, because both players share one screen.</p>
+    <p>In play: best fired just as you shoot, so the puck disappears while it is crossing the table. They have to guess from your swing where it went.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Shipped</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="shrink">
+    <h2><span class="num">04</span>Shrink</h2>
+    <p class="hook">Their mallet drops to 60 percent.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="shrink"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: their mallet shrinks to 60 percent of its normal size for 4 s. It is a real smaller body, so it covers less of their goal and reaches less of the puck. If you also have Giant, the two stack.</p>
+    <p>In play: shots that would clip the edge of their mallet now slip past it. Four seconds is long enough for one or two real attacks.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Shipped</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="freeze">
+    <h2><span class="num">05</span>Freeze</h2>
+    <p class="hook">The puck stops dead, then carries on.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="freeze"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: the puck stops dead where it is for 0.5 s, then resumes at exactly the velocity it had before, same speed and same direction.</p>
+    <p>In play: a timing trick. Fire it when they are swinging at your shot, so their mallet swipes at empty air and the puck carries on after they have committed. It can also save you by stopping a shot for half a second while you get back.</p>
+    <div class="meta"><span class="tag both">Changes the table</span><span class="tag">Shipped</span><span class="tag">Even odds</span></div>
+  </article>
+
+  <article class="idea" data-id="mine">
+    <h2><span class="num">06</span>Mine</h2>
+    <p class="hook">A trap in their half that blasts the puck.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="mine"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: drops a mine at a random spot in their half, away from the goal crease and the mallets. It has a 1 s fuse, then stays armed for 10 s. The first time the puck touches it, the puck is blasted in a random direction at 92 percent of top speed, and the mine is gone. One shot only.</p>
+    <p>In play: a hazard they have to steer around in their own half. Because the blast direction is random, it can go anywhere, including back at you, so it is chaos rather than a sure goal.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Shipped</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="magnet">
+    <h2><span class="num">07</span>Magnet</h2>
+    <p class="hook">The puck homes in on their goal.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="magnet"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: for 2 s the puck steers toward the middle of their goal, moving at 700 px/s or faster. The pull is strong, so even a slow sideways puck turns and heads for the mouth. A hit by their mallet cancels it on the spot.</p>
+    <p>In play: a lazy puck becomes a threat, so they have to go and meet it instead of waiting. The counter is easy to read: get a mallet on it.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">New tonight</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="widegoal">
+    <h2><span class="num">08</span>Wide goal</h2>
+    <p class="hook">Their goal mouth stretches to 1.5 times.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="widegoal"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: their goal mouth grows to 1.5 times its width for 6 s, capped at 60 percent of the rink width. Your own goal is untouched.</p>
+    <p>In play: angles that used to hit the post now count, and they have more mouth to cover with the same mallet. Six seconds is the longest of the attacking items.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">New tonight</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="goalie">
+    <h2><span class="num">09</span>Goalie</h2>
+    <p class="hook">A mini mallet guards your goal line.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="goalie"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: for 5 s a mini mallet, 55 percent of a normal mallet, slides along your goal line tracking the puck at up to 1.4 rink widths per second. It hits the puck exactly like a mallet does. It never leaves the goal line.</p>
+    <p>In play: frees you to attack without leaving your goal empty. A hard shot to the far side can still beat it.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">New tonight</span><span class="tag">Even odds</span></div>
+  </article>
+
+  <article class="idea" data-id="giant">
+    <h2><span class="num">10</span>Giant</h2>
+    <p class="hook">Your mallet swells to 1.5 times.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="giant"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: your mallet grows to 1.5 times its size for 5 s. It is a real bigger body, so it covers more goal and reaches the puck from further away. It stacks with Shrink: a giant mallet that gets shrunk is 1.5 x 0.6 of normal.</p>
+    <p>In play: the easiest item to read, and it works for defence and attack alike.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">New tonight</span><span class="tag">Even odds</span></div>
+  </article>
+
+  <article class="idea" data-id="catch">
+    <h2><span class="num">11</span>Catch</h2>
+    <p class="hook">Grab the puck, carry it, then flick it.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="catch"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: firing it arms your mallet until your next touch. Then the puck sticks in front of your mallet for up to 1.5 s. Move your mallet faster than 900 px/s (a flick) and the puck flies off at 1.5 times your mallet speed. If you hold the full 1.5 s, it drops forward at 600 px/s.</p>
+    <p>In play: turns reacting into aiming. You choose the angle and wait for them to commit. The risk is that they get the same time to line up.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">New tonight</span><span class="tag">Even odds</span></div>
+  </article>
+
+  <article class="idea" data-id="barrier">
+    <h2><span class="num">12</span>Barrier</h2>
+    <p class="hook">Three bricks across the middle of their half.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="barrier"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: three round bricks, each half a mallet wide, appear across the middle of their half (at a quarter, half and three quarters of the width) for 6 s. The puck bounces off them like bumpers. Both players see them.</p>
+    <p>In play: every shot becomes a choice between threading a gap and banking off a brick, and the bricks also get in the way of their clearances.</p>
+    <div class="meta"><span class="tag both">Changes the table</span><span class="tag">New tonight</span><span class="tag">Even odds</span></div>
+  </article>
+
+  <article class="idea" data-id="mirror">
+    <h2><span class="num">13</span>Mirror</h2>
+    <p class="hook">Their screen flips left to right.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="mirror"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: for 3 s their screen is drawn flipped left to right. Their controls are unchanged: the mallet still goes where the finger really is, only the picture is mirrored. Nothing changes on your screen. Never rolled in pass and play.</p>
+    <p>In play: a prank that makes a good player flail for a moment. The counter is to stop trusting the picture and play by feel.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">New tonight</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="quake">
+    <h2><span class="num">14</span>Quake</h2>
+    <p class="hook">Their table shakes and their mallet drags.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="quake"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: for 2 s their screen shakes and their mallet moves only 60 percent of each finger move, so it lags behind the finger. Your screen does not shake.</p>
+    <p>In play: they can see exactly what is happening but cannot keep up, which gives you a short free attack window.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">New tonight</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="decoys">
+    <h2><span class="num">15</span>Decoys</h2>
+    <p class="hook">Two fake pucks, one real one.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="decoys"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: for 3 s two fake pucks fan out from the real one on their screen, looking exactly like real pucks there. On your screen they are faint, so you know which is which. Only the real puck collides or scores. Never rolled in pass and play.</p>
+    <p>In play: they have to guess in a fraction of a second, a bluff on top of a real shot.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">New tonight</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="steal">
+    <h2><span class="num">16</span>Steal</h2>
+    <p class="hook">Take the item they are holding.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="steal"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: takes the item they hold and puts it on your corner button, ready to fire. If they hold nothing, you get a fresh random item instead (never another Steal), so it is never wasted.</p>
+    <p>In play: punishes hoarding a strong item and makes every box worth contesting.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">New tonight</span><span class="tag">More when behind</span></div>
+  </article>
+
+  <article class="idea" data-id="tinypuck">
+    <h2><span class="num">17</span>Tiny puck</h2>
+    <p class="hook">The puck shrinks for everyone.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="tinypuck"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>What it does: the puck shrinks to 60 percent of its size for 5 s, for both players. It is harder to see, harder to block and slips through gaps that a normal puck would not.</p>
+    <p>In play: it helps whoever is attacking, which may be them, so it is a gamble rather than a sure win.</p>
+    <div class="meta"><span class="tag both">Changes the table</span><span class="tag">New tonight</span><span class="tag">Even odds</span></div>
+  </article>
+
+  </main>
+</div>
+<script src="./feedback.js"></script>
+<script>
+(() => {
+'use strict';
+const W = 320, HT = 200, TAU = Math.PI * 2;
+const C = { you: '#ff7a45', them: '#4fd1ff', puck: '#f4f6ff', gold: '#ffd166', bad: '#ff5c7a', ok: '#5ee38a', rink: '#0e1430', violet: '#b388ff' };
+const FONT = '-apple-system, system-ui, sans-serif';
+
+const H = {
+  C, W, HT,
+  clamp: (v, a = 0, b = 1) => Math.min(b, Math.max(a, v)),
+  lerp: (a, b, k) => a + (b - a) * k,
+  ease: k => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2),
+  seg: (t, a, b) => H.clamp((t - a) / (b - a)),
+  win: (t, a, b, c, d) => (t < a ? 0 : t < b ? (t - a) / (b - a) : t < c ? 1 : t < d ? 1 - (t - c) / (d - c) : 0),
+  rgba(hex, a) { const n = parseInt(hex.slice(1), 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; },
+  mix(a, b, k) {
+    const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16), f = (s) => Math.round(H.lerp((x >> s) & 255, (y >> s) & 255, k));
+    return 'rgb(' + f(16) + ',' + f(8) + ',' + f(0) + ')';
+  },
+  // pts = [[t, x, y], ...]; linear (or eased) interpolation, clamped at both ends.
+  path(pts, t, e) {
+    if (t <= pts[0][0]) return [pts[0][1], pts[0][2]];
+    for (let i = 1; i < pts.length; i++) {
+      if (t <= pts[i][0]) {
+        const p = pts[i - 1], q = pts[i];
+        let k = (t - p[0]) / (q[0] - p[0]);
+        if (e) k = H.ease(k);
+        return [H.lerp(p[1], q[1], k), H.lerp(p[2], q[2], k)];
+      }
+    }
+    const l = pts[pts.length - 1];
+    return [l[1], l[2]];
+  },
+  rr(c, x, y, w, h, r) {
+    c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  },
+  rink(c, o = {}) {
+    const tw = o.topW || 100, bw = o.botW || 100;
+    c.fillStyle = C.rink; c.fillRect(0, 0, W, HT);
+    c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,.25)'; c.lineCap = 'round'; c.setLineDash([]);
+    c.strokeRect(1.5, 1.5, W - 3, HT - 3);
+    c.beginPath(); c.moveTo(0, 100); c.lineTo(W, 100); c.stroke();
+    c.beginPath(); c.arc(160, 100, 26, 0, TAU); c.stroke();
+    c.beginPath(); c.arc(160, 0, tw / 2 + 14, 0, Math.PI); c.stroke();
+    c.beginPath(); c.arc(160, HT, bw / 2 + 14, Math.PI, 0); c.stroke();
+    c.fillStyle = o.topCol || C.them; c.fillRect(160 - tw / 2, 0, tw, 5);
+    c.fillStyle = C.you; c.fillRect(160 - bw / 2, HT - 5, bw, 5);
+  },
+  half(c, top, fn) { c.save(); c.beginPath(); c.rect(0, top ? 0 : 100, W, 100); c.clip(); fn(); c.restore(); },
+  glow(c, x, y, r, col, a) {
+    const g = c.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, H.rgba(col, a)); g.addColorStop(1, H.rgba(col, 0));
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+  },
+  mallet(c, x, y, r = 14, col = C.you, o = {}) {
+    c.save(); if (o.a != null) c.globalAlpha = o.a;
+    H.glow(c, x, y, r * 1.9, col, 0.35);
+    c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.arc(x, y, r * 0.55, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.arc(x - r * 0.18, y - r * 0.18, r * 0.22, 0, TAU); c.fill();
+    c.restore();
+  },
+  mallets(c, t, o = {}) {
+    const m = o.them || [160 + 46 * Math.cos(t * 0.9 + 1), 30], u = o.you || [160 + 46 * Math.sin(t * 1.1), 170];
+    if (!o.noThem) H.mallet(c, m[0], m[1], o.tr || 14, C.them);
+    if (!o.noYou) H.mallet(c, u[0], u[1], o.ur || 14, C.you);
+  },
+  puck(c, x, y, r = 7, o = {}) {
+    if (r <= 0.1) return;
+    c.save(); if (o.a != null) c.globalAlpha = o.a;
+    H.glow(c, x, y, r * 2.4, o.col || C.puck, 0.3);
+    c.fillStyle = o.col || C.puck; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(14,20,48,.25)'; c.beginPath(); c.arc(x + r * 0.15, y + r * 0.15, r * 0.5, 0, TAU); c.fill();
+    c.restore();
+  },
+  txt(c, s, x, y, size, col, a = 1, align = 'center') {
+    c.save(); c.globalAlpha = H.clamp(a); c.font = '800 ' + size + 'px ' + FONT; c.textAlign = align; c.textBaseline = 'middle';
+    c.lineWidth = Math.max(3, size / 5); c.strokeStyle = 'rgba(8,12,28,.9)'; c.lineJoin = 'round';
+    c.strokeText(s, x, y); c.fillStyle = col; c.fillText(s, x, y); c.restore();
+  },
+  caption(c, s, a = 1, y = 100, col = '#ffffff') {
+    if (a <= 0.01) return;
+    c.save(); c.globalAlpha = H.clamp(a); c.font = '700 12px ' + FONT;
+    const w = c.measureText(s).width + 20;
+    c.fillStyle = 'rgba(8,12,28,.86)'; H.rr(c, 160 - w / 2, y - 12, w, 24, 12); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.25)'; c.lineWidth = 1; c.stroke();
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = col; c.fillText(s, 160, y + 1);
+    c.restore();
+  },
+  trail(c, fn, t, n, col, r, a = 1) {
+    c.save();
+    for (let i = n; i >= 1; i--) {
+      const p = fn(Math.max(0, t - i * 0.035));
+      c.globalAlpha = H.clamp(a * 0.4 * (1 - i / (n + 1)));
+      c.fillStyle = col; c.beginPath(); c.arc(p[0], p[1], r * (1 - i / (n + 2)), 0, TAU); c.fill();
+    }
+    c.restore();
+  },
+  ring(c, x, y, k, r0, r1, col, lw = 3) {
+    if (k <= 0 || k >= 1) return;
+    c.save(); c.globalAlpha = 1 - k; c.strokeStyle = col; c.lineWidth = lw; c.setLineDash([]);
+    c.beginPath(); c.arc(x, y, H.lerp(r0, r1, H.ease(k)), 0, TAU); c.stroke(); c.restore();
+  },
+  burst(c, x, y, k, col, n = 10, d = 30) {
+    if (k <= 0 || k >= 1) return;
+    c.save(); c.globalAlpha = 1 - k; c.fillStyle = col;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + 0.4, r = d * (1 - Math.pow(1 - k, 2));
+      c.beginPath(); c.arc(x + Math.cos(a) * r, y + Math.sin(a) * r, 3 * (1 - k) + 1, 0, TAU); c.fill();
+    }
+    c.restore();
+  },
+  spark(c, x, y, s, col, a = 1) {
+    c.save(); c.globalAlpha = H.clamp(a); c.fillStyle = col; c.beginPath();
+    c.moveTo(x, y - s); c.quadraticCurveTo(x, y, x + s, y); c.quadraticCurveTo(x, y, x, y + s);
+    c.quadraticCurveTo(x, y, x - s, y); c.quadraticCurveTo(x, y, x, y - s); c.fill(); c.restore();
+  },
+  goal(c, top, k, col, txt) {
+    if (k <= 0 || k >= 1) return;
+    const y = top ? 0 : HT;
+    H.glow(c, 160, y, 110, col, 0.6 * (1 - k));
+    if (txt) H.txt(c, txt, 160, top ? 28 - k * 14 : HT - 28 + k * 14, 18, col, 1 - k);
+  },
+  box(c, x, y, s, a = 1) {
+    c.save(); c.globalAlpha = a; c.translate(x, y); c.scale(s, s);
+    H.glow(c, 0, 0, 30, C.gold, 0.4);
+    c.fillStyle = C.gold; H.rr(c, -13, -13, 26, 26, 6); c.fill();
+    c.fillStyle = '#7a4a00'; c.font = '800 18px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', 0, 1);
+    c.restore();
+  },
+};
+
+const ANIMS = {};
+const DUR = { rocket: 5, shield: 5, ghost: 6, shrink: 5, freeze: 5, mine: 6,
+  magnet: 5, widegoal: 5, goalie: 6, giant: 5, catch: 6, barrier: 6, mirror: 5, quake: 5, decoys: 5, steal: 6, tinypuck: 5 };
+
+// 01: your mallet is armed, hits, and the puck streaks past their late mallet.
+ANIMS.rocket = (c, t, w, h, H) => {
+  H.rink(c);
+  const mp = H.path([[0, 150, 186], [1.05, 150, 188], [1.25, 152, 168], [1.8, 150, 184], [5, 150, 186]], t, 1);
+  H.mallets(c, t, { you: mp, them: H.path([[0, 210, 30], [1.4, 205, 30], [1.9, 140, 34], [3, 160, 30], [5, 210, 30]], t, 1) });
+  const armed = H.win(t, 0.1, 0.3, 1.2, 1.25);
+  if (armed > 0) {
+    H.glow(c, mp[0], mp[1], 34, '#ffb04a', 0.55 * armed * (0.7 + 0.3 * Math.sin(t * 18)));
+    c.save(); c.globalAlpha = armed; c.strokeStyle = '#ffb04a'; c.lineWidth = 2; c.setLineDash([4, 4]); c.lineDashOffset = -t * 30;
+    c.beginPath(); c.arc(mp[0], mp[1], 20, 0, TAU); c.stroke(); c.restore();
+  }
+  const PA = [[0, 205, 70], [1.25, 152, 152]], PB = [[1.25, 152, 152], [1.7, 128, -6]];
+  let p, a;
+  if (t < 1.25) { p = H.path(PA, t); a = H.seg(t, 0, 0.2); }
+  else if (t < 1.75) { p = H.path(PB, t); a = H.win(t, 0, 0, 1.65, 1.75); }
+  else { p = PA[0].slice(1); a = H.seg(t, 4.4, 4.8); }
+  if (t > 1.25 && t < 1.9) {
+    H.trail(c, tt => H.path(PB, tt), t, 12, '#ffb04a', 9, 1.6);
+    H.trail(c, tt => H.path(PB, tt), t, 6, C.gold, 6, 1.6);
+  }
+  if (t > 1.25 && t < 1.75) H.glow(c, p[0], p[1], 24, '#ffb04a', 0.7);
+  H.puck(c, p[0], p[1], 7, { a });
+  H.burst(c, 152, 152, H.seg(t, 1.25, 1.8), '#ffb04a', 12, 34);
+  H.ring(c, 152, 152, H.seg(t, 1.25, 1.75), 8, 40, '#ffb04a', 4);
+  H.goal(c, true, H.seg(t, 1.7, 2.5), C.you, '+1');
+  H.caption(c, 'rocket armed: next hit', H.win(t, 0.2, 0.4, 1.0, 1.2), 110);
+  H.caption(c, 'x1.6, at least 1800 px/s', H.win(t, 1.6, 1.8, 3.0, 3.3), 110, C.gold);
+  H.caption(c, 'too fast to block', H.win(t, 3.3, 3.5, 4.4, 4.8), 110);
+};
+
+// 02: they shoot while you are out of position; your goal mouth goes solid and the puck bounces back faster.
+ANIMS.shield = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: [60 + 8 * Math.sin(t * 1.3), 150], them: H.path([[0, 170, 30], [0.8, 170, 20], [1.0, 168, 40], [1.4, 170, 30], [5, 170, 30]], t, 1) });
+  const on = H.win(t, 1.3, 1.4, 2.3, 2.4);
+  if (on > 0) {
+    H.glow(c, 160, 196, 70, C.ok, 0.45 * on);
+    c.save(); c.globalAlpha = on; c.fillStyle = C.ok; c.fillRect(110, 192, 100, 8);
+    c.fillStyle = 'rgba(255,255,255,.7)'; for (let i = 0; i < 6; i++) c.fillRect(110 + ((i * 19 + t * 60) % 100), 193, 6, 2);
+    c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(110, 184, 100, 3); c.fillStyle = C.ok; c.fillRect(110, 184, 100 * (1 - H.seg(t, 1.35, 2.35)), 3);
+    c.restore();
+  }
+  const PP = [[1.0, 168, 56], [1.9, 150, 186], [2.65, 215, 72], [3.1, 240, 0]];
+  let p, a;
+  if (t < 1.0) { p = [168, 56]; a = H.seg(t, 0, 0.2); }
+  else if (t < 3.1) { p = H.path(PP, t); a = H.win(t, 0, 0, 2.9, 3.1); }
+  else { p = [168, 56]; a = H.seg(t, 4.4, 4.8); }
+  if (t > 1.0 && t < 3.1) H.trail(c, tt => H.path(PP, tt), t, 7, t > 1.9 ? C.ok : C.puck, 6, a);
+  H.puck(c, p[0], p[1], 7, { a });
+  H.ring(c, 150, 190, H.seg(t, 1.9, 2.5), 8, 36, C.ok, 3);
+  H.burst(c, 150, 190, H.seg(t, 1.9, 2.5), C.ok, 10, 26);
+  H.caption(c, 'your goal is solid for 1 s', H.win(t, 1.35, 1.5, 2.3, 2.5), 100);
+  H.caption(c, 'bounces back x1.15', H.win(t, 2.5, 2.7, 3.9, 4.3), 100, C.ok);
+};
+
+// 03: you shoot; the puck is only a spectral outline (your view) and their mallet goes the wrong way.
+ANIMS.ghost = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: H.path([[0, 230, 182], [0.9, 230, 186], [1.05, 229, 168], [1.5, 230, 182], [6, 230, 182]], t, 1), them: H.path([[0, 160, 30], [1.4, 162, 30], [2.2, 110, 34], [3.2, 120, 30], [6, 160, 30]], t, 1) });
+  const PP = [[1.05, 228, 150], [2.4, 190, -6]];
+  const gh = H.win(t, 0.6, 0.75, 2.45, 2.6);
+  let p, a;
+  if (t < 1.05) { p = [228, 150]; a = H.seg(t, 0, 0.2); }
+  else if (t < 2.45) { p = H.path(PP, t); a = H.win(t, 0, 0, 2.35, 2.45); }
+  else { p = [228, 150]; a = H.seg(t, 4.9, 5.3); }
+  if (gh > 0 && t < 2.45) {
+    if (t > 1.05) H.trail(c, tt => H.path(PP, tt), t, 8, C.violet, 6, 0.8 * gh);
+    H.puck(c, p[0], p[1], 7, { a: a * (1 - gh) });
+    c.save(); c.globalAlpha = a * gh;
+    c.fillStyle = H.rgba(C.violet, 0.18); c.beginPath(); c.arc(p[0], p[1], 8, 0, TAU); c.fill();
+    c.strokeStyle = 'rgba(230,220,255,.9)'; c.lineWidth = 1.6; c.setLineDash([3, 3]); c.lineDashOffset = -t * 20;
+    c.beginPath(); c.arc(p[0], p[1], 8, 0, TAU); c.stroke(); c.restore();
+  } else H.puck(c, p[0], p[1], 7, { a });
+  H.ring(c, 228, 150, H.seg(t, 0.6, 1.2), 8, 30, C.violet, 3);
+  const qa = H.win(t, 1.5, 1.7, 2.4, 2.6);
+  if (qa > 0) { const m = H.path([[0, 160, 30], [1.4, 162, 30], [2.2, 110, 34], [3.2, 120, 30]], t, 1); H.txt(c, '?', m[0], m[1] + 26, 16, C.them, qa); }
+  H.goal(c, true, H.seg(t, 2.4, 3.2), C.you, '+1');
+  H.caption(c, 'invisible on their iPad, 2 s', H.win(t, 0.65, 0.85, 1.4, 1.6), 118);
+  H.caption(c, 'you see only an outline', H.win(t, 1.6, 1.8, 2.5, 2.7), 150, C.violet);
+  H.caption(c, 'they never saw it', H.win(t, 3.0, 3.2, 4.5, 4.9), 110);
+};
+
+// 04: their mallet shrinks to 60%; a shot that the normal size would block slips past.
+ANIMS.shrink = (c, t, w, h, H) => {
+  H.rink(c);
+  const r = 14 - 5.6 * H.ease(H.seg(t, 0.6, 1.0)) + 5.6 * H.ease(H.seg(t, 4.4, 4.8));
+  const mp = H.path([[0, 160, 40], [1.6, 158, 40], [2.2, 158, 40], [5, 160, 40]], t, 1);
+  H.mallets(c, t, { them: mp, tr: r, you: H.path([[0, 180, 186], [1.45, 180, 188], [1.6, 180, 168], [2, 180, 184], [5, 180, 186]], t, 1) });
+  const ol = H.win(t, 1.0, 1.2, 3.6, 3.9);
+  if (ol > 0) { c.save(); c.globalAlpha = ol * 0.8; c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.arc(mp[0], mp[1], 14, 0, TAU); c.stroke(); c.restore(); }
+  H.ring(c, mp[0], mp[1], H.seg(t, 0.6, 1.2), 26, 8, C.them, 3);
+  const PP = [[1.6, 180, 150], [2.7, 176, -6]];
+  let p, a;
+  if (t < 1.6) { p = [180, 150]; a = H.seg(t, 0, 0.2); }
+  else if (t < 2.8) { p = H.path(PP, t); a = H.win(t, 0, 0, 2.65, 2.8); }
+  else { p = [180, 150]; a = H.seg(t, 4.3, 4.6); }
+  if (t > 1.6 && t < 2.8) H.trail(c, tt => H.path(PP, tt), t, 6, C.puck, 6, a);
+  H.puck(c, p[0], p[1], 7, { a });
+  H.goal(c, true, H.seg(t, 2.7, 3.5), C.you, '+1');
+  H.caption(c, 'their mallet 60% for 4 s', H.win(t, 0.8, 1.0, 1.7, 1.9), 100);
+  H.caption(c, 'slips past (normal size: blocked)', H.win(t, 2.2, 2.4, 3.6, 4.0), 100, C.gold);
+};
+
+// 05: your shot freezes mid-table for 0.5 s; their swing hits air; it resumes at the same velocity.
+function flake(c, x, y, r, a) {
+  c.save(); c.globalAlpha = a; c.strokeStyle = '#dff6ff'; c.lineWidth = 1.6;
+  for (let k = 0; k < 3; k++) { const an = k * Math.PI / 3; c.beginPath(); c.moveTo(x - Math.cos(an) * r, y - Math.sin(an) * r); c.lineTo(x + Math.cos(an) * r, y + Math.sin(an) * r); c.stroke(); }
+  c.restore();
+}
+ANIMS.freeze = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: H.path([[0, 110, 186], [0.65, 112, 190], [0.8, 116, 172], [1.2, 110, 184], [5, 110, 186]], t, 1), them: H.path([[0, 150, 30], [0.9, 165, 30], [1.35, 190, 24], [1.55, 196, 32], [2.2, 140, 32], [3.2, 150, 30], [5, 150, 30]], t, 1) });
+  const PP = [[0.8, 120, 156], [1.2, 150, 95], [1.7, 150, 95], [2.37, 200, -6]];
+  const fz = H.win(t, 1.2, 1.25, 1.65, 1.7);
+  let p, a;
+  if (t < 0.8) { p = [120, 156]; a = H.seg(t, 0, 0.2); }
+  else if (t < 2.45) { p = H.path(PP, t); a = H.win(t, 0, 0, 2.3, 2.45); }
+  else { p = [120, 156]; a = H.seg(t, 4.3, 4.6); }
+  if (fz > 0) {
+    c.save(); c.globalAlpha = 0.6 * fz; c.strokeStyle = '#bff0ff'; c.lineWidth = 2; c.setLineDash([3, 5]);
+    c.beginPath(); c.moveTo(150, 95); c.lineTo(200, -6); c.stroke(); c.restore();
+  }
+  if ((t > 0.8 && t < 1.2) || (t > 1.7 && t < 2.45)) H.trail(c, tt => H.path(PP, tt), t, 6, C.puck, 6, a);
+  if (fz > 0) H.glow(c, p[0], p[1], 26, '#bff0ff', 0.7 * fz);
+  H.puck(c, p[0], p[1], 7, { a, col: fz > 0 ? H.mix('#f4f6ff', '#9fe6ff', fz) : C.puck });
+  if (fz > 0) {
+    flake(c, p[0], p[1], 11, fz);
+    c.save(); c.strokeStyle = '#bff0ff'; c.lineWidth = 3; c.globalAlpha = fz;
+    c.beginPath(); c.arc(p[0], p[1], 14, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - H.seg(t, 1.2, 1.7))); c.stroke(); c.restore();
+  }
+  H.burst(c, 150, 95, H.seg(t, 1.2, 1.6), '#bff0ff', 8, 22);
+  const ma = H.win(t, 1.4, 1.5, 1.9, 2.1);
+  if (ma > 0) H.txt(c, 'miss', 232, 50, 11, C.bad, ma);
+  H.goal(c, true, H.seg(t, 2.35, 3.1), C.you, '+1');
+  H.caption(c, 'stops dead for 0.5 s', H.win(t, 1.2, 1.3, 1.9, 2.1), 135);
+  H.caption(c, 'then the same velocity again', H.win(t, 2.15, 2.35, 3.5, 3.9), 135, C.gold);
+};
+
+// 06: a mine drops in their half, arms after 1 s, the puck drifts into it and is blasted off in a random direction.
+function mineIcon(c, x, y, s, armed, t, a) {
+  c.save(); c.globalAlpha = a; c.translate(x, y); c.scale(s, s);
+  if (armed) H.glow(c, 0, 0, 24, C.bad, 0.35 + 0.25 * Math.sin(t * 12));
+  c.strokeStyle = '#59607a'; c.lineWidth = 3; c.lineCap = 'round';
+  for (let i = 0; i < 8; i++) { const an = i * TAU / 8; c.beginPath(); c.moveTo(Math.cos(an) * 7, Math.sin(an) * 7); c.lineTo(Math.cos(an) * 12, Math.sin(an) * 12); c.stroke(); }
+  c.fillStyle = '#2a2f45'; c.beginPath(); c.arc(0, 0, 9, 0, TAU); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.25)'; c.lineWidth = 1; c.stroke();
+  const lit = armed ? 0.6 + 0.4 * Math.sin(t * 12) : 0.25 + 0.25 * Math.sin(t * 5);
+  c.fillStyle = armed ? H.rgba(C.bad, lit) : 'rgba(200,205,225,' + lit + ')';
+  c.beginPath(); c.arc(0, 0, 3.4, 0, TAU); c.fill();
+  c.restore();
+}
+ANIMS.mine = (c, t, w, h, H) => {
+  const boom = H.seg(t, 3.0, 3.8);
+  c.save();
+  if (boom > 0 && boom < 0.5) c.translate(Math.sin(t * 90) * 3 * (1 - boom / 0.5), Math.cos(t * 77) * 3 * (1 - boom / 0.5));
+  H.rink(c);
+  H.mallets(c, t, { them: H.path([[0, 120, 30], [3, 110, 32], [6, 120, 30]], t, 1) });
+  const MX = 215, MY = 62;
+  const drop = H.ease(H.seg(t, 0.4, 0.8));
+  if (t < 3.0 && drop > 0) {
+    c.save(); c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(MX, MY + 9, 12 * drop, 4 * drop, 0, 0, TAU); c.fill(); c.restore();
+    mineIcon(c, MX, MY - (1 - drop) * 40, 1, t > 1.8, t, drop);
+    if (t > 0.8 && t < 1.8) { c.save(); c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 2; c.beginPath(); c.arc(MX, MY, 16, -Math.PI / 2, -Math.PI / 2 + TAU * H.seg(t, 0.8, 1.8)); c.stroke(); c.restore(); }
+  }
+  H.ring(c, MX, MY, H.seg(t, 1.8, 2.3), 10, 30, C.bad, 2);
+  const PA = [[0, 90, 150], [3.0, 207, 69]], PB = [[3.0, 207, 69], [3.3, 9, 112], [3.6, 70, 190]];
+  let p, a;
+  if (t < 3.0) { p = H.path(PA, t); a = H.seg(t, 0, 0.3); }
+  else { p = H.path(PB, t); a = H.win(t, 0, 0, 3.45, 3.6); }
+  if (t > 3.0 && t < 3.6) H.trail(c, tt => H.path(PB, tt), t, 10, '#ffb04a', 7, a);
+  if (t < 3.6) H.puck(c, p[0], p[1], 7, { a });
+  if (boom > 0) {
+    H.glow(c, MX, MY, 70 * H.ease(boom), '#ffb04a', 0.8 * (1 - boom));
+    H.ring(c, MX, MY, boom, 6, 56, '#fff', 4); H.burst(c, MX, MY, boom, '#ffb04a', 14, 46);
+    const da = H.win(t, 3.0, 3.1, 3.6, 4.0);
+    if (da > 0) {
+      c.save(); c.globalAlpha = 0.5 * da; c.strokeStyle = '#fff'; c.lineWidth = 2; c.setLineDash([3, 4]);
+      for (let i = 0; i < 6; i++) { const an = i * TAU / 6 + 0.5; c.beginPath(); c.moveTo(MX + Math.cos(an) * 16, MY + Math.sin(an) * 16); c.lineTo(MX + Math.cos(an) * 44, MY + Math.sin(an) * 44); c.stroke(); }
+      c.restore();
+    }
+  }
+  c.restore();
+  H.caption(c, 'dropped in their half', H.win(t, 0.6, 0.8, 1.6, 1.8), 130);
+  H.caption(c, 'armed after 1 s, for 10 s', H.win(t, 1.85, 2.05, 2.85, 3.0), 130, C.bad);
+  H.caption(c, 'boom: random direction', H.win(t, 3.2, 3.4, 4.4, 4.7), 130, C.gold);
+  H.caption(c, 'one shot, then gone', H.win(t, 4.7, 4.9, 5.6, 5.95), 130);
+};
+
+// 07: a shot that would miss wide bends into the goal; the straight path is shown dashed.
+ANIMS.magnet = (c, t, w, h, H) => {
+  H.rink(c);
+  const P0 = [90, 150], P1 = [250, 70], P2 = [165, -8];
+  const bez = s => [(1 - s) * (1 - s) * P0[0] + 2 * (1 - s) * s * P1[0] + s * s * P2[0], (1 - s) * (1 - s) * P0[1] + 2 * (1 - s) * s * P1[1] + s * s * P2[1]];
+  const pos = tt => (tt < 0.9 ? P0 : bez(H.seg(tt, 0.9, 3.2)));
+  H.mallets(c, t, { you: H.path([[0, 60, 172], [0.4, 85, 184], [0.85, 90, 166], [1.5, 100, 172], [5, 60, 172]], t, 1), them: H.path([[0, 200, 36], [1.5, 235, 56], [2.5, 190, 36], [5, 200, 36]], t, 1) });
+  const live = H.win(t, 0.9, 1.1, 3.0, 3.3);
+  if (live > 0) {
+    c.save(); c.globalAlpha = live * 0.8; c.strokeStyle = C.bad; c.lineWidth = 2; c.setLineDash([5, 5]);
+    c.beginPath(); c.moveTo(P0[0], P0[1]); c.lineTo(313, 38); c.stroke(); c.restore();
+    H.txt(c, 'miss', 290, 52, 11, C.bad, live);
+  }
+  const a = t < 3.2 ? H.win(t, 0, 0.2, 9, 9) : H.seg(t, 4.3, 4.6);
+  const tl = H.win(t, 0.9, 1.0, 3.2, 3.4);
+  if (tl > 0) H.trail(c, pos, t, 12, C.bad, 6, tl);
+  const p = t < 3.3 ? pos(t) : P0;
+  if (t < 3.3 || t > 4.3) {
+    if (live > 0) H.glow(c, p[0], p[1], 22, C.bad, 0.5 * live);
+    H.puck(c, p[0], p[1], 7, { a: t < 3.3 ? H.win(t, 0, 0.2, 3.1, 3.3) : a });
+  }
+  if (live > 0) {
+    c.save(); c.globalAlpha = live; c.translate(p[0] - 18, p[1] - 14); c.rotate(-0.6); c.lineWidth = 5; c.lineCap = 'butt';
+    c.strokeStyle = C.bad; c.beginPath(); c.moveTo(-8, -8); c.lineTo(-8, 0); c.arc(0, 0, 8, Math.PI, 0, true); c.lineTo(8, -8); c.stroke();
+    c.strokeStyle = '#fff'; c.beginPath(); c.moveTo(-8, -8); c.lineTo(-8, -4); c.moveTo(8, -8); c.lineTo(8, -4); c.stroke(); c.restore();
+  }
+  H.goal(c, true, H.seg(t, 3.2, 4.0), C.you, '+1');
+  H.caption(c, 'homes on their goal, 2 s', H.win(t, 1.0, 1.2, 2.9, 3.1));
+  H.caption(c, 'a shot that would miss', H.win(t, 3.3, 3.5, 4.6, 5));
+};
+
+// 08: their goal mouth stretches to 1.5x and a shot that would miss goes in.
+ANIMS.widegoal = (c, t, w, h, H) => {
+  const grow = H.ease(H.seg(t, 1, 1.8)) - H.ease(H.seg(t, 4.3, 4.8));
+  const tw = 100 + 50 * grow;
+  H.rink(c, { topW: tw });
+  if (grow > 0.02) {
+    c.save(); c.globalAlpha = Math.min(1, grow * 1.5); c.fillStyle = C.gold; c.fillRect(160 - tw / 2, 0, 5, 14); c.fillRect(160 + tw / 2 - 5, 0, 5, 14);
+    c.strokeStyle = C.bad; c.lineWidth = 2; c.setLineDash([3, 3]);
+    for (const x of [110, 210]) { c.beginPath(); c.moveTo(x, 6); c.lineTo(x, 28); c.stroke(); }
+    c.restore();
+    if (t < 1.9) { H.txt(c, '<', 160 - tw / 2 - 12, 14, 16, C.gold, 1); H.txt(c, '>', 160 + tw / 2 + 12, 14, 16, C.gold, 1); }
+  }
+  H.mallets(c, t, { you: H.path([[0, 150, 178], [1.9, 185, 185], [2.3, 190, 166], [3, 170, 178], [5, 150, 178]], t, 1), them: H.path([[0, 150, 32], [2, 140, 34], [3.2, 120, 30], [5, 150, 32]], t, 1) });
+  const PP = [[2.3, 190, 154], [3.3, 228, -6]];
+  const hold = t < 2.3, a = H.win(t, 0, 0.1, 3.2, 3.4) + (t > 4.4 ? H.seg(t, 4.4, 4.7) : 0);
+  const p = hold ? [190, 154] : H.path(PP, t);
+  if (!hold && t < 3.4) H.trail(c, tt => H.path(PP, tt), t, 8, C.puck, 6, 1);
+  H.puck(c, p[0], p[1], 7, { a: H.clamp(a) });
+  H.goal(c, true, H.seg(t, 3.3, 4.1), C.you, '+1');
+  H.caption(c, 'their mouth 1.5x for 6 s', H.win(t, 0.9, 1.1, 2.7, 3.0));
+  H.caption(c, 'would have missed', H.win(t, 3.4, 3.6, 4.5, 4.8));
+};
+
+// 09: a mini mallet (55%) slides along your goal line and blocks two shots.
+const GS1 = [[0.6, 130, 50], [1, 130, 50], [1.9, 130, 175], [2.8, 150, 65]];
+const GS2 = [[3, 190, 50], [3.2, 190, 50], [3.9, 190, 175], [4.8, 175, 65]];
+ANIMS.goalie = (c, t, w, h, H) => {
+  H.rink(c);
+  c.save(); c.strokeStyle = 'rgba(94,227,138,.5)'; c.lineWidth = 2; c.setLineDash([3, 5]); c.beginPath(); c.moveTo(100, 186); c.lineTo(220, 186); c.stroke(); c.restore();
+  const bot = H.path([[0, 160, 186], [1.3, 160, 186], [1.9, 130, 186], [2.5, 130, 186], [3.1, 160, 186], [3.8, 190, 186], [4.5, 190, 186], [5.4, 160, 186]], t, 1);
+  const on = H.win(t, 0, 0.3, 5.4, 5.8);
+  H.mallets(c, t, { you: [60, 150 + 4 * Math.sin(t * 2)], them: H.path([[0, 100, 28], [0.8, 128, 30], [1, 130, 38], [1.6, 160, 30], [2.9, 185, 30], [3.2, 190, 38], [4, 170, 30], [6, 100, 28]], t, 1) });
+  if (on > 0) {
+    H.mallet(c, bot[0], bot[1], 8, C.ok, { a: on });
+    c.save(); c.globalAlpha = on * 0.9; c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(104, 197 - 0.5, 112, 2); c.fillStyle = C.ok; c.fillRect(104, 196, 112 * (1 - H.seg(t, 0.3, 5.4)), 3); c.restore();
+  }
+  const a1 = H.win(t, 0.6, 0.7, 2.6, 2.8), a2 = H.win(t, 3, 3.1, 4.6, 4.8);
+  const p1 = H.path(GS1, t), p2 = H.path(GS2, t);
+  H.trail(c, tt => H.path(GS1, tt), t, 5, C.puck, 6, a1); H.puck(c, p1[0], p1[1], 7, { a: a1 });
+  H.trail(c, tt => H.path(GS2, tt), t, 5, C.puck, 6, a2); H.puck(c, p2[0], p2[1], 7, { a: a2 });
+  H.ring(c, 130, 178, H.seg(t, 1.9, 2.5), 8, 30, C.ok, 3); H.ring(c, 190, 178, H.seg(t, 3.9, 4.5), 8, 30, C.ok, 3);
+  H.burst(c, 130, 178, H.seg(t, 1.9, 2.5), C.ok, 8, 22); H.burst(c, 190, 178, H.seg(t, 3.9, 4.5), C.ok, 8, 22);
+  H.caption(c, 'mini goalie for 5 s', H.win(t, 0.1, 0.3, 1.0, 1.3), 100);
+  H.caption(c, 'hits like a mallet', H.win(t, 4.1, 4.3, 5.5, 5.9), 100, C.ok);
+};
+
+// 10: mallet grows to 1.5x and blocks a wide shot that a normal mallet would miss.
+ANIMS.giant = (c, t, w, h, H) => {
+  H.rink(c);
+  const r = 14 + 7 * H.ease(H.seg(t, 0.8, 1.4)) - 7 * H.ease(H.seg(t, 4.3, 4.7));
+  const mp = H.path([[0, 160, 170], [2, 160, 170], [2.6, 190, 172], [4, 190, 172], [4.5, 160, 170]], t, 1);
+  const PP = [[2.3, 268, 44], [3.2, 213, 160], [4, 285, 52]];
+  H.mallets(c, t, { you: mp, ur: r, them: H.path([[0, 200, 30], [1.8, 262, 28], [2.2, 268, 34], [3, 200, 30], [5, 200, 30]], t, 1) });
+  const ghost = H.win(t, 1.5, 1.7, 3.8, 4.1);
+  if (ghost > 0) { c.save(); c.globalAlpha = ghost * 0.8; c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.arc(mp[0], mp[1], 14, 0, TAU); c.stroke(); c.restore(); }
+  H.ring(c, 160, 170, H.seg(t, 0.8, 1.5), 14, 40, C.you, 3);
+  const a = H.win(t, 2.3, 2.5, 4.0, 4.3);
+  if (a > 0) { const p = H.path(PP, t); H.trail(c, tt => H.path(PP, tt), t, 6, C.puck, 6, a); H.puck(c, p[0], p[1], 7, { a }); }
+  H.burst(c, 208, 164, H.seg(t, 3.2, 3.8), C.gold, 8, 22);
+  H.caption(c, 'your mallet 1.5x, 5 s', H.win(t, 0.8, 1.0, 2.0, 2.3));
+  H.caption(c, 'blocks the wide shot', H.win(t, 3.3, 3.5, 4.5, 4.9), 130, C.ok);
+};
+
+// 11: the puck sticks to the mallet, is dragged sideways, then flicked into the corner.
+ANIMS.catch = (c, t, w, h, H) => {
+  H.rink(c);
+  const mp = H.path([[0, 100, 172], [1, 100, 160], [1.3, 100, 160], [2.7, 230, 160], [3, 235, 150], [3.4, 250, 172], [4.5, 250, 172], [6, 100, 172]], t);
+  const stuck = t >= 1 && t < 3;
+  H.mallets(c, t, { you: mp, them: H.path([[0, 200, 30], [1.5, 120, 36], [3, 220, 34], [4.4, 150, 30], [6, 200, 30]], t, 1) });
+  let p, a;
+  if (t < 1) { p = H.path([[0, 110, 40], [1, 100, 138]], t); a = H.win(t, 0, 0.2, 9, 9); }
+  else if (stuck) { p = [mp[0], mp[1] - 22]; a = 1; }
+  else { p = H.path([[3, 235, 128], [3.5, 300, 14], [4.3, 290, 24]], t); a = H.win(t, 0, 0, 4.3, 4.8) + (t > 5 ? H.seg(t, 5.2, 5.6) : 0); }
+  if (t > 3 && t < 4.4) { H.trail(c, tt => H.path([[3, 235, 128], [3.5, 300, 14], [4.3, 290, 24]], tt), t, 8, C.gold, 6, 1); }
+  H.puck(c, p[0], p[1], 7, { a: H.clamp(a) });
+  if (stuck) {
+    const left = 1 - H.seg(t, 1, 3);
+    c.save(); c.strokeStyle = C.ok; c.lineWidth = 3; c.beginPath(); c.arc(p[0], p[1], 12, -Math.PI / 2, -Math.PI / 2 + TAU * left); c.stroke(); c.restore();
+  }
+  H.ring(c, 100, 140, H.seg(t, 1, 1.5), 8, 26, C.ok, 3);
+  H.burst(c, 296, 16, H.seg(t, 3.5, 4.1), C.gold, 8, 22);
+  H.caption(c, 'sticks up to 1.5 s', H.win(t, 1.1, 1.3, 2.5, 2.8));
+  H.caption(c, 'flick: 1.5x your mallet speed', H.win(t, 3.1, 3.3, 4.7, 5.1), 100, C.gold);
+};
+
+// 12: three round bricks pop in across the middle of their half; one shot threads a gap, one banks off a brick.
+const BR = [80, 160, 240];
+ANIMS.barrier = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: H.path([[0, 80, 172], [1.8, 112, 190], [2, 112, 176], [3.6, 225, 190], [4, 225, 176], [6, 80, 172]], t, 1), them: H.path([[0, 160, 20], [2, 190, 22], [4.4, 120, 22], [6, 160, 20]], t, 1) });
+  const bk = H.ease(H.seg(t, 1, 1.6)) - H.ease(H.seg(t, 5.4, 5.9));
+  const hit = H.win(t, 4.6, 4.7, 4.8, 5.2);
+  for (let i = 0; i < 3; i++) {
+    if (bk <= 0.01) break;
+    c.save(); c.translate(BR[i], 50); c.scale(bk, bk);
+    const lit = i === 2 ? hit : 0;
+    c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.arc(1.5, 2.5, 8, 0, TAU); c.fill();
+    c.fillStyle = H.mix('#d9b77a', '#ffffff', lit); c.beginPath(); c.arc(0, 0, 8, 0, TAU); c.fill();
+    c.strokeStyle = 'rgba(90,60,20,.6)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-8, 0); c.lineTo(8, 0); c.moveTo(0, -8); c.lineTo(0, 0); c.moveTo(-3, 0); c.lineTo(-3, 8); c.moveTo(4, 0); c.lineTo(4, 8); c.stroke();
+    c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, 8, 0, TAU); c.stroke(); c.restore();
+  }
+  const PA = [[2, 112, 184], [3.2, 114, -6]], PB = [[3.9, 225, 184], [4.6, 234, 63], [5.5, 268, 184]];
+  const a1 = H.win(t, 1.6, 1.8, 3.1, 3.25), a2 = H.win(t, 3.6, 3.8, 5.3, 5.6);
+  const p1 = H.path(PA, t), p2 = H.path(PB, t);
+  H.trail(c, tt => H.path(PA, tt), t, 7, C.puck, 6, a1); H.puck(c, p1[0], p1[1], 7, { a: a1 });
+  H.trail(c, tt => H.path(PB, tt), t, 7, C.puck, 6, a2); H.puck(c, p2[0], p2[1], 7, { a: a2 });
+  H.burst(c, 236, 58, H.seg(t, 4.6, 5.1), C.gold, 8, 18);
+  H.goal(c, true, H.seg(t, 3.15, 3.9), C.you, '+1');
+  H.caption(c, '3 bricks for 6 s', H.win(t, 1.1, 1.3, 1.9, 2.1), 120);
+  H.caption(c, 'thread the gap', H.win(t, 2.2, 2.4, 3.2, 3.4), 120, C.ok);
+  H.caption(c, 'or bank it off', H.win(t, 4.1, 4.3, 5.4, 5.8), 120, C.gold);
+};
+// 13: the top half flips left to right while their finger still goes the real way.
+ANIMS.mirror = (c, t, w, h, H) => {
+  H.rink(c);
+  const sx = 1 - 2 * H.ease(H.seg(t, 0.8, 1.3)) + 2 * H.ease(H.seg(t, 4, 4.5));
+  const mp = H.path([[0, 160, 32], [1.5, 160, 32], [2.6, 230, 36], [3.6, 110, 32], [5, 160, 32]], t, 1);
+  const pp = H.path([[0, 230, 72], [2, 100, 62], [4, 230, 76], [5, 230, 72]], t, 1);
+  H.mallet(c, 160 + 40 * Math.sin(t * 1.1), 172, 14, C.you);
+  H.half(c, true, () => {
+    c.translate(160, 0); c.scale(sx, 1); c.translate(-160, 0);
+    H.rink(c);
+    H.txt(c, 'R', 38, 44, 30, C.gold, 0.9);
+    c.fillStyle = C.gold; c.fillRect(20, 24, 4, 4);
+    H.puck(c, pp[0], pp[1], 7);
+    H.mallet(c, mp[0], mp[1], 14, C.them);
+  });
+  const f = 1 - Math.abs(sx);
+  if (f > 0.02) { c.save(); c.globalAlpha = 0.5 * f; c.fillStyle = '#fff'; for (let i = 0; i < 7; i++) c.fillRect(((i * 53 + t * 120) % 320), 0, 3, 100); c.restore(); }
+  if (t > 1.3 && t < 4.2) {
+    c.save(); c.strokeStyle = '#fff'; c.lineWidth = 2; c.setLineDash([3, 4]); c.globalAlpha = 0.9;
+    c.beginPath(); c.arc(mp[0], 68, 9, 0, TAU); c.stroke();
+    c.setLineDash([]); c.beginPath(); const d = Math.sign(mp[0] - H.path([[0, 160, 32], [1.5, 160, 32], [2.6, 230, 36], [3.6, 110, 32], [5, 160, 32]], t - 0.1, 1)[0]) || 1;
+    c.moveTo(mp[0] + d * 16, 68); c.lineTo(mp[0] + d * 26, 68); c.lineTo(mp[0] + d * 21, 63); c.moveTo(mp[0] + d * 26, 68); c.lineTo(mp[0] + d * 21, 73); c.stroke(); c.restore();
+    H.txt(c, 'finger', mp[0], 84, 10, '#fff', 1);
+  }
+  H.caption(c, 'their view mirrored, 3 s', H.win(t, 1.0, 1.2, 3.8, 4.2), 130);
+};
+
+// 14: the top half jitters; the blue mallet lags behind a dotted finger mark at 60% speed.
+ANIMS.quake = (c, t, w, h, H) => {
+  H.rink(c);
+  const amp = H.win(t, 0.6, 0.9, 3.6, 3.9);
+  const fx = tt => 160 + 70 * Math.sin(2.4 * tt);
+  const fingerX = H.clamp(fx(t), 90, 230);
+  const mxx = amp > 0.05 ? 160 + 0.6 * (fx(t - 0.12) - 160) : fx(t);
+  const jx = Math.sin(t * 61) * 3.4 * amp, jy = Math.cos(t * 53) * 3.4 * amp;
+  const PP = [[0.8, 230, 170], [2, 240, 60], [3.2, 150, -6]];
+  const pa = H.win(t, 0.6, 0.8, 3.1, 3.3), p = H.path(PP, t);
+  H.mallet(c, 160 + 40 * Math.sin(t * 1.1), 172, 14, C.you);
+  H.half(c, true, () => {
+    c.translate(jx, jy); H.rink(c);
+    if (amp > 0.05) {
+      c.save(); c.globalAlpha = amp; c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2; c.beginPath();
+      c.moveTo(40, 0); c.lineTo(52, 22); c.lineTo(44, 40); c.lineTo(62, 70); c.moveTo(270, 0); c.lineTo(258, 30); c.lineTo(272, 56); c.lineTo(255, 92); c.stroke(); c.restore();
+    }
+    H.puck(c, p[0], p[1], 7, { a: pa });
+    H.mallet(c, mxx, 34, 14, C.them);
+  });
+  if (amp > 0.05) {
+    c.save(); c.globalAlpha = amp; c.strokeStyle = '#fff'; c.lineWidth = 2; c.setLineDash([3, 4]);
+    c.beginPath(); c.arc(fingerX, 34, 9, 0, TAU); c.stroke();
+    c.beginPath(); c.moveTo(fingerX, 34); c.lineTo(mxx, 34); c.stroke(); c.restore();
+    H.txt(c, 'finger', fingerX, 56, 10, '#fff', amp);
+  }
+  H.goal(c, true, H.seg(t, 3.2, 4), C.you, '+1');
+  H.caption(c, 'mallet moves 60%, 2 s', H.win(t, 0.8, 1.0, 3.2, 3.5), 130);
+};
+
+// 15: on their screen three real-looking pucks fan out; the two fakes fade at the goal line, the real one scores.
+ANIMS.decoys = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: H.path([[0, 160, 182], [0.8, 160, 182], [1, 160, 166], [1.6, 160, 182], [5, 160, 182]], t, 1), them: H.path([[0, 160, 30], [1.4, 160, 34], [2, 130, 36], [2.4, 190, 34], [3, 160, 30]], t, 1) });
+  const real = [[0, 160, 150], [1, 160, 148], [2.6, 160, -2]];
+  const dA = [[1.2, 160, 129], [2.6, 118, 0]], dB = [[1.2, 160, 129], [2.6, 202, 0]];
+  const pr = H.path(real, t), ra = H.win(t, 0, 0.2, 2.55, 2.7);
+  if (t > 1 && t < 2.7) H.trail(c, tt => H.path(real, tt), t, 6, C.puck, 6, ra);
+  H.puck(c, pr[0], pr[1], 7, { a: ra });
+  if (t >= 1.2 && t < 2.7) {
+    for (const d of [dA, dB]) {
+      const p = H.path(d, t), a = H.clamp((p[1] - 4) / 14) * H.seg(t, 1.2, 1.35);
+      H.puck(c, p[0], p[1], 7, { a });
+      H.txt(c, 'fake', p[0], p[1] - 16, 10, C.bad, a * 0.9);
+    }
+  }
+  H.burst(c, 122, 8, H.seg(t, 2.45, 2.9), C.bad, 7, 16); H.burst(c, 198, 8, H.seg(t, 2.45, 2.9), C.bad, 7, 16);
+  H.goal(c, true, H.seg(t, 2.6, 3.4), C.you, '+1');
+  H.caption(c, 'their screen: 2 fakes + 1 real', H.win(t, 1.1, 1.3, 2.2, 2.5), 100);
+  H.caption(c, 'only the real one scores', H.win(t, 2.7, 2.9, 4.4, 4.8), 100, C.gold);
+};
+
+// 16: a grabber flies from your button to theirs, takes the item icon and carries it back.
+function star(c, x, y, r, col, a, rot) {
+  c.save(); c.globalAlpha = a; c.translate(x, y); c.rotate(rot || 0); c.fillStyle = col; c.beginPath();
+  for (let i = 0; i < 10; i++) { const rr = i % 2 ? r * 0.45 : r, an = -Math.PI / 2 + i * Math.PI / 5; c.lineTo(Math.cos(an) * rr, Math.sin(an) * rr); }
+  c.closePath(); c.fill(); c.restore();
+}
+function ghost(c, x, y, a, t) {
+  c.save(); c.globalAlpha = a; c.translate(x, y);
+  H.glow(c, 0, 0, 30, '#ffffff', 0.25);
+  c.fillStyle = 'rgba(240,245,255,.92)'; c.beginPath(); c.arc(0, -2, 13, Math.PI, 0);
+  c.lineTo(13, 12); for (let i = 0; i < 3; i++) c.quadraticCurveTo(13 - i * 8.7 - 2.2, 12 + 6 * Math.sin(t * 8 + i), 13 - (i + 1) * 8.7, 12);
+  c.closePath(); c.fill();
+  c.fillStyle = '#1a2346'; c.beginPath(); c.arc(-5, -3, 2.4, 0, TAU); c.arc(5, -3, 2.4, 0, TAU); c.fill();
+  c.beginPath(); c.arc(0, 4, 2.6, 0, TAU); c.fill();
+  c.restore();
+}
+function cornerBtn(c, x, y, col, label, dy) {
+  c.save(); c.fillStyle = H.rgba(col, 0.2); c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.arc(x, y, 20, 0, TAU); c.fill(); c.stroke(); c.restore();
+  H.txt(c, label, x, y + dy, 9, col, 1);
+}
+ANIMS.steal = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: [60 + 20 * Math.sin(t), 172], them: [160 + 30 * Math.cos(t * 0.8), 90 - 52 + 10] });
+  H.puck(c, 160, 100, 7);
+  const bY = [270, 146], bT = [36, 34];
+  cornerBtn(c, bY[0], bY[1], C.you, 'you', -29); cornerBtn(c, bT[0], bT[1], C.them, 'them', 31);
+  const GO = [[0.6, bY[0], bY[1] - 8], [1.2, 200, 58], [1.9, bT[0] + 14, bT[1] + 4], [2.4, bT[0] + 14, bT[1] + 4], [3, 130, 96], [3.7, bY[0] - 4, bY[1] - 8]];
+  const g = H.path(GO, t, 1), ga = H.win(t, 0.4, 0.7, 3.7, 4.0);
+  if (t < 2.4) star(c, bT[0], bT[1], 11, C.gold, 1 - H.seg(t, 2.3, 2.4), t * 0.5);
+  if (t >= 3.7) star(c, bY[0], bY[1], 11 + 5 * Math.sin(H.seg(t, 3.7, 4.2) * Math.PI), C.gold, 1, 0);
+  if (t > 2.4 && t < 3.7) star(c, g[0] - 6, g[1] + 6, 10, C.gold, 1, t * 3);
+  if (t > 2.4) { c.save(); c.globalAlpha = 0.7; c.strokeStyle = C.them; c.lineWidth = 2; c.setLineDash([3, 3]); c.beginPath(); c.arc(bT[0], bT[1], 12, 0, TAU); c.stroke(); c.restore(); }
+  ghost(c, g[0], g[1], ga, t);
+  H.burst(c, bT[0], bT[1], H.seg(t, 2, 2.6), C.gold, 8, 24);
+  H.caption(c, 'steal: takes their item', H.win(t, 1.4, 1.6, 2.6, 2.9), 100);
+  H.caption(c, 'yours to fire (none? a fresh roll)', H.win(t, 3.8, 4.0, 5.5, 5.9), 100, C.gold);
+};
+
+// 17: the puck shrinks to 60% and slips past the blue mallet where a normal puck would be blocked.
+ANIMS.tinypuck = (c, t, w, h, H) => {
+  H.rink(c);
+  const r = 7 - 2.8 * H.ease(H.seg(t, 0.8, 1.3)) + 2.8 * H.seg(t, 4.4, 4.8);
+  const PP = [[1.75, 172, 154], [2.9, 166, -6]];
+  const p = t < 1.75 ? [172, 154] : H.path(PP, t);
+  const a = t < 3.6 ? H.win(t, 0, 0.1, 2.9, 3.1) : H.seg(t, 4.2, 4.5);
+  H.mallets(c, t, { you: H.path([[0, 172, 190], [1.5, 172, 188], [1.75, 172, 172], [2.4, 170, 185], [5, 172, 190]], t, 1), them: H.path([[0, 170, 30], [1, 148, 34], [3, 148, 34], [4, 170, 30]], t, 1) });
+  if (t > 1.75 && t < 3.1) H.trail(c, tt => H.path(PP, tt), t, 5, C.puck, 4, 1);
+  H.puck(c, p[0], p[1], r, { a: H.clamp(a) });
+  if (t > 1.9 && t < 3.1) {
+    c.save(); c.globalAlpha = 0.9 * H.win(t, 1.9, 2.1, 2.9, 3.1); c.strokeStyle = C.bad; c.lineWidth = 2; c.setLineDash([3, 3]); c.beginPath(); c.arc(p[0], p[1], 7, 0, TAU); c.stroke(); c.restore();
+    if (p[1] < 60 && p[1] > 14) H.txt(c, 'x', p[0] + 16, p[1], 14, C.bad, 1);
+  }
+  H.ring(c, 172, 154, H.seg(t, 0.8, 1.5), 4, 24, C.gold, 3);
+  H.goal(c, true, H.seg(t, 2.9, 3.6), C.you, '+1');
+  H.caption(c, 'puck 60% for 5 s, for all', H.win(t, 0.9, 1.1, 1.8, 2.1), 100);
+  H.caption(c, 'slips past (normal size: blocked)', H.win(t, 2.2, 2.4, 3.6, 4.0), 100, C.gold);
+};
+
+// One shared loop: draws only canvases on screen, pauses when the tab is hidden.
+const items = new Map();
+for (const cv of document.querySelectorAll('canvas.anim')) {
+  const o = { cv, ctx: cv.getContext('2d'), name: cv.dataset.anim, start: performance.now(), vis: false };
+  items.set(cv, o);
+  const btn = cv.parentElement.querySelector('.replay');
+  if (btn) btn.addEventListener('click', () => { o.start = performance.now(); });
+}
+const io = new IntersectionObserver(es => { for (const e of es) { const o = items.get(e.target); if (o) { if (!o.vis && e.isIntersecting) o.start = performance.now(); o.vis = e.isIntersecting; } } }, { threshold: 0.05 });
+for (const cv of items.keys()) io.observe(cv);
+
+let raf = 0, hiddenAt = 0;
+function frame(now) {
+  raf = requestAnimationFrame(frame);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  for (const o of items.values()) {
+    if (!o.vis) continue;
+    const cw = Math.round(o.cv.clientWidth * dpr);
+    if (cw < 10) continue;
+    if (o.cv.width !== cw) { o.cv.width = cw; o.cv.height = Math.round(cw * 0.625); }
+    const fn = ANIMS[o.name];
+    if (!fn) continue;
+    const t = Math.max(0, (now - o.start) / 1000) % DUR[o.name];
+    o.ctx.setTransform(cw / W, 0, 0, o.cv.height / HT, 0, 0);
+    o.ctx.clearRect(0, 0, W, HT);
+    o.ctx.save();
+    fn(o.ctx, t, W, HT, H);
+    o.ctx.restore();
+  }
+}
+function run() { if (!raf) raf = requestAnimationFrame(frame); }
+function stop() { cancelAnimationFrame(raf); raf = 0; }
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = performance.now(); stop(); }
+  else { const d = performance.now() - hiddenAt; for (const o of items.values()) o.start += d; run(); }
+});
+if (!document.hidden) run();
+})();
+</script>
+</body>
+</html>

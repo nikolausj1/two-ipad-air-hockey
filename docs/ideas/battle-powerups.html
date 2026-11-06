@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battle power-ups: 20 ideas</title>
+<link rel="stylesheet" href="./ideas.css">
+<style>
+  .queued { margin-top: 16px; max-width: 760px; padding: 12px 14px; border-radius: 14px; background: rgba(255, 209, 102, 0.1); border: 1px solid rgba(255, 209, 102, 0.45); }
+  .queued h3 { margin: 0 0 4px; font-size: 14px; color: var(--warn); }
+  .queued p { margin: 0; color: var(--text); font-size: 14px; }
+</style>
+</head>
+<body data-page="battle-powerups">
+<div class="wrap">
+  <header class="page">
+    <h1>Battle <b>power-ups</b></h1>
+    <p>Twenty new items for Battle mode, on top of the six already in the game (Rocket, Shield, Ghost, Shrink, Freeze, Mine). Each card has a looping sketch of the item doing its thing on a top-down rink, then the exact numbers and why it might be fun.</p>
+    <p>How to answer: press Yes, Maybe or No on each card, type any notes in the box, then press "Copy feedback for Claude" at the bottom and paste it into the chat. Your answers are saved in this browser, so you can come back to it.</p>
+    <div class="legend"><span class="you">Orange = you</span><span class="them">Blue = them</span></div>
+    <div class="queued">
+      <h3>Rule change already queued</h3>
+      <p>Boxes can only be collected by shooting the puck through a box on the other player's side. Dribbling the puck through a box in your own half does nothing.</p>
+    </div>
+  </header>
+
+  <main class="grid">
+
+  <article class="idea" data-id="multiball">
+    <h2><span class="num">01</span>Multiball</h2>
+    <p class="hook">A second puck drops in and anything goes.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="multiball"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: a second puck spawns at centre for 8 s with a small pop, launched in a random direction at the speed of the first. Both pucks score for whoever they go past, so a goal is a goal whichever puck it is. When the 8 s are up the puck nearest the middle fades out; if one is already in a goal it simply never comes back.</p>
+    <p>Why it is fun: pure chaos for a short window, and a real choice about when to fire it (when you are attacking and they cannot cover two threats, or when you need a comeback). Straight from Arkanoid's Disruption capsule that splits one ball into three. The cost is engine work, because the network snapshot carries one puck today.</p>
+    <div class="meta"><span class="tag both">Changes the table</span><span class="tag">Arkanoid</span><span class="tag effort-L">Effort L</span></div>
+  </article>
+
+  <article class="idea" data-id="magnet">
+    <h2><span class="num">02</span>Magnet puck</h2>
+    <p class="hook">The puck remembers where their goal is.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="magnet"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: for 2 s the puck steers toward the middle of their goal, bending its velocity by up to about 100 degrees per second without changing its speed. A gentle homing curve, not a teleport. Any hit by their mallet cancels it on the spot. Both screens show a red glow around the puck, so they know it is coming.</p>
+    <p>Why it is fun: a lazy sideways shot becomes a threat, which forces them to go and intercept instead of waiting. It is Mario Kart's blue shell in miniature: the homing is only a danger if the victim is out of position. Fire it on a slow puck for the longest curve.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Mario Kart</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="widegoal">
+    <h2><span class="num">03</span>Wide goal</h2>
+    <p class="hook">Their goal mouth stretches to 1.5 times.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="widegoal"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: their goal mouth grows from 100% to 150% of its width for 6 s. The two goal posts slide outward over 0.4 s and slide back over 0.4 s at the end, so nobody gets surprised by a post jumping. Your own goal is untouched. Both iPads draw the longer mouth with a gold edge.</p>
+    <p>Why it is fun: angles that used to miss now count, so bank shots and wild flicks suddenly pay off, and the victim has more goal to cover with the same mallet. It borrows from Mario Kart's lightning: no direct hit, just a change to the victim's size for a few seconds.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Mario Kart</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="goalie">
+    <h2><span class="num">04</span>Goalie bot</h2>
+    <p class="hook">A tiny robot guards your goal while you attack.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="goalie"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: for 5 s a mini mallet (60% of the normal size) slides along your goal line, tracking the puck at up to 220 units per second, and swats anything it touches back up the table. It never leaves the goal line. A fast shot to the far side can still beat it, and it can be hit by a Freeze or a Mine like anything else.</p>
+    <p>Why it is fun: it frees your mallet to attack with both hands in the air, and it gives a trailing player a few seconds of safety. The counterplay is simple and readable: shoot harder or fake one way. Inspired by the computer paddle of Pong, which only ever moves along its own line.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">Pong</span><span class="tag effort-M">Effort M</span></div>
+  </article>
+
+  <article class="idea" data-id="giant">
+    <h2><span class="num">05</span>Giant mallet</h2>
+    <p class="hook">Your mallet swells to 1.5 times its size.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="giant"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: your mallet radius grows from 100% to 150% for 5 s, growing over 0.3 s and shrinking over 0.3 s at the end. It is a real bigger body, so it covers more of the goal and hits the puck from further away. It still cannot cross the centre line, and its speed limit does not change.</p>
+    <p>Why it is fun: it is the simplest item to read, and it works for both styles: wall up the goal, or smash through a crowd of pucks and mines. Straight from Arkanoid's Expand capsule that widens the paddle. Counterplay: put the puck where a big mallet has to turn slowly.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">Arkanoid</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="catch">
+    <h2><span class="num">06</span>Catch and flick</h2>
+    <p class="hook">Grab the puck, carry it, then fire it where you like.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="catch"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: your next touch sticks the puck to the front of your mallet for up to 1.5 s. A thin ring around the puck shows the time left. Lift your finger or flick to release it at full speed in the direction of your finger movement. If you hold for the full 1.5 s it lets go on its own, straight ahead at normal speed.</p>
+    <p>Why it is fun: it turns the game from reacting into aiming. You can choose the angle, wait for them to commit, and fire into the far corner. It is the Arkanoid Catch capsule, where the ball sticks to the paddle until you decide to launch. The risk is that they get 1.5 s to line up, which is also the counterplay.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">Arkanoid</span><span class="tag effort-M">Effort M</span></div>
+  </article>
+
+  <article class="idea" data-id="barrier">
+    <h2><span class="num">07</span>Barrier</h2>
+    <p class="hook">Three bumper bricks across the middle of their half.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="barrier"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: three solid bricks (56 by 14 units) pop in across their half for 6 s, about a third of the way up from the goal line, leaving two gaps of roughly 40 units. Pucks bounce off them; mallets pass through. Both players see them. When the time is up they shrink away.</p>
+    <p>Why it is fun: every shot becomes a puzzle, either thread a gap or bank off a brick, and the owner of the barrier can plan bank shots in advance. A brick wall is Arkanoid's whole look, here turned into a defensive tool. It also blocks their own clearances, so it works against the victim's counterattack, not just the shot.</p>
+    <div class="meta"><span class="tag both">Changes the table</span><span class="tag">Arkanoid</span><span class="tag effort-M">Effort M</span></div>
+  </article>
+
+  <article class="idea" data-id="banana">
+    <h2><span class="num">08</span>Banana peel</h2>
+    <p class="hook">A hidden trap in their half spins the puck sideways.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="banana"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: a peel lands at a random spot in their half (never inside the goal crease) and lies there until the next puck touches it. The puck then turns 90 degrees to one side, keeping its speed, spins for a moment, and the peel is gone. If nothing touches it, it stays for 10 s. Both players see it; it is a trap you place, not a secret.</p>
+    <p>Why it is fun: their half becomes a hazard, and they must steer shots around a spot they cannot move. It also lets you gamble that your own attack shoots into it, since it only triggers on a puck. The classic Mario Kart banana, translated into one patch of floor.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Mario Kart</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="blackout">
+    <h2><span class="num">09</span>Blackout</h2>
+    <p class="hook">Their screen goes dark except a spotlight on their mallet.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="blackout"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: for 3 s the far half of their screen fades to 95% black. A spotlight about 30 units across follows their mallet, and the puck leaves only a faint glow in the dark. It is a view effect only: the physics, scoring and your screen are unchanged. It fades in over 0.5 s and out over 0.5 s.</p>
+    <p>Why it is fun: they have to defend by sound and memory, and a puck that disappears at the seam makes for tense seconds. Best when you shoot from the half-line so it vanishes into the dark. It is Mario Kart's Blooper, which splats ink across the other drivers' screens.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Mario Kart</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="mirror">
+    <h2><span class="num">10</span>Mirror</h2>
+    <p class="hook">Their screen flips left to right, their finger does not.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="mirror"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: for 3 s their view is flipped left to right. Their mallet still follows their finger on the real table, only the picture they see is mirrored, so moving right looks like moving left. The flip happens over 0.5 s with a shimmer, and flips back the same way. Nothing changes on your screen or in the physics.</p>
+    <p>Why it is fun: it is a harmless prank that makes a good player flail for a moment, and it is very funny to watch. No exact source game; the closest cousin is the view tricks of Mario Kart's Blooper. A good counter is to stop moving and trust the puck, which gives a small skill element.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Mario Kart</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="quake">
+    <h2><span class="num">11</span>Earthquake</h2>
+    <p class="hook">Their table shakes and their mallet drags.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="quake"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: for 2 s their screen shakes (a few units of jitter) and their mallet moves at only 60% of finger speed, so it always lags behind the finger. It ramps in over 0.2 s and out over 0.3 s. Your own screen does not shake. The mallet lag is a real sim change on the host; the shake is only a view effect.</p>
+    <p>Why it is fun: they can see exactly what is going on but cannot do anything about it, which is the best kind of annoying. It also leaves the puck fully playable, so you get a free attack window. It comes from a pinball machine's tilt, where a shaken table stops obeying you.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Pinball</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="sticky">
+    <h2><span class="num">12</span>Sticky floor</h2>
+    <p class="hook">Their half turns to tar and the puck crawls.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="sticky"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: for 4 s friction in their half is five times higher. A puck entering it slows to a crawl within a second, so they cannot clear it from the goal mouth without leaving the crease and walking out to it. The surface is drawn as dark tar with bubbles. Your half is unchanged, and the effect ends with a 0.5 s fade.</p>
+    <p>Why it is fun: it breaks their defensive habit of waiting by the goal. A puck that stops 70 units out is a sitting duck, and going to fetch it opens the goal for a counter shot. It needs a per-half friction value, which is a few lines in the sim. Mario Kart has its mud and sand patches for the same slow-down feeling.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Mario Kart</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="ice">
+    <h2><span class="num">13</span>Ice patch</h2>
+    <p class="hook">Your half goes slippery and the puck flies.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="ice"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: for 5 s your half has no friction at all, so a puck you hit keeps its speed until it meets a wall or a mallet. Fast passes along the rails and double banks become reliable. The ice is drawn as a pale frost with a moving shine, and fades over 0.5 s at the end. Their half is unchanged.</p>
+    <p>Why it is fun: it rewards players who aim with geometry, and it makes the puck dangerous. The risk is that a fast puck can also come back, so it suits confident players. Ice stages in Smash Bros are the model for the slip, where everyone slides further than they planned.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">Smash Bros</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="decoys">
+    <h2><span class="num">14</span>Decoy pucks</h2>
+    <p class="hook">Two fake pucks, one real one.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="decoys"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: for 3 s two fake pucks appear on their screen only, launched from the real puck and moving like real ones, fanning out about 25 degrees to each side. Only the real puck scores or collides, and decoys fade at the goal line. You see them with a dashed pink ring so you know which is which; they do not. The fake paths are simulated by the host and sent as view data.</p>
+    <p>Why it is fun: they must guess in a fraction of a second, which is the same pressure as a real shot but with a bluff in it. It is the fake item box of Mario Kart, which looks like the real thing until you drive into it, plus Boo's tricks.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Mario Kart</span><span class="tag effort-M">Effort M</span></div>
+  </article>
+
+  <article class="idea" data-id="portals">
+    <h2><span class="num">15</span>Portals</h2>
+    <p class="hook">Two linked rings and the puck takes the shortcut.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="portals"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: for 8 s two linked rings (24 units wide) appear on the rink, one in each half. A puck entering one comes out of the other with its speed and direction kept, after a 0.1 s delay. Mallets pass straight through. It works both ways, so it can help or hurt either player, which is why it counts as changing the table.</p>
+    <p>Why it is fun: you can plan a shot through the ring, and you can aim a defensive shot at the wrong one by mistake. Both players see the rings and have to think about it, which gives the sort of puzzle moments that Portal is known for. Rings are placed by the host so both iPads agree.</p>
+    <div class="meta"><span class="tag both">Changes the table</span><span class="tag">Portal</span><span class="tag effort-M">Effort M</span></div>
+  </article>
+
+  <article class="idea" data-id="bombpuck">
+    <h2><span class="num">16</span>Bomb puck</h2>
+    <p class="hook">The puck is a bomb with a 3 second fuse.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="bombpuck"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: the puck gets a lit fuse for 3 s and flashes red faster and faster, with a 3, 2, 1 countdown. When it blows, the mallet nearest to it is knocked back about 90 units and the puck is launched at that player's goal at 1.6 times its speed. If both mallets are far away, it simply drifts on and stops.</p>
+    <p>Why it is fun: everybody wants to be the one furthest from it when it goes, so both players fight to push the puck into the other's area. A hot-potato countdown is very easy to read from across the room. Straight out of Bomberman, where the whole game is the fuse.</p>
+    <div class="meta"><span class="tag both">Changes the table</span><span class="tag">Bomberman</span><span class="tag effort-M">Effort M</span></div>
+  </article>
+
+  <article class="idea" data-id="warp">
+    <h2><span class="num">17</span>Warp</h2>
+    <p class="hook">Steal the puck: it jumps to just in front of your mallet.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="warp"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: the puck teleports to 25 units in front of your mallet, wherever it was, keeping a quarter of its speed and pointing toward their goal. A short ring flash marks both spots on both screens. If it would land inside their mallet's reach, it lands a little further back.</p>
+    <p>Why it is fun: it is the answer to every moment where they have the puck and you do not. It swaps a defensive moment into an attack with one thumb tap. Rocket League's Rumble mode has the Swapper, which trades places with another car, for the same kind of upset.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">Rocket League</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="golden">
+    <h2><span class="num">18</span>Golden puck</h2>
+    <p class="hook">A gold puck for 10 seconds: goals count double.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="golden"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: the puck turns gold for 10 s. A goal scored by you while it is gold counts 2 points, and the "x2" pops over your score. If they score with it, it counts for them only as 1, so it is only a gamble in your favour. The gold also tells them they must defend harder.</p>
+    <p>Why it is fun: it gives both players a clear target for the next 10 s, and it makes a big score swing feel earned. Fire it when you are ahead to snowball, or when you are behind to catch up in one goal. Mario Kart's coins give you a small, steady bonus for the same reason.</p>
+    <div class="meta"><span class="tag you">Helps you</span><span class="tag">Mario Kart</span><span class="tag">Pinball</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="steal">
+    <h2><span class="num">19</span>Item steal</h2>
+    <p class="hook">A ghost grabs the item they are holding.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="steal"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: if they are holding an item, a ghost flies from your corner button to theirs, grabs the icon, and carries it back to you in about 3 s of animation. The item moves from their corner button to yours instantly in the game state, and you can fire it right away. If they hold nothing, it is lost, so you need to read the situation first. If you already hold an item, the stolen one replaces it.</p>
+    <p>Why it is fun: it punishes someone for hoarding a strong item, and it turns every item box into something worth contesting. It is the Boo from Mario Kart, who steals the item from the driver ahead of you.</p>
+    <div class="meta"><span class="tag them">Hits them</span><span class="tag">Mario Kart</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  <article class="idea" data-id="tinypuck">
+    <h2><span class="num">20</span>Tiny puck</h2>
+    <p class="hook">The puck shrinks and slips past everything.</p>
+    <div class="anim-wrap"><canvas class="anim" data-anim="tinypuck"></canvas><button class="replay" type="button">Replay</button></div>
+    <p>Mechanic: the puck shrinks to 60% of its radius for 5 s, shrinking over 0.4 s. It is harder to block, it slips through narrow gaps (between a mallet and a wall, or past the edge of a Shield bar if it is half open) and it is harder to see. Both players see it small, and it grows back at the end.</p>
+    <p>Why it is fun: it changes how both players aim, and it makes shots that normally hit the edge of a mallet go through. It also makes it harder to hit, so the attacker should try to score fast. Arkanoid is the loose source: nearly every capsule in it changes how the ball or the paddle behaves for a short while.</p>
+    <div class="meta"><span class="tag both">Changes the table</span><span class="tag">Arkanoid</span><span class="tag effort-S">Effort S</span></div>
+  </article>
+
+  </main>
+</div>
+<script src="./feedback.js"></script>
+<script>
+(() => {
+'use strict';
+const W = 320, HT = 200, TAU = Math.PI * 2;
+const C = { you: '#ff7a45', them: '#4fd1ff', puck: '#f4f6ff', gold: '#ffd166', bad: '#ff5c7a', ok: '#5ee38a', rink: '#0e1430', violet: '#b388ff' };
+const FONT = '-apple-system, system-ui, sans-serif';
+
+const H = {
+  C, W, HT,
+  clamp: (v, a = 0, b = 1) => Math.min(b, Math.max(a, v)),
+  lerp: (a, b, k) => a + (b - a) * k,
+  ease: k => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2),
+  seg: (t, a, b) => H.clamp((t - a) / (b - a)),
+  win: (t, a, b, c, d) => (t < a ? 0 : t < b ? (t - a) / (b - a) : t < c ? 1 : t < d ? 1 - (t - c) / (d - c) : 0),
+  rgba(hex, a) { const n = parseInt(hex.slice(1), 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; },
+  mix(a, b, k) {
+    const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16), f = (s) => Math.round(H.lerp((x >> s) & 255, (y >> s) & 255, k));
+    return 'rgb(' + f(16) + ',' + f(8) + ',' + f(0) + ')';
+  },
+  // pts = [[t, x, y], ...]; linear (or eased) interpolation, clamped at both ends.
+  path(pts, t, e) {
+    if (t <= pts[0][0]) return [pts[0][1], pts[0][2]];
+    for (let i = 1; i < pts.length; i++) {
+      if (t <= pts[i][0]) {
+        const p = pts[i - 1], q = pts[i];
+        let k = (t - p[0]) / (q[0] - p[0]);
+        if (e) k = H.ease(k);
+        return [H.lerp(p[1], q[1], k), H.lerp(p[2], q[2], k)];
+      }
+    }
+    const l = pts[pts.length - 1];
+    return [l[1], l[2]];
+  },
+  rr(c, x, y, w, h, r) {
+    c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  },
+  rink(c, o = {}) {
+    const tw = o.topW || 100, bw = o.botW || 100;
+    c.fillStyle = C.rink; c.fillRect(0, 0, W, HT);
+    c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,.25)'; c.lineCap = 'round'; c.setLineDash([]);
+    c.strokeRect(1.5, 1.5, W - 3, HT - 3);
+    c.beginPath(); c.moveTo(0, 100); c.lineTo(W, 100); c.stroke();
+    c.beginPath(); c.arc(160, 100, 26, 0, TAU); c.stroke();
+    c.beginPath(); c.arc(160, 0, tw / 2 + 14, 0, Math.PI); c.stroke();
+    c.beginPath(); c.arc(160, HT, bw / 2 + 14, Math.PI, 0); c.stroke();
+    c.fillStyle = o.topCol || C.them; c.fillRect(160 - tw / 2, 0, tw, 5);
+    c.fillStyle = C.you; c.fillRect(160 - bw / 2, HT - 5, bw, 5);
+  },
+  half(c, top, fn) { c.save(); c.beginPath(); c.rect(0, top ? 0 : 100, W, 100); c.clip(); fn(); c.restore(); },
+  glow(c, x, y, r, col, a) {
+    const g = c.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, H.rgba(col, a)); g.addColorStop(1, H.rgba(col, 0));
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+  },
+  mallet(c, x, y, r = 14, col = C.you, o = {}) {
+    c.save(); if (o.a != null) c.globalAlpha = o.a;
+    H.glow(c, x, y, r * 1.9, col, 0.35);
+    c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.arc(x, y, r * 0.55, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.arc(x - r * 0.18, y - r * 0.18, r * 0.22, 0, TAU); c.fill();
+    c.restore();
+  },
+  mallets(c, t, o = {}) {
+    const m = o.them || [160 + 46 * Math.cos(t * 0.9 + 1), 30], u = o.you || [160 + 46 * Math.sin(t * 1.1), 170];
+    if (!o.noThem) H.mallet(c, m[0], m[1], o.tr || 14, C.them);
+    if (!o.noYou) H.mallet(c, u[0], u[1], o.ur || 14, C.you);
+  },
+  puck(c, x, y, r = 7, o = {}) {
+    if (r <= 0.1) return;
+    c.save(); if (o.a != null) c.globalAlpha = o.a;
+    H.glow(c, x, y, r * 2.4, o.col || C.puck, 0.3);
+    c.fillStyle = o.col || C.puck; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(14,20,48,.25)'; c.beginPath(); c.arc(x + r * 0.15, y + r * 0.15, r * 0.5, 0, TAU); c.fill();
+    c.restore();
+  },
+  txt(c, s, x, y, size, col, a = 1, align = 'center') {
+    c.save(); c.globalAlpha = H.clamp(a); c.font = '800 ' + size + 'px ' + FONT; c.textAlign = align; c.textBaseline = 'middle';
+    c.lineWidth = Math.max(3, size / 5); c.strokeStyle = 'rgba(8,12,28,.9)'; c.lineJoin = 'round';
+    c.strokeText(s, x, y); c.fillStyle = col; c.fillText(s, x, y); c.restore();
+  },
+  caption(c, s, a = 1, y = 100, col = '#ffffff') {
+    if (a <= 0.01) return;
+    c.save(); c.globalAlpha = H.clamp(a); c.font = '700 12px ' + FONT;
+    const w = c.measureText(s).width + 20;
+    c.fillStyle = 'rgba(8,12,28,.86)'; H.rr(c, 160 - w / 2, y - 12, w, 24, 12); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.25)'; c.lineWidth = 1; c.stroke();
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = col; c.fillText(s, 160, y + 1);
+    c.restore();
+  },
+  trail(c, fn, t, n, col, r, a = 1) {
+    c.save();
+    for (let i = n; i >= 1; i--) {
+      const p = fn(Math.max(0, t - i * 0.035));
+      c.globalAlpha = H.clamp(a * 0.4 * (1 - i / (n + 1)));
+      c.fillStyle = col; c.beginPath(); c.arc(p[0], p[1], r * (1 - i / (n + 2)), 0, TAU); c.fill();
+    }
+    c.restore();
+  },
+  ring(c, x, y, k, r0, r1, col, lw = 3) {
+    if (k <= 0 || k >= 1) return;
+    c.save(); c.globalAlpha = 1 - k; c.strokeStyle = col; c.lineWidth = lw; c.setLineDash([]);
+    c.beginPath(); c.arc(x, y, H.lerp(r0, r1, H.ease(k)), 0, TAU); c.stroke(); c.restore();
+  },
+  burst(c, x, y, k, col, n = 10, d = 30) {
+    if (k <= 0 || k >= 1) return;
+    c.save(); c.globalAlpha = 1 - k; c.fillStyle = col;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + 0.4, r = d * (1 - Math.pow(1 - k, 2));
+      c.beginPath(); c.arc(x + Math.cos(a) * r, y + Math.sin(a) * r, 3 * (1 - k) + 1, 0, TAU); c.fill();
+    }
+    c.restore();
+  },
+  spark(c, x, y, s, col, a = 1) {
+    c.save(); c.globalAlpha = H.clamp(a); c.fillStyle = col; c.beginPath();
+    c.moveTo(x, y - s); c.quadraticCurveTo(x, y, x + s, y); c.quadraticCurveTo(x, y, x, y + s);
+    c.quadraticCurveTo(x, y, x - s, y); c.quadraticCurveTo(x, y, x, y - s); c.fill(); c.restore();
+  },
+  goal(c, top, k, col, txt) {
+    if (k <= 0 || k >= 1) return;
+    const y = top ? 0 : HT;
+    H.glow(c, 160, y, 110, col, 0.6 * (1 - k));
+    if (txt) H.txt(c, txt, 160, top ? 28 - k * 14 : HT - 28 + k * 14, 18, col, 1 - k);
+  },
+  box(c, x, y, s, a = 1) {
+    c.save(); c.globalAlpha = a; c.translate(x, y); c.scale(s, s);
+    H.glow(c, 0, 0, 30, C.gold, 0.4);
+    c.fillStyle = C.gold; H.rr(c, -13, -13, 26, 26, 6); c.fill();
+    c.fillStyle = '#7a4a00'; c.font = '800 18px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', 0, 1);
+    c.restore();
+  },
+};
+
+const ANIMS = {};
+const DUR = { multiball: 6, magnet: 5, widegoal: 5, goalie: 6, giant: 5, catch: 6, barrier: 6, banana: 5, blackout: 5, mirror: 5,
+  quake: 5, sticky: 5, ice: 5, decoys: 5, portals: 6, bombpuck: 6, warp: 5, golden: 5, steal: 6, tinypuck: 5 };
+
+// 01: a box bursts, a second puck appears, both pucks fly about and each one scores.
+const MB1 = [[0, 50, 165], [1.2, 160, 92], [2.2, 306, 38], [3.3, 232, 122], [4.5, 168, 206]];
+const MB2 = [[1.2, 160, 92], [2.2, 10, 60], [3.3, 75, 150], [5.2, 140, -6]];
+ANIMS.multiball = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: H.path([[0, 60, 172], [1, 110, 160], [2.5, 250, 172], [4, 120, 170], [6, 60, 172]], t, 1), them: H.path([[0, 210, 30], [2, 110, 40], [4, 220, 28], [6, 210, 30]], t, 1) });
+  if (t < 1.25) H.box(c, 160, 92, H.ease(H.seg(t, 0.2, 0.5)));
+  H.burst(c, 160, 92, H.seg(t, 1.2, 1.9), C.gold, 12, 38);
+  H.ring(c, 160, 92, H.seg(t, 1.2, 1.8), 8, 50, C.gold, 4);
+  const a1 = H.win(t, 0, 0.3, 4.4, 4.7);
+  H.trail(c, tt => H.path(MB1, tt), t, 6, C.puck, 6, a1);
+  const p1 = H.path(MB1, t); H.puck(c, p1[0], p1[1], 7, { a: a1 });
+  if (t >= 1.2) {
+    const a2 = H.win(t, 1.2, 1.4, 5.0, 5.3);
+    H.trail(c, tt => H.path(MB2, tt), t, 6, C.gold, 6, a2);
+    const p2 = H.path(MB2, t); H.puck(c, p2[0], p2[1], 7, { a: a2 });
+    H.ring(c, p2[0], p2[1], H.seg(t, 1.3, 2.2), 8, 24, C.gold, 2);
+  }
+  H.goal(c, false, H.seg(t, 4.45, 5.2), C.them, '+1');
+  H.goal(c, true, H.seg(t, 5.15, 5.9), C.you, '+1');
+  H.caption(c, 'second puck! 8 s', H.win(t, 1.3, 1.5, 3.2, 3.6));
+  H.caption(c, 'both pucks score', H.win(t, 3.7, 3.9, 5.7, 6));
+};
+
+// 02: a shot that would miss wide bends into the goal; the straight path is shown dashed.
+ANIMS.magnet = (c, t, w, h, H) => {
+  H.rink(c);
+  const P0 = [90, 150], P1 = [250, 70], P2 = [165, -8];
+  const bez = s => [(1 - s) * (1 - s) * P0[0] + 2 * (1 - s) * s * P1[0] + s * s * P2[0], (1 - s) * (1 - s) * P0[1] + 2 * (1 - s) * s * P1[1] + s * s * P2[1]];
+  const pos = tt => (tt < 0.9 ? P0 : bez(H.seg(tt, 0.9, 3.2)));
+  H.mallets(c, t, { you: H.path([[0, 60, 172], [0.4, 85, 184], [0.85, 90, 166], [1.5, 100, 172], [5, 60, 172]], t, 1), them: H.path([[0, 200, 36], [1.5, 235, 56], [2.5, 190, 36], [5, 200, 36]], t, 1) });
+  const live = H.win(t, 0.9, 1.1, 3.0, 3.3);
+  if (live > 0) {
+    c.save(); c.globalAlpha = live * 0.8; c.strokeStyle = C.bad; c.lineWidth = 2; c.setLineDash([5, 5]);
+    c.beginPath(); c.moveTo(P0[0], P0[1]); c.lineTo(313, 38); c.stroke(); c.restore();
+    H.txt(c, 'miss', 290, 52, 11, C.bad, live);
+  }
+  const a = t < 3.2 ? H.win(t, 0, 0.2, 9, 9) : H.seg(t, 4.3, 4.6);
+  const tl = H.win(t, 0.9, 1.0, 3.2, 3.4);
+  if (tl > 0) H.trail(c, pos, t, 12, C.bad, 6, tl);
+  const p = t < 3.3 ? pos(t) : P0;
+  if (t < 3.3 || t > 4.3) {
+    if (live > 0) H.glow(c, p[0], p[1], 22, C.bad, 0.5 * live);
+    H.puck(c, p[0], p[1], 7, { a: t < 3.3 ? H.win(t, 0, 0.2, 3.1, 3.3) : a });
+  }
+  if (live > 0) {
+    c.save(); c.globalAlpha = live; c.translate(p[0] - 18, p[1] - 14); c.rotate(-0.6); c.lineWidth = 5; c.lineCap = 'butt';
+    c.strokeStyle = C.bad; c.beginPath(); c.moveTo(-8, -8); c.lineTo(-8, 0); c.arc(0, 0, 8, Math.PI, 0, true); c.lineTo(8, -8); c.stroke();
+    c.strokeStyle = '#fff'; c.beginPath(); c.moveTo(-8, -8); c.lineTo(-8, -4); c.moveTo(8, -8); c.lineTo(8, -4); c.stroke(); c.restore();
+  }
+  H.goal(c, true, H.seg(t, 3.2, 4.0), C.you, '+1');
+  H.caption(c, 'homing 2 s', H.win(t, 1.0, 1.2, 2.9, 3.1));
+  H.caption(c, 'a shot that would miss', H.win(t, 3.3, 3.5, 4.6, 5));
+};
+
+// 03: their goal mouth stretches to 1.5x and a shot that would miss goes in.
+ANIMS.widegoal = (c, t, w, h, H) => {
+  const grow = H.ease(H.seg(t, 1, 1.8)) - H.ease(H.seg(t, 4.3, 4.8));
+  const tw = 100 + 50 * grow;
+  H.rink(c, { topW: tw });
+  if (grow > 0.02) {
+    c.save(); c.globalAlpha = Math.min(1, grow * 1.5); c.fillStyle = C.gold; c.fillRect(160 - tw / 2, 0, 5, 14); c.fillRect(160 + tw / 2 - 5, 0, 5, 14);
+    c.strokeStyle = C.bad; c.lineWidth = 2; c.setLineDash([3, 3]);
+    for (const x of [110, 210]) { c.beginPath(); c.moveTo(x, 6); c.lineTo(x, 28); c.stroke(); }
+    c.restore();
+    if (t < 1.9) { H.txt(c, '<', 160 - tw / 2 - 12, 14, 16, C.gold, 1); H.txt(c, '>', 160 + tw / 2 + 12, 14, 16, C.gold, 1); }
+  }
+  H.mallets(c, t, { you: H.path([[0, 150, 178], [1.9, 185, 185], [2.3, 190, 166], [3, 170, 178], [5, 150, 178]], t, 1), them: H.path([[0, 150, 32], [2, 140, 34], [3.2, 120, 30], [5, 150, 32]], t, 1) });
+  const PP = [[2.3, 190, 154], [3.3, 228, -6]];
+  const hold = t < 2.3, a = H.win(t, 0, 0.1, 3.2, 3.4) + (t > 4.4 ? H.seg(t, 4.4, 4.7) : 0);
+  const p = hold ? [190, 154] : H.path(PP, t);
+  if (!hold && t < 3.4) H.trail(c, tt => H.path(PP, tt), t, 8, C.puck, 6, 1);
+  H.puck(c, p[0], p[1], 7, { a: H.clamp(a) });
+  H.goal(c, true, H.seg(t, 3.3, 4.1), C.you, '+1');
+  H.caption(c, 'goal mouth 1.5x', H.win(t, 0.9, 1.1, 2.7, 3.0));
+  H.caption(c, 'would have missed', H.win(t, 3.4, 3.6, 4.5, 4.8));
+};
+
+// 04: a mini mallet bot slides along your goal line and blocks two shots.
+const GS1 = [[0.6, 130, 50], [1, 130, 50], [1.9, 130, 175], [2.8, 150, 65]];
+const GS2 = [[3, 190, 50], [3.2, 190, 50], [3.9, 190, 175], [4.8, 175, 65]];
+ANIMS.goalie = (c, t, w, h, H) => {
+  H.rink(c);
+  c.save(); c.strokeStyle = 'rgba(94,227,138,.5)'; c.lineWidth = 2; c.setLineDash([3, 5]); c.beginPath(); c.moveTo(100, 186); c.lineTo(220, 186); c.stroke(); c.restore();
+  const bot = H.path([[0, 160, 186], [1.3, 160, 186], [1.9, 130, 186], [2.5, 130, 186], [3.1, 160, 186], [3.8, 190, 186], [4.5, 190, 186], [5.4, 160, 186]], t, 1);
+  const on = H.win(t, 0, 0.3, 5.4, 5.8);
+  H.mallets(c, t, { you: [60, 150 + 4 * Math.sin(t * 2)], them: H.path([[0, 100, 28], [0.8, 128, 30], [1, 130, 38], [1.6, 160, 30], [2.9, 185, 30], [3.2, 190, 38], [4, 170, 30], [6, 100, 28]], t, 1) });
+  if (on > 0) {
+    H.mallet(c, bot[0], bot[1], 9, C.ok, { a: on });
+    c.save(); c.globalAlpha = on * 0.9; c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(104, 197 - 0.5, 112, 2); c.fillStyle = C.ok; c.fillRect(104, 196, 112 * (1 - H.seg(t, 0.3, 5.4)), 3); c.restore();
+  }
+  const a1 = H.win(t, 0.6, 0.7, 2.6, 2.8), a2 = H.win(t, 3, 3.1, 4.6, 4.8);
+  const p1 = H.path(GS1, t), p2 = H.path(GS2, t);
+  H.trail(c, tt => H.path(GS1, tt), t, 5, C.puck, 6, a1); H.puck(c, p1[0], p1[1], 7, { a: a1 });
+  H.trail(c, tt => H.path(GS2, tt), t, 5, C.puck, 6, a2); H.puck(c, p2[0], p2[1], 7, { a: a2 });
+  H.ring(c, 130, 178, H.seg(t, 1.9, 2.5), 8, 30, C.ok, 3); H.ring(c, 190, 178, H.seg(t, 3.9, 4.5), 8, 30, C.ok, 3);
+  H.burst(c, 130, 178, H.seg(t, 1.9, 2.5), C.ok, 8, 22); H.burst(c, 190, 178, H.seg(t, 3.9, 4.5), C.ok, 8, 22);
+  H.caption(c, 'bot guards 5 s', H.win(t, 0.1, 0.3, 1.0, 1.3), 100);
+  H.caption(c, 'blocks 2 shots', H.win(t, 4.1, 4.3, 5.5, 5.9), 100, C.ok);
+};
+
+// 05: mallet grows to 1.5x and blocks a wide shot that a normal mallet would miss.
+ANIMS.giant = (c, t, w, h, H) => {
+  H.rink(c);
+  const r = 14 + 7 * H.ease(H.seg(t, 0.8, 1.4)) - 7 * H.ease(H.seg(t, 4.3, 4.7));
+  const mp = H.path([[0, 160, 170], [2, 160, 170], [2.6, 190, 172], [4, 190, 172], [4.5, 160, 170]], t, 1);
+  const PP = [[2.3, 268, 44], [3.2, 213, 160], [4, 285, 52]];
+  H.mallets(c, t, { you: mp, ur: r, them: H.path([[0, 200, 30], [1.8, 262, 28], [2.2, 268, 34], [3, 200, 30], [5, 200, 30]], t, 1) });
+  const ghost = H.win(t, 1.5, 1.7, 3.8, 4.1);
+  if (ghost > 0) { c.save(); c.globalAlpha = ghost * 0.8; c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.arc(mp[0], mp[1], 14, 0, TAU); c.stroke(); c.restore(); }
+  H.ring(c, 160, 170, H.seg(t, 0.8, 1.5), 14, 40, C.you, 3);
+  const a = H.win(t, 2.3, 2.5, 4.0, 4.3);
+  if (a > 0) { const p = H.path(PP, t); H.trail(c, tt => H.path(PP, tt), t, 6, C.puck, 6, a); H.puck(c, p[0], p[1], 7, { a }); }
+  H.burst(c, 208, 164, H.seg(t, 3.2, 3.8), C.gold, 8, 22);
+  H.caption(c, '1.5x for 5 s', H.win(t, 0.8, 1.0, 2.0, 2.3));
+  H.caption(c, 'blocks the wide shot', H.win(t, 3.3, 3.5, 4.5, 4.9), 130, C.ok);
+};
+
+// 06: the puck sticks to the mallet, is dragged sideways, then flicked into the corner.
+ANIMS.catch = (c, t, w, h, H) => {
+  H.rink(c);
+  const mp = H.path([[0, 100, 172], [1, 100, 160], [1.3, 100, 160], [2.7, 230, 160], [3, 235, 150], [3.4, 250, 172], [4.5, 250, 172], [6, 100, 172]], t);
+  const stuck = t >= 1 && t < 3;
+  H.mallets(c, t, { you: mp, them: H.path([[0, 200, 30], [1.5, 120, 36], [3, 220, 34], [4.4, 150, 30], [6, 200, 30]], t, 1) });
+  let p, a;
+  if (t < 1) { p = H.path([[0, 110, 40], [1, 100, 138]], t); a = H.win(t, 0, 0.2, 9, 9); }
+  else if (stuck) { p = [mp[0], mp[1] - 22]; a = 1; }
+  else { p = H.path([[3, 235, 128], [3.5, 300, 14], [4.3, 290, 24]], t); a = H.win(t, 0, 0, 4.3, 4.8) + (t > 5 ? H.seg(t, 5.2, 5.6) : 0); }
+  if (t > 3 && t < 4.4) { H.trail(c, tt => H.path([[3, 235, 128], [3.5, 300, 14], [4.3, 290, 24]], tt), t, 8, C.gold, 6, 1); }
+  H.puck(c, p[0], p[1], 7, { a: H.clamp(a) });
+  if (stuck) {
+    const left = 1 - H.seg(t, 1, 3);
+    c.save(); c.strokeStyle = C.ok; c.lineWidth = 3; c.beginPath(); c.arc(p[0], p[1], 12, -Math.PI / 2, -Math.PI / 2 + TAU * left); c.stroke(); c.restore();
+  }
+  H.ring(c, 100, 140, H.seg(t, 1, 1.5), 8, 26, C.ok, 3);
+  H.burst(c, 296, 16, H.seg(t, 3.5, 4.1), C.gold, 8, 22);
+  H.caption(c, 'sticks for 1.5 s', H.win(t, 1.1, 1.3, 2.5, 2.8));
+  H.caption(c, 'flick: full speed anywhere', H.win(t, 3.1, 3.3, 4.7, 5.1), 100, C.gold);
+};
+
+// 07: three bricks pop in across their half; one shot threads the gap, one banks off a brick.
+const BR = [62, 160, 258];
+ANIMS.barrier = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: H.path([[0, 80, 172], [1.8, 112, 190], [2, 112, 176], [3.6, 225, 190], [4, 225, 176], [6, 80, 172]], t, 1), them: H.path([[0, 160, 20], [2, 190, 22], [4.4, 120, 22], [6, 160, 20]], t, 1) });
+  const bk = H.ease(H.seg(t, 1, 1.6)) - H.ease(H.seg(t, 5.4, 5.9));
+  const hit = H.win(t, 4.6, 4.7, 4.8, 5.2);
+  for (let i = 0; i < 3; i++) {
+    if (bk <= 0.01) break;
+    c.save(); c.translate(BR[i], 55); c.scale(bk, bk);
+    const lit = i === 2 ? hit : 0;
+    c.fillStyle = H.mix('#ffb04a', '#ffffff', lit); H.rr(c, -28, -7, 56, 14, 4); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 2; c.stroke(); c.restore();
+  }
+  const PA = [[2, 112, 184], [3.2, 114, -6]], PB = [[3.9, 225, 184], [4.6, 246, 69], [5.5, 268, 184]];
+  const a1 = H.win(t, 1.6, 1.8, 3.1, 3.25), a2 = H.win(t, 3.6, 3.8, 5.3, 5.6);
+  const p1 = H.path(PA, t), p2 = H.path(PB, t);
+  H.trail(c, tt => H.path(PA, tt), t, 7, C.puck, 6, a1); H.puck(c, p1[0], p1[1], 7, { a: a1 });
+  H.trail(c, tt => H.path(PB, tt), t, 7, C.puck, 6, a2); H.puck(c, p2[0], p2[1], 7, { a: a2 });
+  H.burst(c, 246, 66, H.seg(t, 4.6, 5.1), C.gold, 8, 18);
+  H.goal(c, true, H.seg(t, 3.15, 3.9), C.you, '+1');
+  H.caption(c, '3 bricks, 6 s', H.win(t, 1.1, 1.3, 1.9, 2.1), 120);
+  H.caption(c, 'thread the gap', H.win(t, 2.2, 2.4, 3.2, 3.4), 120, C.ok);
+  H.caption(c, 'or bank it off', H.win(t, 4.1, 4.3, 5.4, 5.8), 120, C.gold);
+};
+
+// 08: a peel lies in their half; the puck hits it, veers 90 degrees and spins.
+function peel(c, x, y, s, a) {
+  c.save(); c.globalAlpha = a; c.translate(x, y); c.scale(s, s); c.rotate(-0.3);
+  c.lineCap = 'round'; c.strokeStyle = '#ffd23a'; c.lineWidth = 8; c.beginPath(); c.arc(0, 2, 11, Math.PI * 0.15, Math.PI * 0.85); c.stroke();
+  c.strokeStyle = '#6b4a14'; c.lineWidth = 4; c.beginPath(); c.moveTo(-10, 8); c.lineTo(-13, 12); c.moveTo(10, 8); c.lineTo(13, 12); c.stroke();
+  c.strokeStyle = '#ffe98a'; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, 9, Math.PI * 0.25, Math.PI * 0.75); c.stroke();
+  c.restore();
+}
+ANIMS.banana = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: H.path([[0, 130, 172], [1.2, 160, 188], [1.5, 165, 172], [5, 130, 172]], t, 1), them: H.path([[0, 200, 28], [2.4, 170, 30], [3.4, 245, 40], [5, 200, 28]], t, 1) });
+  const drop = H.ease(H.seg(t, 0.4, 1.0)), gone = t > 2.45;
+  if (!gone) { c.save(); c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(170, 66, 13 * drop, 4 * drop, 0, 0, TAU); c.fill(); c.restore(); peel(c, 170, 58 - (1 - drop) * 50, 1.2, drop); }
+  H.burst(c, 170, 58, H.seg(t, 2.45, 3.0), '#ffd23a', 8, 24);
+  const wob = Math.sin(t * 22) * 5 * (1 - H.seg(t, 2.5, 3.8));
+  let p;
+  if (t < 2.45) p = H.path([[1.4, 170, 175], [2.45, 170, 62]], t);
+  else { const k = H.seg(t, 2.45, 3.5); p = [H.lerp(170, 292, H.ease(k)), 60 + wob]; }
+  const a = H.win(t, 1.2, 1.4, 3.7, 4.1);
+  c.save(); c.globalAlpha = a; c.translate(p[0], p[1]); c.rotate(t > 2.45 ? t * 14 : 0);
+  H.puck(c, 0, 0, 7); c.strokeStyle = C.bad; c.lineWidth = 2; c.beginPath(); c.moveTo(-6, 0); c.lineTo(6, 0); c.stroke(); c.restore();
+  if (t > 2.45 && t < 4) { H.txt(c, '@', p[0] - 4, p[1] - 18, 12, C.gold, 1 - H.seg(t, 3.2, 4)); }
+  H.caption(c, 'a trap in their half', H.win(t, 0.9, 1.1, 1.9, 2.2), 120);
+  H.caption(c, 'spins 90 degrees', H.win(t, 2.6, 2.8, 3.8, 4.2), 120, C.gold);
+};
+
+// 09: the top half goes dark except a spotlight on the blue mallet; the puck is a faint glow.
+ANIMS.blackout = (c, t, w, h, H) => {
+  H.rink(c);
+  const mp = H.path([[0, 200, 44], [1, 200, 44], [2.2, 110, 48], [3, 85, 40], [4.2, 160, 32]], t, 1);
+  H.mallets(c, t, { you: H.path([[0, 190, 174], [1.3, 190, 186], [1.5, 190, 170], [3, 150, 172], [5, 190, 174]], t, 1), them: mp });
+  const PP = [[1.5, 190, 150], [2.6, 150, 50], [3.1, 128, -6]];
+  const pa = H.win(t, 1.2, 1.4, 3.0, 3.2), p = H.path(PP, t);
+  H.trail(c, tt => H.path(PP, tt), t, 6, C.puck, 6, pa); H.puck(c, p[0], p[1], 7, { a: pa });
+  const a = H.win(t, 0.6, 1.1, 4.0, 4.5);
+  if (a > 0) {
+    H.half(c, true, () => {
+      const g = c.createRadialGradient(mp[0], mp[1], 20, mp[0], mp[1], 62);
+      g.addColorStop(0, 'rgba(3,5,14,0)'); g.addColorStop(1, 'rgba(3,5,14,.96)');
+      c.globalAlpha = a; c.fillStyle = g; c.fillRect(0, 0, W, 100);
+      if (p[1] < 100) H.glow(c, p[0], p[1], 13, C.puck, 0.28 * a * pa);
+    });
+    H.mallet(c, mp[0], mp[1], 14, C.them);
+  }
+  H.goal(c, true, H.seg(t, 3.1, 3.9), C.you, '+1');
+  H.caption(c, 'their screen: dark, 3 s', H.win(t, 0.8, 1.0, 2.0, 2.3), 130);
+  H.caption(c, 'where is the puck?', H.win(t, 2.2, 2.4, 3.3, 3.5), 130, C.gold);
+};
+
+// 10: the top half flips left to right while their finger still goes the real way.
+ANIMS.mirror = (c, t, w, h, H) => {
+  H.rink(c);
+  const sx = 1 - 2 * H.ease(H.seg(t, 0.8, 1.3)) + 2 * H.ease(H.seg(t, 4, 4.5));
+  const mp = H.path([[0, 160, 32], [1.5, 160, 32], [2.6, 230, 36], [3.6, 110, 32], [5, 160, 32]], t, 1);
+  const pp = H.path([[0, 230, 72], [2, 100, 62], [4, 230, 76], [5, 230, 72]], t, 1);
+  H.mallet(c, 160 + 40 * Math.sin(t * 1.1), 172, 14, C.you);
+  H.half(c, true, () => {
+    c.translate(160, 0); c.scale(sx, 1); c.translate(-160, 0);
+    H.rink(c);
+    H.txt(c, 'R', 38, 44, 30, C.gold, 0.9);
+    c.fillStyle = C.gold; c.fillRect(20, 24, 4, 4);
+    H.puck(c, pp[0], pp[1], 7);
+    H.mallet(c, mp[0], mp[1], 14, C.them);
+  });
+  const f = 1 - Math.abs(sx);
+  if (f > 0.02) { c.save(); c.globalAlpha = 0.5 * f; c.fillStyle = '#fff'; for (let i = 0; i < 7; i++) c.fillRect(((i * 53 + t * 120) % 320), 0, 3, 100); c.restore(); }
+  if (t > 1.3 && t < 4.2) {
+    c.save(); c.strokeStyle = '#fff'; c.lineWidth = 2; c.setLineDash([3, 4]); c.globalAlpha = 0.9;
+    c.beginPath(); c.arc(mp[0], 68, 9, 0, TAU); c.stroke();
+    c.setLineDash([]); c.beginPath(); const d = Math.sign(mp[0] - H.path([[0, 160, 32], [1.5, 160, 32], [2.6, 230, 36], [3.6, 110, 32], [5, 160, 32]], t - 0.1, 1)[0]) || 1;
+    c.moveTo(mp[0] + d * 16, 68); c.lineTo(mp[0] + d * 26, 68); c.lineTo(mp[0] + d * 21, 63); c.moveTo(mp[0] + d * 26, 68); c.lineTo(mp[0] + d * 21, 73); c.stroke(); c.restore();
+    H.txt(c, 'finger', mp[0], 84, 10, '#fff', 1);
+  }
+  H.caption(c, 'their view: mirrored 3 s', H.win(t, 1.0, 1.2, 3.8, 4.2), 130);
+};
+
+// 11: the top half jitters; the blue mallet lags behind a dotted finger mark at 60% speed.
+ANIMS.quake = (c, t, w, h, H) => {
+  H.rink(c);
+  const amp = H.win(t, 0.6, 0.9, 3.6, 3.9);
+  const fx = tt => 160 + 70 * Math.sin(2.4 * tt);
+  const fingerX = H.clamp(fx(t), 90, 230);
+  const mxx = amp > 0.05 ? 160 + 0.6 * (fx(t - 0.12) - 160) : fx(t);
+  const jx = Math.sin(t * 61) * 3.4 * amp, jy = Math.cos(t * 53) * 3.4 * amp;
+  const PP = [[0.8, 230, 170], [2, 240, 60], [3.2, 150, -6]];
+  const pa = H.win(t, 0.6, 0.8, 3.1, 3.3), p = H.path(PP, t);
+  H.mallet(c, 160 + 40 * Math.sin(t * 1.1), 172, 14, C.you);
+  H.half(c, true, () => {
+    c.translate(jx, jy); H.rink(c);
+    if (amp > 0.05) {
+      c.save(); c.globalAlpha = amp; c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2; c.beginPath();
+      c.moveTo(40, 0); c.lineTo(52, 22); c.lineTo(44, 40); c.lineTo(62, 70); c.moveTo(270, 0); c.lineTo(258, 30); c.lineTo(272, 56); c.lineTo(255, 92); c.stroke(); c.restore();
+    }
+    H.puck(c, p[0], p[1], 7, { a: pa });
+    H.mallet(c, mxx, 34, 14, C.them);
+  });
+  if (amp > 0.05) {
+    c.save(); c.globalAlpha = amp; c.strokeStyle = '#fff'; c.lineWidth = 2; c.setLineDash([3, 4]);
+    c.beginPath(); c.arc(fingerX, 34, 9, 0, TAU); c.stroke();
+    c.beginPath(); c.moveTo(fingerX, 34); c.lineTo(mxx, 34); c.stroke(); c.restore();
+    H.txt(c, 'finger', fingerX, 56, 10, '#fff', amp);
+  }
+  H.goal(c, true, H.seg(t, 3.2, 4), C.you, '+1');
+  H.caption(c, 'mallet at 60% speed, 2 s', H.win(t, 0.8, 1.0, 3.2, 3.5), 130);
+};
+
+// 12: their half turns to tar, the puck crawls to a stop and they must walk out to clear it.
+const TARB = [[40, 20, 30], [110, 70, 22], [200, 30, 26], [265, 78, 34], [300, 20, 18], [160, 85, 16]];
+ANIMS.sticky = (c, t, w, h, H) => {
+  H.rink(c);
+  const a = H.win(t, 0.5, 1.1, 4.2, 4.7);
+  const mp = H.path([[0, 160, 28], [1.2, 160, 28], [2.4, 195, 40], [3, 222, 64], [3.6, 200, 35], [5, 160, 28]], t, 1);
+  const PP = [[0.6, 250, 170], [1.2, 250, 100], [2.8, 232, 80], [3, 232, 80], [3.8, 110, 175]];
+  const p = H.path(PP, t), pa = H.win(t, 0.4, 0.6, 3.7, 3.9);
+  H.mallets(c, t, { you: H.path([[0, 250, 186], [0.5, 250, 186], [0.8, 250, 176], [1.5, 190, 172], [5, 190, 172]], t, 1), them: mp });
+  if (a > 0) {
+    H.half(c, true, () => {
+      c.globalAlpha = a * 0.85; c.fillStyle = '#241028'; c.fillRect(0, 0, W, 100);
+      c.fillStyle = '#3a1a3f';
+      for (let i = 0; i < TARB.length; i++) { const b = TARB[i], k = 1 + 0.12 * Math.sin(t * 3 + i * 2); c.beginPath(); c.arc(b[0], b[1], b[2] * k, 0, TAU); c.fill(); }
+      c.globalAlpha = a; c.strokeStyle = 'rgba(200,120,220,.5)'; c.lineWidth = 2;
+      for (let i = 0; i < 4; i++) { const k = ((t * 0.7 + i * 0.25) % 1), bx = 50 + i * 75, by = 85 - k * 60; c.globalAlpha = a * (1 - k); c.beginPath(); c.arc(bx, by, 3 + k * 4, 0, TAU); c.stroke(); }
+    });
+  }
+  if (t > 1.2 && t < 3.2) { c.save(); c.globalAlpha = 0.5 * pa; c.strokeStyle = '#6a2f78'; c.lineWidth = 6; c.lineCap = 'round'; c.beginPath(); c.moveTo(250, 100); c.lineTo(p[0], p[1]); c.stroke(); c.restore(); }
+  H.puck(c, p[0], p[1], 7, { a: pa });
+  H.caption(c, 'tar: the puck crawls, 4 s', H.win(t, 1.3, 1.5, 2.6, 2.9), 130);
+  H.caption(c, 'they must walk out to it', H.win(t, 2.95, 3.15, 4, 4.4), 130, C.gold);
+};
+
+// 13: your half frosts over; the puck zips off two rails into the goal.
+const ICEP = [[1.2, 40, 160], [2, 306, 132], [2.9, 8, 110], [3.45, 138, -6]];
+const SNOW = [[40, 125], [120, 160], [210, 135], [275, 170], [80, 185], [170, 188], [300, 120]];
+ANIMS.ice = (c, t, w, h, H) => {
+  H.rink(c);
+  const a = H.win(t, 0.4, 1.1, 4.3, 4.8);
+  if (a > 0) {
+    H.half(c, false, () => {
+      const g = c.createLinearGradient(0, 100, 0, 200); g.addColorStop(0, 'rgba(160,230,255,.12)'); g.addColorStop(1, 'rgba(160,230,255,.3)');
+      c.globalAlpha = a; c.fillStyle = g; c.fillRect(0, 100, W, 100);
+      c.strokeStyle = 'rgba(210,245,255,.6)'; c.lineWidth = 2;
+      for (const s of SNOW) { for (let k = 0; k < 3; k++) { const an = k * Math.PI / 3; c.beginPath(); c.moveTo(s[0] - Math.cos(an) * 9, s[1] - Math.sin(an) * 9); c.lineTo(s[0] + Math.cos(an) * 9, s[1] + Math.sin(an) * 9); c.stroke(); } }
+      const sh = ((t * 0.5) % 1) * 460 - 70; c.globalAlpha = a * 0.25; c.fillStyle = '#fff'; c.beginPath(); c.moveTo(sh, 200); c.lineTo(sh + 30, 200); c.lineTo(sh + 80, 100); c.lineTo(sh + 50, 100); c.fill();
+    });
+  }
+  H.mallets(c, t, { you: H.path([[0, 40, 190], [1, 40, 190], [1.25, 40, 176], [1.6, 60, 186], [5, 40, 190]], t, 1), them: H.path([[0, 200, 30], [2, 120, 30], [3.4, 175, 30], [5, 200, 30]], t, 1) });
+  const pa = H.win(t, 0, 0.2, 3.4, 3.6), p = H.path(ICEP, t);
+  H.trail(c, tt => H.path(ICEP, tt), t, 14, '#bff0ff', 6, pa); H.puck(c, p[0], p[1], 7, { a: pa });
+  H.goal(c, true, H.seg(t, 3.45, 4.2), C.you, '+1');
+  H.caption(c, 'ice: no friction, 5 s', H.win(t, 0.6, 0.8, 1.5, 1.8), 100);
+  H.caption(c, 'banks off two rails', H.win(t, 2.1, 2.3, 3.2, 3.5), 100, C.gold);
+};
+
+// 14: three pucks fan out toward the goal; the two fakes fade at the goal line, the real one scores.
+ANIMS.decoys = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: H.path([[0, 160, 182], [0.8, 160, 182], [1, 160, 166], [1.6, 160, 182], [5, 160, 182]], t, 1), them: H.path([[0, 160, 30], [1.4, 160, 34], [2, 130, 36], [2.4, 190, 34], [3, 160, 30]], t, 1) });
+  const real = [[0, 160, 150], [1, 160, 148], [2.6, 160, -2]];
+  const dA = [[1.2, 160, 129], [2.6, 118, 0]], dB = [[1.2, 160, 129], [2.6, 202, 0]];
+  const pr = H.path(real, t), ra = H.win(t, 0, 0.2, 2.55, 2.7);
+  if (t > 1 && t < 2.7) H.trail(c, tt => H.path(real, tt), t, 6, C.puck, 6, ra);
+  H.puck(c, pr[0], pr[1], 7, { a: ra });
+  if (t >= 1.2 && t < 2.7) {
+    for (const d of [dA, dB]) {
+      const p = H.path(d, t), a = H.clamp((p[1] - 4) / 14) * H.seg(t, 1.2, 1.35);
+      H.puck(c, p[0], p[1], 7, { a: a * 0.85 });
+      c.save(); c.globalAlpha = a; c.strokeStyle = C.bad; c.lineWidth = 2; c.setLineDash([3, 3]); c.beginPath(); c.arc(p[0], p[1], 11, 0, TAU); c.stroke(); c.restore();
+      H.txt(c, '?', p[0], p[1] - 17, 11, C.bad, a);
+    }
+  }
+  H.burst(c, 122, 8, H.seg(t, 2.45, 2.9), C.bad, 7, 16); H.burst(c, 198, 8, H.seg(t, 2.45, 2.9), C.bad, 7, 16);
+  H.goal(c, true, H.seg(t, 2.6, 3.4), C.you, '+1');
+  H.caption(c, '2 fakes + 1 real', H.win(t, 1.1, 1.3, 2.2, 2.5), 100);
+  H.caption(c, 'only the real one scores', H.win(t, 2.7, 2.9, 4.4, 4.8), 100, C.gold);
+};
+
+// 15: two linked rings; the puck goes in one and comes out the other, both ways.
+function portal(c, x, y, col, t, k) {
+  if (k <= 0) return;
+  c.save(); c.translate(x, y); c.scale(k, k); H.glow(c, 0, 0, 34, col, 0.45);
+  c.strokeStyle = col; c.lineWidth = 5; c.beginPath(); c.ellipse(0, 0, 17, 13, 0, 0, TAU); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 2; c.setLineDash([5, 6]); c.lineDashOffset = -t * 20;
+  c.beginPath(); c.ellipse(0, 0, 10, 7, 0, 0, TAU); c.stroke(); c.restore();
+}
+ANIMS.portals = (c, t, w, h, H) => {
+  H.rink(c);
+  const k = H.ease(H.seg(t, 0.2, 0.7)) - H.ease(H.seg(t, 5.3, 5.8));
+  c.save(); c.globalAlpha = 0.35 * k; c.strokeStyle = '#fff'; c.lineWidth = 2; c.setLineDash([3, 6]); c.beginPath(); c.moveTo(125, 112); c.lineTo(185, 54); c.stroke(); c.restore();
+  portal(c, 125, 112, C.violet, t, k); portal(c, 185, 54, C.ok, t, k);
+  H.mallets(c, t, { you: H.path([[0, 125, 192], [0.7, 125, 192], [0.9, 125, 182], [1.3, 125, 192], [3, 150, 178], [5, 125, 192]], t, 1), them: H.path([[0, 185, 22], [2.6, 150, 28], [3.1, 185, 2], [3.3, 185, 12], [3.7, 185, 8], [4.6, 150, 26], [6, 185, 22]], t, 1) });
+  const R1a = [[0, 125, 164], [0.9, 125, 164], [1.5, 125, 112]], R1b = [[1.6, 185, 54], [2.3, 185, -6]];
+  const R2a = [[3, 185, 36], [3.3, 185, 36], [3.55, 185, 54]], R2b = [[3.6, 125, 112], [4.65, 125, 206]];
+  const run = (A, B, a0, a1, b0, b1, ts, te, ke) => {
+    let p, s = 1;
+    if (t >= a0 && t < a1) { p = H.path(A, t); s = 1 - H.seg(t, a1 - 0.15, a1); if (a0 === 0) s = Math.min(s, 1); }
+    else if (t >= b0 && t < b1) { p = H.path(B, t); s = H.seg(t, b0, b0 + 0.15); }
+    else return;
+    H.puck(c, p[0], p[1], 7 * s, { a: t > te - 0.2 ? H.clamp((te - t) / 0.2) : 1 });
+  };
+  run(R1a, R1b, 0, 1.55, 1.6, 2.3, 0, 2.3);
+  run(R2a, R2b, 3, 3.6, 3.6, 4.65, 3, 4.65);
+  H.ring(c, 185, 54, H.seg(t, 1.5, 2), 10, 30, C.ok, 3); H.ring(c, 125, 112, H.seg(t, 3.55, 4.1), 10, 30, C.violet, 3);
+  H.goal(c, true, H.seg(t, 2.3, 3), C.you, '+1'); H.goal(c, false, H.seg(t, 4.6, 5.3), C.them, '+1');
+  H.caption(c, 'in here, out there, same speed', H.win(t, 1.0, 1.2, 2.3, 2.6), 100);
+  H.caption(c, 'works both ways', H.win(t, 3.7, 3.9, 5.3, 5.7), 100, C.gold);
+};
+
+// 16: the puck ticks and flashes red faster and faster, blows up, flings the blue mallet and rockets into their goal.
+ANIMS.bombpuck = (c, t, w, h, H) => {
+  const boom = H.seg(t, 3.5, 4.3);
+  c.save();
+  if (boom > 0 && boom < 0.6) c.translate(Math.sin(t * 90) * 4 * (1 - boom / 0.6), Math.cos(t * 77) * 4 * (1 - boom / 0.6));
+  H.rink(c);
+  const mp = H.path([[0, 140, 60], [2, 170, 70], [3.5, 166, 68], [4, 60, 20], [5.2, 60, 20], [6, 140, 60]], t, 1);
+  H.mallets(c, t, { you: H.path([[0, 100, 172], [3, 130, 172], [6, 100, 172]], t, 1), them: mp });
+  const p = t < 3.5 ? H.path([[0, 150, 115], [3.5, 188, 88]], t, 1) : H.path([[3.5, 188, 88], [4.1, 176, -6]], t);
+  const alive = !(t > 4.1);
+  if (alive) {
+    const live = t < 3.5, ph = t * (2 + t * 1.6), fl = live ? 0.5 + 0.5 * Math.sin(ph * TAU) : 1;
+    if (live) { H.glow(c, p[0], p[1], 26, C.bad, 0.5 * fl); H.puck(c, p[0], p[1], 8, { col: H.mix('#f4f6ff', '#ff3b5c', fl) }); }
+    else H.puck(c, p[0], p[1], 8, { col: C.bad });
+    if (live) {
+      const fl2 = 12 * (1 - t / 3.5) + 3;
+      c.save(); c.strokeStyle = '#8a6a3a'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(p[0] + 5, p[1] - 6); c.quadraticCurveTo(p[0] + 8 + fl2 * 0.4, p[1] - 8 - fl2 * 0.6, p[0] + 6 + fl2 * 0.7, p[1] - 6 - fl2); c.stroke(); c.restore();
+      H.spark(c, p[0] + 6 + fl2 * 0.7, p[1] - 6 - fl2, 4 + 2 * Math.sin(t * 40), C.gold);
+      const n = t < 1.17 ? '3' : t < 2.33 ? '2' : '1';
+      H.txt(c, n, p[0] - 17, p[1] - 17, 16, '#fff', 1);
+    } else H.trail(c, tt => H.path([[3.5, 188, 88], [4.1, 176, -6]], tt), t, 8, C.bad, 8, 1);
+  }
+  if (boom > 0) {
+    H.glow(c, 188, 88, 70 * H.ease(boom), '#ffb04a', 0.8 * (1 - boom));
+    H.ring(c, 188, 88, boom, 6, 60, '#fff', 4); H.burst(c, 188, 88, boom, '#ffb04a', 14, 50);
+  }
+  H.goal(c, true, H.seg(t, 4.05, 4.8), C.you, '+1');
+  c.restore();
+  H.caption(c, '3 s fuse', H.win(t, 0.2, 0.4, 2.8, 3.2), 150);
+  H.caption(c, 'boom: nearest player is hit', H.win(t, 3.7, 3.9, 5.5, 5.9), 130, C.gold);
+};
+
+// 17: the puck blinks out near their mallet and blinks in by yours, then you shoot.
+ANIMS.warp = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: H.path([[0, 100, 175], [1.8, 130, 175], [2.6, 150, 176], [3, 150, 160], [3.4, 150, 172], [5, 100, 175]], t, 1), them: H.path([[0, 230, 30], [1.2, 205, 38], [1.4, 198, 52], [1.9, 180, 40], [5, 230, 30]], t, 1) });
+  const pa = H.path([[0.1, 235, 95], [1.4, 195, 45]], t), aA = H.win(t, 0.1, 0.3, 1.3, 1.4);
+  H.puck(c, pa[0], pa[1], 7 * (1 - H.seg(t, 1.25, 1.4)), { a: aA });
+  const PB = [[3, 150, 138], [3.7, 150, -6]], pb = H.path(PB, t), aB = H.win(t, 1.8, 1.9, 3.6, 3.75);
+  if (t > 3) H.trail(c, tt => H.path(PB, tt), t, 6, C.puck, 6, aB);
+  H.puck(c, pb[0], pb[1], 7 * H.ease(H.seg(t, 1.8, 2)), { a: aB });
+  H.ring(c, 195, 45, H.seg(t, 1.35, 2), 6, 30, C.violet, 3); H.burst(c, 195, 45, H.seg(t, 1.35, 2), C.violet, 8, 22);
+  H.ring(c, 150, 138, H.seg(t, 1.8, 2.4), 28, 6, C.violet, 3);
+  const k = H.seg(t, 1.4, 1.9);
+  if (k > 0 && k < 1) { c.save(); c.globalAlpha = 0.7 * (1 - k); c.strokeStyle = C.violet; c.lineWidth = 3; c.setLineDash([4, 5]); c.beginPath(); c.moveTo(195, 45); c.quadraticCurveTo(250, 100, 150 + (1 - k) * 0, 138); c.stroke(); c.restore(); }
+  H.goal(c, true, H.seg(t, 3.7, 4.4), C.you, '+1');
+  H.caption(c, 'puck teleports to you', H.win(t, 1.5, 1.7, 2.7, 3));
+};
+
+// 18: the puck shines gold with sparkles, goes in, and the score pops x2.
+ANIMS.golden = (c, t, w, h, H) => {
+  H.rink(c);
+  const PP = [[0, 100, 156], [1.5, 100, 156], [3, 150, -6]];
+  const kk = H.seg(t, 0.6, 1.0), col = H.mix('#f4f6ff', '#ffd166', kk);
+  const p = H.path(PP, t), pa = H.win(t, 0, 0.2, 2.95, 3.1) + (t > 4.4 ? H.seg(t, 4.4, 4.8) : 0);
+  H.mallets(c, t, { you: H.path([[0, 100, 190], [1.2, 100, 190], [1.5, 100, 176], [2, 120, 186], [5, 100, 190]], t, 1), them: H.path([[0, 200, 30], [2, 160, 36], [5, 200, 30]], t, 1) });
+  if (t > 1.5 && t < 3.1) H.trail(c, tt => H.path(PP, tt), t, 8, C.gold, 6, 1);
+  H.puck(c, p[0], p[1], 7, { col, a: H.clamp(pa) });
+  if (kk > 0 && pa > 0.05) {
+    H.glow(c, p[0], p[1], 24, C.gold, 0.5 * kk * pa);
+    for (let i = 0; i < 5; i++) { const an = t * 3 + i * TAU / 5, r = 14 + 3 * Math.sin(t * 6 + i); H.spark(c, p[0] + Math.cos(an) * r, p[1] + Math.sin(an) * r, 3 + 2 * Math.sin(t * 8 + i * 2), '#fff4c2', kk * pa); }
+  }
+  H.ring(c, p[0], p[1], H.seg(t, 0.6, 1.3), 8, 34, C.gold, 3);
+  const sc2 = t > 3.1 ? 2 : 0;
+  H.txt(c, 'YOU', 26, 120, 10, C.you, 1); H.txt(c, String(sc2), 26, 138, 24 + (t > 3.1 && t < 3.6 ? 8 * (1 - H.seg(t, 3.1, 3.6)) : 0), C.you, 1);
+  H.txt(c, '0', 294, 72, 20, C.them, 1);
+  const pop = H.seg(t, 3.1, 3.5), out = H.seg(t, 4.2, 4.6);
+  if (pop > 0 && out < 1) H.txt(c, 'x2', 160, 60 - 14 * H.seg(t, 3.5, 4.4), 14 + 28 * Math.sin(Math.min(1, pop) * 2.2) , C.gold, 1 - out);
+  H.goal(c, true, H.seg(t, 3, 3.8), C.gold);
+  H.caption(c, 'gold 10 s: goals x2', H.win(t, 0.9, 1.1, 2.7, 3.0));
+};
+
+// 19: a ghost flies from your button to theirs, grabs the item icon and carries it back.
+function star(c, x, y, r, col, a, rot) {
+  c.save(); c.globalAlpha = a; c.translate(x, y); c.rotate(rot || 0); c.fillStyle = col; c.beginPath();
+  for (let i = 0; i < 10; i++) { const rr = i % 2 ? r * 0.45 : r, an = -Math.PI / 2 + i * Math.PI / 5; c.lineTo(Math.cos(an) * rr, Math.sin(an) * rr); }
+  c.closePath(); c.fill(); c.restore();
+}
+function ghost(c, x, y, a, t) {
+  c.save(); c.globalAlpha = a; c.translate(x, y);
+  H.glow(c, 0, 0, 30, '#ffffff', 0.25);
+  c.fillStyle = 'rgba(240,245,255,.92)'; c.beginPath(); c.arc(0, -2, 13, Math.PI, 0);
+  c.lineTo(13, 12); for (let i = 0; i < 3; i++) c.quadraticCurveTo(13 - i * 8.7 - 2.2, 12 + 6 * Math.sin(t * 8 + i), 13 - (i + 1) * 8.7, 12);
+  c.closePath(); c.fill();
+  c.fillStyle = '#1a2346'; c.beginPath(); c.arc(-5, -3, 2.4, 0, TAU); c.arc(5, -3, 2.4, 0, TAU); c.fill();
+  c.beginPath(); c.arc(0, 4, 2.6, 0, TAU); c.fill();
+  c.restore();
+}
+function cornerBtn(c, x, y, col, label, dy) {
+  c.save(); c.fillStyle = H.rgba(col, 0.2); c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.arc(x, y, 20, 0, TAU); c.fill(); c.stroke(); c.restore();
+  H.txt(c, label, x, y + dy, 9, col, 1);
+}
+ANIMS.steal = (c, t, w, h, H) => {
+  H.rink(c);
+  H.mallets(c, t, { you: [60 + 20 * Math.sin(t), 172], them: [160 + 30 * Math.cos(t * 0.8), 90 - 52 + 10] });
+  H.puck(c, 160, 100, 7);
+  const bY = [270, 146], bT = [36, 34];
+  cornerBtn(c, bY[0], bY[1], C.you, 'you', -29); cornerBtn(c, bT[0], bT[1], C.them, 'them', 31);
+  const GO = [[0.6, bY[0], bY[1] - 8], [1.2, 200, 58], [1.9, bT[0] + 14, bT[1] + 4], [2.4, bT[0] + 14, bT[1] + 4], [3, 130, 96], [3.7, bY[0] - 4, bY[1] - 8]];
+  const g = H.path(GO, t, 1), ga = H.win(t, 0.4, 0.7, 3.7, 4.0);
+  if (t < 2.4) star(c, bT[0], bT[1], 11, C.gold, 1 - H.seg(t, 2.3, 2.4), t * 0.5);
+  if (t >= 3.7) star(c, bY[0], bY[1], 11 + 5 * Math.sin(H.seg(t, 3.7, 4.2) * Math.PI), C.gold, 1, 0);
+  if (t > 2.4 && t < 3.7) star(c, g[0] - 6, g[1] + 6, 10, C.gold, 1, t * 3);
+  if (t > 2.4) { c.save(); c.globalAlpha = 0.7; c.strokeStyle = C.them; c.lineWidth = 2; c.setLineDash([3, 3]); c.beginPath(); c.arc(bT[0], bT[1], 12, 0, TAU); c.stroke(); c.restore(); }
+  ghost(c, g[0], g[1], ga, t);
+  H.burst(c, bT[0], bT[1], H.seg(t, 2, 2.6), C.gold, 8, 24);
+  H.caption(c, 'ghost grabs their item', H.win(t, 1.4, 1.6, 2.6, 2.9), 100);
+  H.caption(c, 'now it is yours to fire', H.win(t, 3.8, 4.0, 5.5, 5.9), 100, C.gold);
+};
+
+// 20: the puck shrinks to 60% and slips past the blue mallet where a normal puck would be blocked.
+ANIMS.tinypuck = (c, t, w, h, H) => {
+  H.rink(c);
+  const r = 7 - 2.8 * H.ease(H.seg(t, 0.8, 1.3)) + 2.8 * H.seg(t, 4.4, 4.8);
+  const PP = [[1.75, 172, 154], [2.9, 166, -6]];
+  const p = t < 1.75 ? [172, 154] : H.path(PP, t);
+  const a = t < 3.6 ? H.win(t, 0, 0.1, 2.9, 3.1) : H.seg(t, 4.2, 4.5);
+  H.mallets(c, t, { you: H.path([[0, 172, 190], [1.5, 172, 188], [1.75, 172, 172], [2.4, 170, 185], [5, 172, 190]], t, 1), them: H.path([[0, 170, 30], [1, 148, 34], [3, 148, 34], [4, 170, 30]], t, 1) });
+  if (t > 1.75 && t < 3.1) H.trail(c, tt => H.path(PP, tt), t, 5, C.puck, 4, 1);
+  H.puck(c, p[0], p[1], r, { a: H.clamp(a) });
+  if (t > 1.9 && t < 3.1) {
+    c.save(); c.globalAlpha = 0.9 * H.win(t, 1.9, 2.1, 2.9, 3.1); c.strokeStyle = C.bad; c.lineWidth = 2; c.setLineDash([3, 3]); c.beginPath(); c.arc(p[0], p[1], 7, 0, TAU); c.stroke(); c.restore();
+    if (p[1] < 60 && p[1] > 14) H.txt(c, 'x', p[0] + 16, p[1], 14, C.bad, 1);
+  }
+  H.ring(c, 172, 154, H.seg(t, 0.8, 1.5), 4, 24, C.gold, 3);
+  H.goal(c, true, H.seg(t, 2.9, 3.6), C.you, '+1');
+  H.caption(c, 'puck at 60% for 5 s', H.win(t, 0.9, 1.1, 1.8, 2.1), 100);
+  H.caption(c, 'slips past (normal size: blocked)', H.win(t, 2.2, 2.4, 3.6, 4.0), 100, C.gold);
+};
+
+// One shared loop: draws only canvases on screen, pauses when the tab is hidden.
+const items = new Map();
+for (const cv of document.querySelectorAll('canvas.anim')) {
+  const o = { cv, ctx: cv.getContext('2d'), name: cv.dataset.anim, start: performance.now(), vis: false };
+  items.set(cv, o);
+  const btn = cv.parentElement.querySelector('.replay');
+  if (btn) btn.addEventListener('click', () => { o.start = performance.now(); });
+}
+const io = new IntersectionObserver(es => { for (const e of es) { const o = items.get(e.target); if (o) { if (!o.vis && e.isIntersecting) o.start = performance.now(); o.vis = e.isIntersecting; } } }, { threshold: 0.05 });
+for (const cv of items.keys()) io.observe(cv);
+
+let raf = 0, hiddenAt = 0;
+function frame(now) {
+  raf = requestAnimationFrame(frame);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  for (const o of items.values()) {
+    if (!o.vis) continue;
+    const cw = Math.round(o.cv.clientWidth * dpr);
+    if (cw < 10) continue;
+    if (o.cv.width !== cw) { o.cv.width = cw; o.cv.height = Math.round(cw * 0.625); }
+    const fn = ANIMS[o.name];
+    if (!fn) continue;
+    const t = Math.max(0, (now - o.start) / 1000) % DUR[o.name];
+    o.ctx.setTransform(cw / W, 0, 0, o.cv.height / HT, 0, 0);
+    o.ctx.clearRect(0, 0, W, HT);
+    o.ctx.save();
+    fn(o.ctx, t, W, HT, H);
+    o.ctx.restore();
+  }
+}
+function run() { if (!raf) raf = requestAnimationFrame(frame); }
+function stop() { cancelAnimationFrame(raf); raf = 0; }
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = performance.now(); stop(); }
+  else { const d = performance.now() - hiddenAt; for (const o of items.values()) o.start += d; run(); }
+});
+if (!document.hidden) run();
+})();
+</script>
+</body>
+</html>

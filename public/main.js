@@ -44,7 +44,8 @@ const DEFAULTS = {
   conn: 'auto', // 'auto' | 'p2p' | 'ws' (see pickKind)
   diag: false, // diagnostics panel (fps, rtt, jitter...) in the pause menu
 };
-const MODES = ['classic', 'bumpers', 'ice', 'bombs', 'mines', 'glitch', 'battle'];
+const TWIST_IDS = ['twinpuck', 'movinggoals', 'gravity', 'blackout', 'wind', 'hotpotato', 'shrinking', 'turbo'];
+const MODES = ['classic', 'bumpers', 'ice', 'bombs', 'mines', 'glitch', 'battle', 'random'];
 const PLAYS = ['duo', 'bot', 'pass'];
 const BOT_LEVELS = ['easy', 'medium', 'hard', 'impossible'];
 const TARGETS = [5, 7, 11];
@@ -977,7 +978,7 @@ function buildCfg(play) {
     W = Math.round(ih >= iw ? Math.min(iw, ih * 0.6) : ih * 0.62);
     base = W;
   }
-  return {
+  const cfgOut = {
     W,
     H,
     G,
@@ -990,6 +991,17 @@ function buildCfg(play) {
     players: play,
     botLevel: settings.botLevel,
   };
+  if (cfgOut.mode === 'random') {
+    // Dev aid: ?twist=<id> forces one twist (no lobby UI).
+    let tw = null;
+    try {
+      tw = new URLSearchParams(location.search).get('twist');
+    } catch (e) {
+      tw = null;
+    }
+    if (tw && TWIST_IDS.includes(tw)) cfgOut.twist = tw;
+  }
+  return cfgOut;
 }
 
 function startAsHost() {
@@ -1538,7 +1550,8 @@ const rbTs = new Float64Array(RB_CAP);
 let rbHead = 0;
 let rbCount = 0;
 // st: 0 idle, 1 waiting for the goal flash, 2 playing
-const rp = { st: 0, wait: 0, goalTs: 0, clip: null, gi: 0, hold: null, k: 0, t0: 0, dur: 0, el: 0 };
+const rp = { st: 0, wait: 0, goalTs: 0, clip: null, gi: 0, hold: null, sc: 0, k: 0, t0: 0, dur: 0, el: 0 };
+// rp.sc: which puck scored, 0 = p, 1 = p2 (Twin Puck). That one gets rp.hold.
 const replayUi = { t: 0, speed: RP_SPEED, el: 0 }; // el: seconds played (the view fades in 'tap to skip')
 
 function rbClear() {
@@ -1618,7 +1631,40 @@ function buildClip(goalTs) {
   while (e + 1 < rbCount && rbTs[rbIdx(e + 1)] <= goalTs + RP_POST) e++;
   const clip = [];
   for (let i = s; i <= e; i++) clip.push(rbSnap[rbIdx(i)]);
-  return clip.length >= 3 ? { clip, gi: gi - s } : null;
+  if (clip.length < 3) return null;
+  return { clip, gi: gi - s, sc: scoringPuck(rbSnap[rbIdx(gi)], rbSnap[rbIdx(gi - 1)]) };
+}
+
+/**
+ * Which puck went in: 0 = p, 1 = p2 (Twin Puck). `gs` is the snapshot with the
+ * goal event, `pre` the one before it. The puck closer to the event's x, y wins;
+ * without an event position, the one nearer the scored-on goal line.
+ */
+function scoringPuck(gs, pre) {
+  const p = pre.p;
+  const p2 = pre.p2;
+  if (!p2 || !p) return 0;
+  const ev = gs && gs.ev;
+  let gx = NaN;
+  let gy = NaN;
+  let by = '';
+  if (ev) {
+    for (let i = 0; i < ev.length; i++) {
+      if (ev[i] && ev[i].k === 'goal') {
+        gx = ev[i].x;
+        gy = ev[i].y;
+        by = ev[i].by || '';
+        break;
+      }
+    }
+  }
+  if (Number.isFinite(gx) && Number.isFinite(gy)) {
+    return Math.hypot(p2[0] - gx, p2[1] - gy) < Math.hypot(p[0] - gx, p[1] - gy) ? 1 : 0;
+  }
+  const bottom = 2 * cfg.H + (cfg.G || 0);
+  // The host scoring means the puck went into the guest goal (y = 0), and back.
+  const lineDist = (q) => (by === 'host' ? q[1] : by === 'guest' ? bottom - q[1] : Math.min(q[1], bottom - q[1]));
+  return lineDist(p2) < lineDist(p) ? 1 : 0;
 }
 
 /**
@@ -1642,8 +1688,10 @@ function tickReplay(dt, livePhase) {
     }
     rp.clip = c.clip;
     rp.gi = c.gi;
-    const last = c.clip[Math.max(0, c.gi - 1)].p;
-    rp.hold = [last[0], last[1], 0, 0]; // the puck stays in the net
+    rp.sc = c.sc;
+    const pre = c.clip[Math.max(0, c.gi - 1)];
+    const last = (c.sc === 1 && pre.p2) || pre.p;
+    rp.hold = [last[0], last[1], 0, 0]; // the puck that scored stays in the net
     rp.t0 = c.clip[0].ts;
     rp.dur = c.clip[c.clip.length - 1].ts - rp.t0;
     rp.k = 0;
@@ -1679,19 +1727,36 @@ function replayFrame(media) {
   const span = b.ts - a.ts;
   const f = span > 1e-6 ? clamp((media - a.ts) / span, 0, 1) : 0;
   const gi = rp.gi;
-  const pa = k < gi ? a.p : rp.hold;
-  const pb = k + 1 < gi ? b.p : rp.hold;
-  const p = [pa[0], pa[1], pa[2], pa[3]];
-  if (Math.hypot(pb[0] - pa[0], pb[1] - pa[1]) < cfg.W * 0.5) {
-    for (let i = 0; i < 4; i++) p[i] = pa[i] + (pb[i] - pa[i]) * f;
-  }
+  // The puck that scored freezes in the net from the goal on; the other one
+  // (Twin Puck) just follows the clip.
+  const hp = rp.sc === 0;
+  const pa = hp && k >= gi ? rp.hold : a.p;
+  const pb = hp && k + 1 >= gi ? rp.hold : b.p;
+  const p = lerpPuck(pa, pb, f);
+  // p2 only when both ends of the pair have one (a scored p2 stays held in the
+  // net even if the snapshots after the goal no longer carry it).
+  const qa = !hp && k >= gi ? rp.hold : a.p2;
+  const qb = !hp && k + 1 >= gi ? rp.hold : b.p2;
+  const p2 = qa && qb ? lerpPuck(qa, qb, f) : null;
   const ma = a.m;
   const mb = b.m;
   const m = [ma[0], ma[1], ma[2], ma[3]];
   if (Math.hypot(mb[0] - ma[0], mb[1] - ma[1]) < cfg.W * 0.5 && Math.hypot(mb[2] - ma[2], mb[3] - ma[3]) < cfg.W * 0.5) {
     for (let i = 0; i < 4; i++) m[i] = ma[i] + (mb[i] - ma[i]) * f;
   }
-  return { ...a, p, m, ev: NO_EV };
+  const out = { ...a, p, m, ev: NO_EV };
+  if (p2) out.p2 = p2;
+  else if (out.p2) delete out.p2; // only one side of the pair has it: drop it
+  return out;
+}
+
+/** A NEW [x, y, vx, vy] between pa and pb at f (pa itself across a jump). */
+function lerpPuck(pa, pb, f) {
+  const p = [pa[0], pa[1], pa[2], pa[3]];
+  if (Math.hypot(pb[0] - pa[0], pb[1] - pa[1]) < cfg.W * 0.5) {
+    for (let i = 0; i < 4; i++) p[i] = pa[i] + (pb[i] - pa[i]) * f;
+  }
+  return p;
 }
 
 // ---- guest hit prediction ------------------------------------------------------------
@@ -1699,7 +1764,7 @@ function replayFrame(media) {
 const pred = { active: false, p: null, t0: 0, seq0: 0, v0x: 0, v0y: 0, hitAt: -1e9 };
 const suppress = []; // predicted hits whose host copy has not arrived yet: {x, y, t}
 const mal = { x: 0, y: 0, vx: 0, vy: 0, t: 0, ok: false }; // guest finger as a mallet (world px, px/s)
-const predSnap = { p: null, g: 0, gw: null }; // scratch argument of predictMalletHit
+const predSnap = { p: null, g: 0, gw: null, pr: 0, gx: null, tx: null, tw: '' }; // scratch argument of predictMalletHit
 const predMallet = { x: 0, y: 0, vx: 0, vy: 0 };
 const predCfg = {}; // cfg with the guest's current mallet radius (Battle shrink)
 const localM = { x: 0, y: 0 };
@@ -1721,10 +1786,18 @@ function guestMalletR() {
   return mr > 0 ? mr : cfg.malletR;
 }
 
+/** Side rail inset of the latest snapshot (Shrinking Rink), else 0. */
+function guestInset() {
+  const s = lastSnapshot;
+  if (s && s.tw === 'shrinking' && s.tx && s.tx.in > 0) return s.tx.in;
+  return 0;
+}
+
 /** Feed the local mallet model one finger sample (world coordinates), clamped like the sim. */
 function feedMal(wx, wy, t, jump) {
   const rr = guestMalletR();
-  const x = clamp(wx, rr, cfg.W - rr);
+  const inset = guestInset();
+  const x = clamp(wx, inset + rr, cfg.W - inset - rr);
   const y = clamp(wy, rr, cfg.H - rr);
   if (!jump && mal.ok) {
     const dtS = clamp((t - mal.t) / 1000, 0.004, 0.05);
@@ -1795,6 +1868,41 @@ function hasGlitch(ev) {
   return false;
 }
 
+const gDk = []; // scratch: the guest's displayed decoys
+const gDkE = [
+  [0, 0, 0, 0],
+  [0, 0, 0, 0],
+  [0, 0, 0, 0],
+  [0, 0, 0, 0],
+]; // scratch entries of gDk (the view draws at most 4)
+
+/**
+ * Push the second puck (Twin Puck) and moving decoys (Battle) of the displayed
+ * copy `disp` forward by ageS, like the main puck. Decoys with only x, y stay put.
+ */
+function advanceExtras(disp, latest, ageS) {
+  if (latest.p2) disp.p2 = advancePuck(latest.p2, cfg, ageS, latest);
+  const dk = latest.dk;
+  if (!dk || !dk.length) return;
+  const n = Math.min(dk.length, gDkE.length);
+  gDk.length = n;
+  for (let i = 0; i < n; i++) {
+    const d = dk[i];
+    if (d && d.length >= 4) {
+      const q = advancePuck(d, cfg, ageS, latest);
+      const e = gDkE[i];
+      e[0] = q[0];
+      e[1] = q[1];
+      e[2] = q[2];
+      e[3] = q[3];
+      gDk[i] = e;
+    } else {
+      gDk[i] = d;
+    }
+  }
+  disp.dk = gDk;
+}
+
 function renderGuest(latest, now, dt) {
   const first = latest !== lastRendered; // a snapshot the view has not seen yet
   const playing = latest.ph === 'play';
@@ -1811,8 +1919,9 @@ function renderGuest(latest, now, dt) {
   // The local mallet: the clamped finger while one is down.
   let hasLocal = false;
   const rr = guestMalletR();
+  const inset = guestInset();
   for (const p of pointers.values()) {
-    localM.x = clamp(p.x, rr, cfg.W - rr);
+    localM.x = clamp(p.x, inset + rr, cfg.W - inset - rr);
     localM.y = clamp(p.y, rr, cfg.H - rr);
     hasLocal = true;
     break;
@@ -1840,7 +1949,7 @@ function renderGuest(latest, now, dt) {
       pred.active = false;
       predStats.timeouts++;
     } else if (first && latest.seq > pred.seq0) {
-      auth = advancePuck(latest.p, cfg, ageS);
+      auth = advancePuck(latest.p, cfg, ageS, latest);
       if (predConfirmed(auth)) {
         pred.active = false;
         predStats.confirmed++;
@@ -1850,15 +1959,27 @@ function renderGuest(latest, now, dt) {
 
   // 2. The puck as it is shown right now.
   let bp;
-  if (pred.active) bp = pred.p = advancePuck(pred.p, cfg, dt);
-  else bp = auth || advancePuck(latest.p, cfg, ageS);
+  if (pred.active) bp = pred.p = advancePuck(pred.p, cfg, dt, latest);
+  else bp = auth || advancePuck(latest.p, cfg, ageS, latest);
 
   // 3. Would the local mallet hit it within the next frame? (Not a frozen puck:
   //    the host ignores mallets while a Battle freeze runs.)
   let hitEv = null;
   // No prediction for a frozen puck (the host ignores mallets) or an armed
   // rocket (the host's hit will be much faster than the prediction).
-  const noPred = !!(latest.bt && (latest.bt.fz > 0 || latest.bt.rk[1]));
+  const bt = latest.bt;
+  const noPred = !!(
+    bt &&
+    (bt.fz > 0 ||
+      (bt.rk && bt.rk[1]) ||
+      (bt.ca && bt.ca[1]) ||
+      (bt.ct && (bt.ct[0] > 0 || bt.ct[1] > 0)) ||
+      (bt.qk && bt.qk[1] > 0))
+  );
+  // Quake shakes the guest mallet on the host; a catch hold parks the puck in
+  // front of the host's copy of it. Either way the finger runs ahead of what
+  // the host has, so draw the host's mallet instead of the local one.
+  const quaking = !!(bt && ((bt.qk && bt.qk[1] > 0) || (bt.ct && bt.ct[1] > 0)));
   if (hasLocal && !noPred) {
     predMallet.x = localM.x;
     predMallet.y = localM.y;
@@ -1867,6 +1988,10 @@ function renderGuest(latest, now, dt) {
     predSnap.p = bp;
     predSnap.g = latest.g;
     predSnap.gw = latest.gw;
+    predSnap.pr = latest.pr;
+    predSnap.gx = latest.gx;
+    predSnap.tx = latest.tx;
+    predSnap.tw = latest.tw;
     // A shrunk guest mallet (Battle) predicts with its current radius.
     let pc = cfg;
     const mr = latest.bt && latest.bt.mr ? latest.bt.mr[1] : 0;
@@ -1912,13 +2037,15 @@ function renderGuest(latest, now, dt) {
   if (pred.active) {
     const ev0 = first && latest.ev ? latest.ev : NO_EV;
     disp = { ...latest, p: bp, ev: hitEv ? ev0.concat(hitEv) : ev0 };
+    advanceExtras(disp, latest, ageS);
   } else if (first) {
-    disp = latest; // the original object, once: its events fire exactly once
+    disp = latest; // the original object, once: its events fire exactly once (p2 / dk stay raw)
   } else {
     disp = { ...latest, p: bp, ev: NO_EV };
+    advanceExtras(disp, latest, ageS);
   }
   ui.predicted = pred.active;
-  view.render(disp, 0, now, hasLocal ? localM : null, ui);
+  view.render(disp, 0, now, hasLocal && !quaking ? localM : null, ui);
   lastRendered = latest;
 }
 

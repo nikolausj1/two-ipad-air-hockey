@@ -27,6 +27,7 @@
 // from fx.js. No per-frame gradient creation for static parts and no shadowBlur.
 
 import { createFx } from './fx.js';
+import { createTwistLayer } from './twists-view.js';
 
 const TAU = Math.PI * 2;
 const HOST_COL = '#ff7a45';
@@ -42,7 +43,7 @@ const DASH = [5, 6];
 const NO_DASH = [];
 const NO_RD = [0, 0];
 const TRAIL_N = 32;
-const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', bombs: 'Bombs', mines: 'Mines', glitch: 'Glitch', battle: 'Battle' };
+const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', bombs: 'Bombs', mines: 'Mines', glitch: 'Glitch', battle: 'Battle', random: 'Random' };
 const MSG_PHASES = { ready: 1, countdown: 1, goal: 1, over: 1 };
 const NO_UI = { held: false, calibrating: false };
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -55,9 +56,21 @@ const GLITCH_WARN_MS = 380; // puck jitters this long before a jump
 const GLITCH_GHOST_MS = 450; // fading ghost at the old spot
 const GLITCH_TEAR_MS = 120; // horizontal tear bands
 // Battle mode: items, corner buttons, boxes.
-const ITEM_COL = { rocket: '#ff6a3d', shield: '#5aa6ff', ghost: '#c8a8ff', shrink: '#7cffd4', freeze: '#a8ecff', mine: '#ff5252' };
-const ITEM_RGB = { rocket: '255,106,61', shield: '90,166,255', ghost: '200,168,255', shrink: '124,255,212', freeze: '168,236,255', mine: '255,82,82' };
-const ITEM_LABEL = { rocket: 'ROCKET', shield: 'SHIELD', ghost: 'GHOST', shrink: 'SHRINK', freeze: 'FREEZE', mine: 'MINE' };
+const ITEM_COL = {
+  rocket: '#ff6a3d', shield: '#5aa6ff', ghost: '#c8a8ff', shrink: '#7cffd4', freeze: '#a8ecff',
+  magnet: '#ff4fd8', widegoal: '#ffd166', goalie: '#7cc4ff', giant: '#ffb347', catch: '#5ee38a',
+  mirror: '#d9f1ff', quake: '#ff7a45', decoys: '#b388ff', steal: '#f4f6ff', tinypuck: '#a8ecff',
+};
+const ITEM_RGB = {
+  rocket: '255,106,61', shield: '90,166,255', ghost: '200,168,255', shrink: '124,255,212', freeze: '168,236,255',
+  magnet: '255,79,216', widegoal: '255,209,102', goalie: '124,196,255', giant: '255,179,71', catch: '94,227,138',
+  mirror: '217,241,255', quake: '255,122,69', decoys: '179,136,255', steal: '244,246,255', tinypuck: '168,236,255',
+};
+const ITEM_LABEL = {
+  rocket: 'ROCKET', shield: 'SHIELD', ghost: 'GHOST', shrink: 'SHRINK', freeze: 'FREEZE',
+  magnet: 'MAGNET', widegoal: 'WIDE', goalie: 'GOALIE', giant: 'GIANT', catch: 'CATCH',
+  mirror: 'MIRROR', quake: 'QUAKE', decoys: 'DECOY', steal: 'STEAL', tinypuck: 'TINY',
+};
 const BTN_PRESS_MS = 120; // squash hold
 const BTN_BACK_MS = 130; // spring back after the squash
 const GOT_PULSE_MS = 1500; // pulsing ring after an item arrives
@@ -69,9 +82,14 @@ const SHIELD_FADE_S = 0.2;
 const SHIELD_HIT_MS = 260;
 const ROCKET_TRAIL_MS = 1000;
 const THAW_MS = 320;
-const MINE_DROP_MS = 300;
 const MINE_SCORCH_S = 4;
 const FLY_N = 8;
+const STEAL_FLY_MS = 650; // ghost hand carrying a stolen item to the thief's button
+const GOALIE_HIT_MS = 260;
+const GIANT_RING_MS = 600;
+const MIRROR_SHIMMER_MS = 420;
+const CATCH_HOLD_S = 1.5;
+const QUAKE_DUST_MS = 90;
 const REPLAY_RED = '#ff3b3b';
 const BAR_MS = 200; // replay letterbox slide time
 const DIAG_ROWS = 7;
@@ -112,7 +130,9 @@ export function createView(canvas, role, cfg) {
   const battle = mode === 'battle';
   const myIdx = role === 'guest' ? 1 : 0; // the side whose eyes this screen is (solo: the human host)
   const fT = W * 0.03; // frame thickness in world units
-  const modeLabel = `${MODE_NAMES[mode] || mode} · first to ${target}`;
+  const random = mode === 'random';
+  let modeLabel = `${MODE_NAMES[mode] || mode} · first to ${target}`;
+  let twName = null; // twist name the mode label was last built from (random mode)
 
   // World y range visible on this screen.
   const visTop = role === 'host' ? H + G : 0;
@@ -134,8 +154,9 @@ export function createView(canvas, role, cfg) {
 
   // Goals drawn on this screen. top=true means the goal is at the top of the screen.
   const goals = [];
-  if (role !== 'guest') goals.push({ side: 'host', idx: 0, top: false, w: goalW0 });
-  if (role !== 'host') goals.push({ side: 'guest', idx: 1, top: solo, w: goalW0 });
+  // x: smoothed world x of the mouth centre (W/2 + snap.gx[idx]).
+  if (role !== 'guest') goals.push({ side: 'host', idx: 0, top: false, w: goalW0, x: W / 2 });
+  if (role !== 'host') goals.push({ side: 'guest', idx: 1, top: solo, w: goalW0, x: W / 2 });
 
   // --- layout state -------------------------------------------------------------
   let dpr = 1;
@@ -188,10 +209,11 @@ export function createView(canvas, role, cfg) {
   const glowRed = makeGlow('255,60,50');
   const glowGreen = makeGlow('80,255,150');
   const glowBlack = makeGlow('0,0,0');
-  const glowOrange = battle ? makeGlow('255,140,40') : null;
-  const glowViolet = battle ? makeGlow('190,150,255') : null;
-  const glowIce = battle ? makeGlow('150,225,255') : null;
-  const itemGlows = {}; // item id -> glow sprite, created on first use
+  const glowOrange = battle || random ? makeGlow('255,140,40') : null;
+  const glowViolet = battle || random ? makeGlow('190,150,255') : null;
+  const glowIce = battle || random ? makeGlow('150,225,255') : null;
+  const itemGlows = {}; // item id -> glow sprite (all built up front in Battle)
+  if (battle) for (const k in ITEM_RGB) itemGlows[k] = makeGlow(ITEM_RGB[k]);
   const bokehGlows = [glowWhite, glowHost, glowGuest];
 
   const map = { X0: 0, kx: 1, Y0: 0, ky: 1, scale: 1, dpr: 1 };
@@ -210,6 +232,142 @@ export function createView(canvas, role, cfg) {
 
   const sxw = (wx) => X0 + kx * wx;
   const syw = (wy) => Y0 + ky * wy;
+
+  // --- twist layer environment (random mode) -----------------------------------
+  // One live object handed to twists-view.js. The layout fields are re-assigned in
+  // layout(); everything else is fixed for the life of the view.
+  let tw = null; // the twist layer, created at the end of createView in random mode
+  let twErrLogged = false;
+  let scratchCv = null;
+  const envLocalM = { x: 0, y: 0 }; // reused; env.localM points here or is null
+  const env = {
+    role,
+    solo,
+    players,
+    cfg,
+    W,
+    H,
+    G,
+    bottom: bottomY,
+    puckR,
+    malletR,
+    myIdx,
+    localM: null, // guest: live world position of the local mallet (render arg), else null
+    HOST_COL,
+    GUEST_COL,
+    HOST_RGB,
+    GUEST_RGB,
+    ctx,
+    fx,
+    rx: 0,
+    ry: 0,
+    rw: 1,
+    rh: 1,
+    scale: 1,
+    u: 1,
+    kx: 1,
+    ky: 1,
+    X0: 0,
+    Y0: 0,
+    visTop,
+    visBot,
+    dpr: 1,
+    screenW: 1,
+    screenH: 1,
+    sxw,
+    syw,
+    font,
+    drawGlow: envGlow,
+    drawPuck: envPuck,
+    plate,
+    glowText,
+    plainText,
+    scratch: envScratch,
+  };
+
+  function syncEnv() {
+    env.rx = rx;
+    env.ry = ry;
+    env.rw = rw;
+    env.rh = rh;
+    env.scale = scale;
+    env.u = u;
+    env.kx = kx;
+    env.ky = ky;
+    env.X0 = X0;
+    env.Y0 = Y0;
+    env.dpr = dpr;
+    env.screenW = screenW;
+    env.screenH = screenH;
+  }
+
+  function glowByKind(kind) {
+    switch (kind) {
+      case 'host': return glowHost;
+      case 'guest': return glowGuest;
+      case 'gold': return glowGold;
+      case 'red': return glowRed;
+      case 'green': return glowGreen;
+      case 'orange': return glowOrange || glowGold;
+      case 'violet': return glowViolet || glowWhite;
+      case 'ice': return glowIce || glowWhite;
+      default: return glowWhite;
+    }
+  }
+
+  function envGlow(kind, sx, sy, radiusPx, alpha) {
+    const g = glowByKind(kind);
+    if (g && radiusPx > 0) drawGlow(g, sx, sy, radiusPx, alpha);
+  }
+
+  // The real puck sprite and its shadow at a world position; k scales the radius.
+  function envPuck(wx, wy, k, alpha) {
+    if (!spr) return;
+    const kk = k > 0 ? k : 1;
+    const sx = sxw(wx);
+    const sy = syw(wy);
+    const pr = puckR * scale * kk;
+    ctx.globalAlpha = alpha == null ? 1 : alpha;
+    drawSprite(spr.puckShadow, sx + pr * 0.18, sy + pr * 0.32, kk);
+    drawSprite(spr.puck, sx, sy, kk);
+    ctx.globalAlpha = 1;
+  }
+
+  // A cached offscreen canvas of at least w x h pixels; the caller clears it.
+  function envScratch(w, h) {
+    const cw = Math.max(1, Math.ceil(w));
+    const ch = Math.max(1, Math.ceil(h));
+    if (!scratchCv) scratchCv = document.createElement('canvas');
+    if (scratchCv.width < cw || scratchCv.height < ch) {
+      scratchCv.width = Math.max(scratchCv.width, cw);
+      scratchCv.height = Math.max(scratchCv.height, ch);
+    }
+    return scratchCv;
+  }
+
+  function twFail(e) {
+    if (twErrLogged) return;
+    twErrLogged = true;
+    if (typeof console !== 'undefined') console.warn('twists-view:', e && e.message);
+  }
+
+  // Twist layer draw hooks run inside save/restore so a half-finished draw (or a throw)
+  // never leaks alpha, composite mode, dashes or an unbalanced save into the frame.
+  function twDraw(which, snap, now) {
+    if (!tw) return;
+    const fn = tw[which];
+    if (typeof fn !== 'function') return;
+    ctx.save();
+    try {
+      fn.call(tw, snap, now);
+    } catch (e) {
+      twFail(e);
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.setLineDash(NO_DASH);
+  }
 
   function layout() {
     dpr = Math.min(3, window.devicePixelRatio || 1);
@@ -259,6 +417,7 @@ export function createView(canvas, role, cfg) {
     rpZoom = 1 - (2 * rpBar) / screenH;
     glowH = Math.max(26, rh * 0.05);
     seamR = Math.max(60, rw * 0.3);
+    syncEnv();
   }
 
   function addBtn(side, x, y, rot) {
@@ -280,6 +439,10 @@ export function createView(canvas, role, cfg) {
     btnDash = [br * 0.2, br * 0.16];
     shTh = Math.max(4, puckR * scale * 0.5);
     shDash = [shTh * 1.4, shTh];
+    const mrPx = malletR * scale;
+    catchDash = [mrPx * 0.3, mrPx * 0.2];
+    const prPx = puckR * scale;
+    magDash = [prPx * 0.45, prPx * 0.35];
     const pad = br + 14 * u;
     const xl = rx + pad;
     const xr = rx + rw - pad;
@@ -908,35 +1071,330 @@ export function createView(canvas, role, cfg) {
       c.beginPath();
       c.arc(0, 0, r * 0.12, 0, TAU);
       c.fill();
-    } else if (item === 'mine') {
-      c.strokeStyle = '#aab2cc';
-      c.lineWidth = lw * 2;
+    } else if (item === 'magnet') {
+      // horseshoe, poles down, silver tips
+      const R = r * 0.5;
+      const th = r * 0.38;
+      const cy = -r * 0.08;
+      const yb = r * 0.8;
+      const yt = r * 0.42;
+      c.lineCap = 'butt';
       c.beginPath();
-      for (let k = 0; k < 8; k++) {
-        const a = k * (TAU / 8);
-        c.moveTo(Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6);
-        c.lineTo(Math.cos(a) * r * 0.95, Math.sin(a) * r * 0.95);
-      }
+      c.moveTo(-R, yb);
+      c.lineTo(-R, cy);
+      c.arc(0, cy, R, Math.PI, TAU);
+      c.lineTo(R, yb);
+      c.strokeStyle = ink;
+      c.lineWidth = th + lw * 1.8;
       c.stroke();
-      g = c.createRadialGradient(-r * 0.2, -r * 0.25, r * 0.05, 0, 0, r * 0.7);
-      g.addColorStop(0, '#6b7390');
-      g.addColorStop(0.55, '#2c3144');
-      g.addColorStop(1, '#0e1018');
+      g = c.createLinearGradient(-r, -r, r, r);
+      g.addColorStop(0, '#ffc2f2');
+      g.addColorStop(0.45, '#ff4fd8');
+      g.addColorStop(1, '#a0137f');
+      c.strokeStyle = g;
+      c.lineWidth = th;
+      c.stroke();
+      g = c.createLinearGradient(-R - th / 2, 0, -R + th / 2, 0);
+      g.addColorStop(0, '#8d97b8');
+      g.addColorStop(0.4, '#ffffff');
+      g.addColorStop(1, '#9aa4c4');
+      c.strokeStyle = g;
+      c.beginPath();
+      c.moveTo(-R, yb);
+      c.lineTo(-R, yt);
+      c.moveTo(R, yb);
+      c.lineTo(R, yt);
+      c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,0.65)';
+      c.lineWidth = lw * 0.8;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.arc(0, cy, R + th * 0.22, Math.PI * 1.12, Math.PI * 1.55);
+      c.stroke();
+    } else if (item === 'widegoal') {
+      // two posts and arrows pushing them apart
+      const pw = r * 0.26;
+      for (let sgn = -1; sgn <= 1; sgn += 2) {
+        const px = sgn * r * 0.78;
+        c.beginPath();
+        rrPath(c, px - pw / 2, -r * 0.72, pw, r * 1.44, pw / 2, pw / 2);
+        g = c.createLinearGradient(px - pw / 2, 0, px + pw / 2, 0);
+        g.addColorStop(0, '#fff3c4');
+        g.addColorStop(0.5, '#ffd166');
+        g.addColorStop(1, '#b8861c');
+        c.fillStyle = g;
+        c.fill();
+        c.strokeStyle = ink;
+        c.lineWidth = lw * 0.9;
+        c.stroke();
+      }
+      for (let pass = 0; pass < 2; pass++) {
+        c.strokeStyle = pass ? '#ffffff' : ink;
+        c.fillStyle = pass ? '#ffffff' : ink;
+        c.lineWidth = pass ? lw * 1.6 : lw * 3.2;
+        c.beginPath();
+        c.moveTo(-r * 0.3, 0);
+        c.lineTo(r * 0.3, 0);
+        c.stroke();
+        const e = pass ? 0 : lw * 0.8;
+        for (let sgn = -1; sgn <= 1; sgn += 2) {
+          c.beginPath();
+          c.moveTo(sgn * (r * 0.56 + e), 0);
+          c.lineTo(sgn * (r * 0.26 - e * 0.5), -r * 0.26 - e);
+          c.lineTo(sgn * (r * 0.26 - e * 0.5), r * 0.26 + e);
+          c.closePath();
+          c.fill();
+        }
+      }
+    } else if (item === 'goalie') {
+      // a small mallet wearing a visor
+      g = c.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.05, 0, 0, r * 0.9);
+      g.addColorStop(0, '#d6ecff');
+      g.addColorStop(0.5, '#7cc4ff');
+      g.addColorStop(1, '#2a6fb8');
       c.fillStyle = g;
       c.beginPath();
-      c.arc(0, 0, r * 0.68, 0, TAU);
+      c.arc(0, r * 0.08, r * 0.82, 0, TAU);
       c.fill();
-      c.strokeStyle = 'rgba(210,218,240,0.7)';
-      c.lineWidth = lw * 0.9;
+      c.strokeStyle = ink;
+      c.lineWidth = lw;
       c.stroke();
-      c.fillStyle = '#ff4638';
+      c.fillStyle = 'rgba(255,255,255,0.35)';
       c.beginPath();
-      c.arc(0, 0, r * 0.2, 0, TAU);
+      c.arc(0, r * 0.16, r * 0.38, 0, TAU);
       c.fill();
-      c.fillStyle = '#ffd6cf';
       c.beginPath();
-      c.arc(-r * 0.06, -r * 0.07, r * 0.07, 0, TAU);
+      rrPath(c, -r * 0.66, -r * 0.42, r * 1.32, r * 0.38, r * 0.19, r * 0.19);
+      g = c.createLinearGradient(0, -r * 0.42, 0, -r * 0.04);
+      g.addColorStop(0, '#3a4a7a');
+      g.addColorStop(1, '#0b1030');
+      c.fillStyle = g;
       c.fill();
+      c.strokeStyle = '#ffffff';
+      c.lineWidth = lw * 0.8;
+      c.stroke();
+      c.strokeStyle = 'rgba(160,220,255,0.9)';
+      c.lineWidth = lw * 0.7;
+      c.beginPath();
+      c.moveTo(-r * 0.46, -r * 0.3);
+      c.lineTo(-r * 0.1, -r * 0.3);
+      c.stroke();
+    } else if (item === 'giant') {
+      // a big disc with arrows pushing outwards
+      g = c.createRadialGradient(-r * 0.2, -r * 0.25, r * 0.05, 0, 0, r * 0.62);
+      g.addColorStop(0, '#ffe2b8');
+      g.addColorStop(0.55, '#ffb347');
+      g.addColorStop(1, '#b8640e');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(0, 0, r * 0.56, 0, TAU);
+      c.fill();
+      c.strokeStyle = ink;
+      c.lineWidth = lw;
+      c.stroke();
+      const q = 0.7071;
+      for (let pass = 0; pass < 2; pass++) {
+        c.fillStyle = pass ? '#ffffff' : ink;
+        const e = pass ? 0 : lw * 0.7;
+        for (let k = 0; k < 4; k++) {
+          const dx = k & 1 ? q : -q;
+          const dy = k & 2 ? q : -q;
+          const nx = -dy;
+          const ny = dx;
+          c.beginPath();
+          c.moveTo(dx * (r * 1.02 + e), dy * (r * 1.02 + e));
+          c.lineTo(dx * (r * 0.68 - e) + nx * (r * 0.24 + e), dy * (r * 0.68 - e) + ny * (r * 0.24 + e));
+          c.lineTo(dx * (r * 0.68 - e) - nx * (r * 0.24 + e), dy * (r * 0.68 - e) - ny * (r * 0.24 + e));
+          c.closePath();
+          c.fill();
+        }
+      }
+    } else if (item === 'catch') {
+      // a cup holding a puck
+      g = c.createLinearGradient(-r, -r, r, r);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.5, '#c4cde6');
+      g.addColorStop(1, '#5e6a96');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(0, -r * 0.28, r * 0.4, 0, TAU);
+      c.fill();
+      c.strokeStyle = ink;
+      c.lineWidth = lw;
+      c.stroke();
+      c.strokeStyle = 'rgba(40,52,110,0.5)';
+      c.lineWidth = lw * 0.7;
+      c.beginPath();
+      c.arc(0, -r * 0.28, r * 0.22, 0, TAU);
+      c.stroke();
+      c.lineCap = 'round';
+      c.strokeStyle = ink;
+      c.lineWidth = r * 0.32 + lw * 1.8;
+      c.beginPath();
+      c.arc(0, -r * 0.05, r * 0.72, Math.PI * 0.12, Math.PI * 0.88);
+      c.stroke();
+      g = c.createLinearGradient(0, 0, 0, r);
+      g.addColorStop(0, '#c4ffd8');
+      g.addColorStop(1, '#22a656');
+      c.strokeStyle = g;
+      c.lineWidth = r * 0.32;
+      c.stroke();
+    } else if (item === 'mirror') {
+      // two half pucks reflected across a bright line
+      const pr = r * 0.66;
+      const gap = r * 0.12;
+      for (let sgn = -1; sgn <= 1; sgn += 2) {
+        c.beginPath();
+        c.arc(sgn * gap, 0, pr, sgn < 0 ? Math.PI / 2 : -Math.PI / 2, sgn < 0 ? Math.PI * 1.5 : Math.PI / 2);
+        c.closePath();
+        g = c.createLinearGradient(sgn * gap, -pr, sgn * (gap + pr), pr);
+        g.addColorStop(0, sgn < 0 ? '#ffffff' : '#c8e8ff');
+        g.addColorStop(1, sgn < 0 ? '#6c7cae' : '#5a86b8');
+        c.fillStyle = g;
+        c.globalAlpha = sgn < 0 ? 1 : 0.75;
+        c.fill();
+        c.globalAlpha = 1;
+        c.strokeStyle = ink;
+        c.lineWidth = lw * 0.9;
+        c.stroke();
+      }
+      c.fillStyle = '#ffffff';
+      c.fillRect(-lw * 0.6, -r * 0.95, lw * 1.2, r * 1.9);
+      c.strokeStyle = 'rgba(217,241,255,0.9)';
+      c.lineWidth = lw * 0.8;
+      c.beginPath();
+      c.moveTo(-r * 0.62, -r * 0.82);
+      c.lineTo(-r * 0.38, -r * 0.58);
+      c.moveTo(r * 0.38, -r * 0.82);
+      c.lineTo(r * 0.62, -r * 0.58);
+      c.stroke();
+    } else if (item === 'quake') {
+      // a jagged crack with a branch
+      for (let pass = 0; pass < 3; pass++) {
+        c.strokeStyle = pass === 0 ? ink : pass === 1 ? '#ff7a45' : '#fff1e0';
+        c.lineWidth = pass === 0 ? lw * 4.2 : pass === 1 ? lw * 2.6 : lw * 0.9;
+        c.beginPath();
+        c.moveTo(-r * 0.12, -r * 0.98);
+        c.lineTo(r * 0.28, -r * 0.48);
+        c.lineTo(-r * 0.22, -r * 0.08);
+        c.lineTo(r * 0.32, r * 0.38);
+        c.lineTo(-r * 0.02, r * 0.98);
+        c.moveTo(-r * 0.22, -r * 0.08);
+        c.lineTo(-r * 0.72, r * 0.18);
+        c.moveTo(r * 0.28, -r * 0.48);
+        c.lineTo(r * 0.76, -r * 0.6);
+        c.stroke();
+      }
+    } else if (item === 'decoys') {
+      // three pucks fanned out, the middle one real
+      const pr = r * 0.36;
+      const spots = [-r * 0.52, r * 0.28, r * 0.52, r * 0.28, 0, -r * 0.36];
+      for (let k = 0; k < 3; k++) {
+        const px = spots[k * 2];
+        const py = spots[k * 2 + 1];
+        g = c.createLinearGradient(px - pr, py - pr, px + pr, py + pr);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(0.5, k < 2 ? '#c9b4ff' : '#cdd6ee');
+        g.addColorStop(1, k < 2 ? '#5b3fa8' : '#5e6a96');
+        c.fillStyle = g;
+        c.globalAlpha = k < 2 ? 0.85 : 1;
+        c.beginPath();
+        c.arc(px, py, pr, 0, TAU);
+        c.fill();
+        c.globalAlpha = 1;
+        c.strokeStyle = k < 2 ? 'rgba(70,40,140,0.85)' : ink;
+        c.lineWidth = lw * 0.9;
+        c.stroke();
+        c.strokeStyle = 'rgba(255,255,255,0.5)';
+        c.lineWidth = lw * 0.6;
+        c.beginPath();
+        c.arc(px, py, pr * 0.55, 0, TAU);
+        c.stroke();
+      }
+    } else if (item === 'steal') {
+      // a ghostly hand with a wavy tail
+      const fw2 = r * 0.22;
+      const tops = [-r * 0.74, -r * 0.88, -r * 0.84, -r * 0.66];
+      const xs = [-r * 0.33, -r * 0.11, r * 0.11, r * 0.33];
+      const palm = () => {
+        c.beginPath();
+        c.moveTo(-r * 0.46, -r * 0.12);
+        c.lineTo(-r * 0.46, r * 0.5);
+        c.quadraticCurveTo(-r * 0.31, r * 0.98, -r * 0.15, r * 0.62);
+        c.quadraticCurveTo(0, r * 0.98, r * 0.15, r * 0.62);
+        c.quadraticCurveTo(r * 0.31, r * 0.98, r * 0.46, r * 0.5);
+        c.lineTo(r * 0.46, -r * 0.12);
+        c.closePath();
+      };
+      const fingers = () => {
+        c.beginPath();
+        for (let k = 0; k < 4; k++) {
+          c.moveTo(xs[k], 0);
+          c.lineTo(xs[k], tops[k]);
+        }
+        c.moveTo(-r * 0.3, r * 0.22);
+        c.lineTo(-r * 0.74, -r * 0.14);
+      };
+      c.lineCap = 'round';
+      c.strokeStyle = 'rgba(70,40,140,0.85)';
+      c.lineWidth = fw2 + lw * 1.8;
+      fingers();
+      c.stroke();
+      c.lineWidth = lw * 1.8;
+      palm();
+      c.stroke();
+      g = c.createLinearGradient(0, -r, 0, r);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(1, '#d4d8ff');
+      c.strokeStyle = g;
+      c.fillStyle = g;
+      c.lineWidth = fw2;
+      fingers();
+      c.stroke();
+      palm();
+      c.fill();
+      c.fillStyle = '#2a1b5c';
+      c.beginPath();
+      c.ellipse(-r * 0.17, r * 0.18, r * 0.07, r * 0.1, 0, 0, TAU);
+      c.ellipse(r * 0.17, r * 0.18, r * 0.07, r * 0.1, 0, 0, TAU);
+      c.fill();
+    } else if (item === 'tinypuck') {
+      // a small puck with arrows squeezing it from both sides
+      const pr = r * 0.34;
+      g = c.createLinearGradient(-pr, -pr, pr, pr);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.45, '#cdd6ee');
+      g.addColorStop(1, '#4e5a88');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(0, 0, pr, 0, TAU);
+      c.fill();
+      c.strokeStyle = ink;
+      c.lineWidth = lw;
+      c.stroke();
+      c.strokeStyle = 'rgba(40,52,110,0.5)';
+      c.lineWidth = lw * 0.6;
+      c.beginPath();
+      c.arc(0, 0, pr * 0.55, 0, TAU);
+      c.stroke();
+      for (let pass = 0; pass < 2; pass++) {
+        c.strokeStyle = pass ? '#a8ecff' : ink;
+        c.fillStyle = pass ? '#a8ecff' : ink;
+        const e = pass ? 0 : lw * 0.7;
+        c.lineWidth = pass ? lw * 1.7 : lw * 1.7 + e * 2;
+        for (let sgn = -1; sgn <= 1; sgn += 2) {
+          c.beginPath();
+          c.moveTo(sgn * r * 0.98, 0);
+          c.lineTo(sgn * r * 0.7, 0);
+          c.stroke();
+          c.beginPath();
+          c.moveTo(sgn * (r * 0.42 - e), 0);
+          c.lineTo(sgn * (r * 0.76 + e * 0.5), -r * 0.26 - e);
+          c.lineTo(sgn * (r * 0.76 + e * 0.5), r * 0.26 + e);
+          c.closePath();
+          c.fill();
+        }
+      }
     }
     c.restore();
   }
@@ -1051,6 +1509,8 @@ export function createView(canvas, role, cfg) {
     if (!spr) return;
     freeCv(spr.puckIce);
     spr.puckIce = null;
+    freeCv(spr.puckMagnet);
+    spr.puckMagnet = null;
     if (spr.btn) {
       freeCv(spr.btn.host);
       freeCv(spr.btn.guest);
@@ -1064,6 +1524,7 @@ export function createView(canvas, role, cfg) {
 
   function buildBattleSprites() {
     spr.puckIce = tintSprite(spr.puck, '#bfe9ff', 0.62);
+    spr.puckMagnet = tintSprite(spr.puck, ITEM_COL.magnet, 0.5);
     spr.btn = { host: makeBtn('host'), guest: makeBtn('guest') };
     spr.items = {};
     for (const k in ITEM_COL) spr.items[k] = makeItemIcon(k, ir);
@@ -1661,17 +2122,31 @@ export function createView(canvas, role, cfg) {
   let ghY = 0;
   let shTh = 4; // shield bar thickness (px)
   let shDash = DASH;
+  let catchDash = DASH;
+  let magDash = DASH;
   let tgtX = 0;
   let tgtY = 0;
   let pillX = 0;
   let pillY = 0;
+  // New items: goalie flashes, giant ring, tinypuck,
+  // mirror shimmer and quake dust timers.
+  const goalieHitT = [-1e9, -1e9];
+  const prevGi = [0, 0];
+  const giT = [-1e9, -1e9];
+  let prevTp = 0;
+  let mirWas = false;
+  let mirOnT = -1e9;
+  let mirOffT = -1e9;
+  let quakeDustT = 0;
+  let quakeSeed = 1;
+  let puckK = 1; // smoothed drawn puck radius / puckR (snap.pr)
+  let curBt = null; // snap.bt of the frame being drawn (battle only)
+  let lastTw = null; // snap.tw of the last snapshot (random mode)
   const flights = [];
-  for (let i = 0; i < FLY_N; i++) flights.push({ on: false, kind: 0, item: '', t0: 0, wx: 0, wy: 0, idx: 0, left: false });
+  // kind 0: box -> button, 1: used item out of the button, 2: steal (ghost hand from the
+  // target's pill or button to the thief's button; src is the target side).
+  for (let i = 0; i < FLY_N; i++) flights.push({ on: false, kind: 0, item: '', t0: 0, wx: 0, wy: 0, idx: 0, left: false, src: 0 });
   let flyHead = 0;
-  const mineDrops = [0, 1, 2, 3, 4, 5].map(() => ({ x: 0, y: 0, t0: -1e9 }));
-  let mineDropHead = 0;
-  const blasts = [0, 1, 2, 3].map(() => ({ x: 0, y: 0, t0: -1e9 })); // dropped mines vanish when they blast
-  let blastHead = 0;
 
   // Instant replay treatment (ui.replay): letterbox bars, REPLAY badge, progress line.
   let replayOn = false;
@@ -1773,17 +2248,36 @@ export function createView(canvas, role, cfg) {
     }
     const ev = seenLive ? null : snap.ev;
     if (battle) trackBattle(snap, now);
+    if (random) {
+      // A new match may roll a different twist: drop the trail and rebuild the label.
+      const twId = typeof snap.tw === 'string' ? snap.tw : null;
+      if (twId !== lastTw) {
+        lastTw = twId;
+        trCount = 0;
+      }
+      if (tw && typeof tw.onSnap === 'function') {
+        try {
+          tw.onSnap(snap, now);
+        } catch (e) {
+          twFail(e);
+        }
+      }
+    }
     if (ev && ev.length) {
       const n = Math.min(ev.length, 16);
       for (let i = 0; i < n; i++) {
         const e = ev[i];
         if (!e) continue;
         fx.onEvent(e, now, snap);
-        if (e.k === 'bumper' && snap.ob) markObstacle(snap.ob, e, now, 'bumper', bumperFlashT);
-        else if (e.k === 'mine') {
-          if (battle) addBlast(e.x, e.y, now);
-          else if (snap.ob) markObstacle(snap.ob, e, now, 'mine', mineFlashT);
+        if (tw && typeof tw.onEvent === 'function') {
+          try {
+            tw.onEvent(e, snap, now);
+          } catch (err) {
+            twFail(err);
+          }
         }
+        if (e.k === 'bumper' && snap.ob) markObstacle(snap.ob, e, now, 'bumper', bumperFlashT);
+        else if (e.k === 'mine' && snap.ob) markObstacle(snap.ob, e, now, 'mine', mineFlashT);
         else if (e.k === 'bomb' && snap.ob) markObstacle(snap.ob, e, now, 'bomb', bombFlashT);
         else if (e.k === 'bombhit' && snap.ob) markObstacle(snap.ob, e, now, 'bomb', bombHitT);
         else if (e.k === 'goal') goalWhy = e.why || '';
@@ -1842,6 +2336,19 @@ export function createView(canvas, role, cfg) {
       const fz = bt.fz || 0;
       if (btSync && fz > 0 && !(prevFz > 0)) fzT = now;
       prevFz = fz;
+      const gi = bt.gi || NO_RD;
+      for (let i = 0; i < 2; i++) {
+        const v = gi[i] || 0;
+        if (btSync && v > 0 && !(prevGi[i] > 0) && !replayOn) giT[i] = now;
+        prevGi[i] = v;
+      }
+      const tp = bt.tp || 0;
+      if (btSync && tp > 0 && !(prevTp > 0) && !replayOn && snap.p) {
+        // the puck shrinks: a sparkle and a ring that closes in on it
+        fx.sparkle(snap.p[0], snap.p[1], 14, null);
+        fx.addRing(snap.p[0], snap.p[1], puckR * 3.4, puckR * 0.7, 0.36, ITEM_COL.tinypuck, 4, now, 0.85);
+      }
+      prevTp = tp;
     }
     if (snap.ob) {
       let ord = 0;
@@ -1880,12 +2387,16 @@ export function createView(canvas, role, cfg) {
       const si = sideIdx(e.by);
       if (si >= 0) shHitT[si] = now;
     } else if (k === 'thaw') thawT = now;
-    else if (k === 'minedrop') {
-      const d = mineDrops[mineDropHead];
-      mineDropHead = (mineDropHead + 1) % mineDrops.length;
-      d.x = e.x;
-      d.y = e.y;
-      d.t0 = now;
+    else if (k === 'goaliehit') {
+      const si = sideIdx(e.by);
+      if (si >= 0) goalieHitT[si] = now;
+    } else if (k === 'steal') {
+      const si = sideIdx(e.by);
+      if (si >= 0 && e.item && !replayOn) {
+        // the stolen item lands on the thief's button when the hand gets there
+        gotT[si] = now + STEAL_FLY_MS * 0.85;
+        addFlight(2, e.item, 0, 0, si, false, now);
+      }
     }
   }
 
@@ -1907,14 +2418,6 @@ export function createView(canvas, role, cfg) {
     if (best >= 0 && best < boxInT.length) boxInT[best] = now;
   }
 
-  function addBlast(x, y, now) {
-    const b = blasts[blastHead];
-    blastHead = (blastHead + 1) % blasts.length;
-    b.x = x;
-    b.y = y;
-    b.t0 = now;
-  }
-
   function addFlight(kind, item, wx, wy, idx, left, now) {
     if (!spr || !spr.items || !spr.items[item]) return;
     const f = flights[flyHead];
@@ -1927,13 +2430,12 @@ export function createView(canvas, role, cfg) {
     f.wy = wy;
     f.idx = idx;
     f.left = left;
+    f.src = 1 - idx;
   }
 
   // Replay enter/leave and destroy: no stale item state or effects survive.
   function resetBattleFx() {
     for (let i = 0; i < FLY_N; i++) flights[i].on = false;
-    for (let i = 0; i < mineDrops.length; i++) mineDrops[i].t0 = -1e9;
-    for (let i = 0; i < blasts.length; i++) blasts[i].t0 = -1e9;
     for (let i = 0; i < 2; i++) {
       gotT[i] = -1e9;
       useT[i] = -1e9;
@@ -1952,6 +2454,15 @@ export function createView(canvas, role, cfg) {
     rocketT = -1e9;
     ghWas = false;
     btSync = false;
+    for (let i = 0; i < 2; i++) {
+      goalieHitT[i] = -1e9;
+      prevGi[i] = 0;
+      giT[i] = -1e9;
+    }
+    prevTp = 0;
+    mirWas = false;
+    mirOnT = -1e9;
+    mirOffT = -1e9;
   }
 
   // --- drawing helpers ----------------------------------------------------------
@@ -2020,7 +2531,7 @@ export function createView(canvas, role, cfg) {
     const gwPx = g.w * scale;
     const half = gwPx / 2;
     const col = g.side === 'host' ? HOST_COL : GUEST_COL;
-    const cx = rx + rw / 2;
+    const cx = sxw(g.x);
     const edgeY = g.top ? ry : ry + rh;
     const pulse = 0.82 + 0.18 * Math.sin(now / 420 + g.idx * 2);
     const grads = goalGrad[g.side];
@@ -2081,7 +2592,7 @@ export function createView(canvas, role, cfg) {
   function drawGoalInside(g, now) {
     const gwPx = g.w * scale;
     const half = gwPx / 2;
-    const cx = rx + rw / 2;
+    const cx = sxw(g.x);
     const edgeY = g.top ? ry : ry + rh;
     const grads = goalGrad[g.side];
     const pulse = 0.85 + 0.15 * Math.sin(now / 420 + g.idx * 2);
@@ -2094,6 +2605,14 @@ export function createView(canvas, role, cfg) {
     ctx.fillStyle = grads.glow;
     ctx.fillRect(-half, 0, gwPx, glowH);
     ctx.globalAlpha = 1;
+
+    // Battle: a wide goal pulses gold, a magnet target mouth glows magenta.
+    if (curBt) {
+      const wg = curBt.wg ? curBt.wg[g.idx] : 0;
+      const mg = curBt.mg ? curBt.mg[g.idx] : 0;
+      if (wg > 0) mouthTint(half, gwPx, itemGlow('widegoal'), ITEM_COL.widegoal, Math.min(1, wg / 0.3) * (0.55 + 0.4 * Math.sin(now / 150)));
+      if (mg > 0) mouthTint(half, gwPx, itemGlow('magnet'), ITEM_COL.magnet, Math.min(1, mg / 0.2) * (0.6 + 0.35 * Math.sin(now / 80)));
+    }
 
     const ft = now - fx.state.goalFlash[g.side];
     if (ft >= 0 && ft < 1200) {
@@ -2118,6 +2637,19 @@ export function createView(canvas, role, cfg) {
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+  }
+
+  // Coloured light pooled at a goal mouth, in drawGoalInside's local space (+y into the rink).
+  function mouthTint(half, gwPx, glow, col, a) {
+    if (a <= 0.01) return;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = a;
+    ctx.drawImage(glow, -half * 1.2, -glowH * 1.5, gwPx * 1.2, glowH * 3.6);
+    ctx.globalAlpha = a * 0.9;
+    ctx.fillStyle = col;
+    ctx.fillRect(-half, 0, gwPx, Math.max(2, 3 * u));
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
   }
 
   // Bombs move, so they are drawn at the snapshot position every frame. A detonated
@@ -2278,31 +2810,6 @@ export function createView(canvas, role, cfg) {
     }
   }
 
-  // Battle mines vanish from the list when they blast, so the blast is a free-standing effect.
-  function drawBlasts(now) {
-    const r = malletR * 0.45 * scale;
-    for (let i = 0; i < blasts.length; i++) {
-      const b = blasts[i];
-      const bt = (now - b.t0) / 1000;
-      if (bt < 0 || bt >= MINE_SCORCH_S) continue;
-      const sx = sxw(b.x);
-      const sy = syw(b.y);
-      drawMineScorch(sx, sy, r, bt);
-      drawMineBurst(sx, sy, r, bt);
-    }
-  }
-
-  // Scale of a mine that has just landed (it drops in from above), 1 otherwise.
-  function mineDropK(o, now) {
-    for (let i = 0; i < mineDrops.length; i++) {
-      const d = mineDrops[i];
-      const age = now - d.t0;
-      if (age < 0 || age >= MINE_DROP_MS) continue;
-      if (Math.abs(d.x - o.x) < 2 && Math.abs(d.y - o.y) < 2) return 1 + 0.9 * (1 - easeOutCubic(age / MINE_DROP_MS));
-    }
-    return 1;
-  }
-
   // Spinning rainbow item box. ord: its slot among the boxes in the snapshot.
   function drawBox(o, ord, sx, sy, r, now) {
     if (o.a !== 1) return;
@@ -2314,10 +2821,21 @@ export function createView(canvas, role, cfg) {
     const pop = 0.55 + 0.45 * easeOutBack(inT);
     const bob = Math.sin(now / 430 + ord * 2.1) * r * 0.12;
     const pulse = 0.5 + 0.5 * Math.sin(now / 300 + ord);
+    // Only the player on the far side can take a box: its halo and ring wear
+    // that player's colour (a box in the host half is the guest's to take).
+    const takerHost = !(o.y > H + G / 2);
     drawGlow(glowBlack, sx + r * 0.1, sy + r * 0.85, r * 1.15, 0.38 * inT);
     ctx.globalCompositeOperation = 'lighter';
-    drawGlow(glowWhite, sx, sy + bob, r * (2.2 + 0.3 * pulse), (0.28 + 0.14 * pulse) * inT);
+    drawGlow(takerHost ? glowHost : glowGuest, sx, sy + bob, r * (2.6 + 0.3 * pulse), (0.5 + 0.2 * pulse) * inT);
+    drawGlow(glowWhite, sx, sy + bob, r * (1.6 + 0.2 * pulse), (0.18 + 0.1 * pulse) * inT);
+    ctx.globalAlpha = (0.35 + 0.25 * pulse) * inT;
+    ctx.strokeStyle = takerHost ? HOST_COL : GUEST_COL;
+    ctx.lineWidth = Math.max(1.5, r * 0.1);
+    ctx.beginPath();
+    ctx.arc(sx, sy + bob, r * 1.55, 0, TAU);
+    ctx.stroke();
     ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
     ctx.save();
     ctx.translate(sx, sy + bob);
     ctx.rotate(0.16 * Math.sin(now / 700 + ord));
@@ -2341,6 +2859,51 @@ export function createView(canvas, role, cfg) {
     }
   }
 
+  // Goalie: a mini mallet in the owner's colour with a dark visor facing the opponent.
+  function drawGoalie(o, sx, sy, R, now) {
+    const a = o.a === 1 ? 1 : 0;
+    const ht = (now - goalieHitT[a]) / GOALIE_HIT_MS;
+    const hit = ht >= 0 && ht < 1 ? 1 - ht : 0;
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(a ? glowGuest : glowHost, sx, sy, R * (2.1 + 0.6 * hit), 0.35 + 0.5 * hit);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    drawSprite(a ? spr.guest : spr.host, sx, sy, (o.r / malletR) * (1 + 0.12 * hit * hit));
+    // the visor sits on the side facing the other player's goal
+    const down = (a === 0 ? -1 : 1) * (ky > 0 ? 1 : -1) > 0;
+    const ang = down ? Math.PI / 2 : -Math.PI / 2;
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.92;
+    ctx.strokeStyle = '#0b1030';
+    ctx.lineWidth = Math.max(2, R * 0.34);
+    ctx.beginPath();
+    ctx.arc(sx, sy, R * 0.6, ang - 0.85, ang + 0.85);
+    ctx.stroke();
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = '#a8dcff';
+    ctx.lineWidth = Math.max(1, R * 0.08);
+    ctx.beginPath();
+    ctx.arc(sx, sy, R * 0.68, ang - 0.65, ang - 0.15);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    if (hit > 0) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.5 * hit;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(sx, sy, R * 0.95, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 0.9 * hit;
+      ctx.strokeStyle = a ? GUEST_COL : HOST_COL;
+      ctx.lineWidth = Math.max(2, R * 0.14);
+      ctx.beginPath();
+      ctx.arc(sx, sy, R * (1.05 + 0.9 * easeOutCubic(1 - hit)), 0, TAU);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function drawObstacles(ob, now) {
     let boxOrd = 0;
     for (let i = 0; i < ob.length; i++) {
@@ -2352,6 +2915,9 @@ export function createView(canvas, role, cfg) {
         if (!battle) continue;
         drawBox(o, boxOrd, sx, sy, r, now);
         boxOrd++;
+      } else if (o.k === 'goalie') {
+        if (!battle) continue;
+        drawGoalie(o, sx, sy, r, now);
       } else if (o.k === 'bumper') {
         const ft = (now - (bumperFlashT[i] || -1e9)) / 380;
         const flashing = ft >= 0 && ft < 1;
@@ -2396,7 +2962,7 @@ export function createView(canvas, role, cfg) {
           drawGlow(glowRed, sx, sy, r * (1.9 + 0.3 * pulse), 0.18 + 0.2 * pulse);
           ctx.globalCompositeOperation = 'source-over';
           ctx.globalAlpha = 1;
-          drawSprite(getMineSprite(r), sx, sy, battle ? mineDropK(o, now) : 1);
+          drawSprite(getMineSprite(r), sx, sy, 1);
           // danger ring
           ctx.globalAlpha = 0.35 + 0.3 * pulse;
           ctx.strokeStyle = '#ff3b3b';
@@ -2430,9 +2996,9 @@ export function createView(canvas, role, cfg) {
             ctx.fill();
           }
         } else {
-          // unarmed: dim, and in Battle a dropped mine blinks at 4 Hz while its fuse burns
-          ctx.globalAlpha = battle ? (((now / 125) | 0) & 1 ? 0.8 : 0.3) : 0.62;
-          drawSprite(getMineSprite(r), sx, sy, battle ? mineDropK(o, now) : 1);
+          // unarmed: dim
+          ctx.globalAlpha = 0.62;
+          drawSprite(getMineSprite(r), sx, sy, 1);
           ctx.globalAlpha = 1;
           const lr = Math.max(2.5, r * 0.15);
           ctx.fillStyle = '#6d7488';
@@ -2479,7 +3045,7 @@ export function createView(canvas, role, cfg) {
     const rkF = rocket ? 1 - rkAge * rkAge : 0;
     const life = (0.07 + 0.27 * k) * (1 + 0.6 * rkF);
     // Length is capped at about 9 puck radii so a fast puck never leaves a long streak.
-    const maxLen = (9 + 4 * rkF) * puckR * scale;
+    const maxLen = (9 + 4 * rkF) * puckR * scale * puckK;
     let m = 1;
     let dist = 0;
     rbX[0] = sxw(px);
@@ -2510,7 +3076,7 @@ export function createView(canvas, role, cfg) {
       rbNX[j] = -dy / len;
       rbNY[j] = dx / len;
     }
-    const wMax = puckR * scale * (0.5 + 0.4 * k) * (1 + 0.35 * rkF);
+    const wMax = puckR * scale * puckK * (0.5 + 0.4 * k) * (1 + 0.35 * rkF);
     const hot = speed > 1500;
     const am = 1 + 2.4 * rkF;
     ctx.globalCompositeOperation = 'lighter';
@@ -2628,6 +3194,25 @@ export function createView(canvas, role, cfg) {
     }
 
     if (bt && bt.rk && bt.rk[idx]) drawRocketHalo(sx, sy, R, now);
+    if (bt && bt.ca && bt.ca[idx]) drawCatchHalo(sx, sy, R, now);
+    if (bt) {
+      const gt = (now - giT[idx]) / GIANT_RING_MS;
+      if (gt >= 0 && gt < 1) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = ITEM_COL.giant;
+        for (let q = 0; q < 2; q++) {
+          const t = gt - q * 0.25;
+          if (t < 0) continue;
+          ctx.globalAlpha = 0.85 * (1 - t) * (1 - t);
+          ctx.lineWidth = Math.max(2, R * 0.12 * (1 - t));
+          ctx.beginPath();
+          ctx.arc(sx, sy, R * (1 + 0.9 * easeOutCubic(t)), 0, TAU);
+          ctx.stroke();
+        }
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+      }
+    }
 
     drawSprite(side === 'host' ? spr.host : spr.guest, sx, sy, mk);
 
@@ -2722,7 +3307,7 @@ export function createView(canvas, role, cfg) {
   function drawGhostHint(now) {
     const cx = sxw(ghX);
     const cy = syw(ghY);
-    const pr = puckR * scale;
+    const pr = puckR * scale * puckK;
     const q = (now / 110) | 0;
     ctx.font = font(Math.max(14, pr * 1.2), 800);
     ctx.textAlign = 'center';
@@ -2805,7 +3390,7 @@ export function createView(canvas, role, cfg) {
     const a = Math.min(1, secs / SHIELD_FADE_S) * clamp((now - shT[idx]) / 120, 0, 1);
     if (a <= 0.01) return;
     const y = g.top ? ry + puckR * scale : ry + rh - puckR * scale;
-    const cx = rx + rw / 2;
+    const cx = sxw(g.x);
     const wpx = g.w * scale;
     const th = shTh;
     const col = idx === 0 ? HOST_COL : GUEST_COL;
@@ -2869,6 +3454,138 @@ export function createView(canvas, role, cfg) {
     }
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+  }
+
+  // Catch armed: green glow and a slowly turning dashed ring round the mallet.
+  function drawCatchHalo(sx, sy, R, now) {
+    const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(itemGlow('catch'), sx, sy, R * (2.2 + 0.25 * pulse), 0.65);
+    drawGlow(glowGreen, sx, sy, R * 1.5, 0.25 + 0.15 * pulse);
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = ITEM_COL.catch;
+    ctx.lineWidth = Math.max(2, R * 0.1);
+    ctx.setLineDash(catchDash);
+    ctx.lineDashOffset = -now / 40;
+    ctx.beginPath();
+    ctx.arc(sx, sy, R * (1.18 + 0.05 * pulse), 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash(NO_DASH);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  // Catch holding: a bright ring round the puck and an arc that shrinks as ct runs out.
+  function drawCatchHold(sx, sy, pr, ct, now) {
+    const f = clamp(ct / CATCH_HOLD_S, 0, 1);
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(itemGlow('catch'), sx, sy, pr * 2.6, 0.55);
+    ctx.globalAlpha = 0.6 + 0.3 * Math.sin(now / 70);
+    ctx.strokeStyle = '#d6ffe4';
+    ctx.lineWidth = Math.max(1.5, pr * 0.1);
+    ctx.beginPath();
+    ctx.arc(sx, sy, pr * 1.25, 0, TAU);
+    ctx.stroke();
+    ctx.globalAlpha = 0.95;
+    ctx.strokeStyle = ITEM_COL.catch;
+    ctx.lineWidth = Math.max(2.5, pr * 0.2);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(sx, sy, pr * 1.55, -Math.PI / 2, -Math.PI / 2 + TAU * f);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  // Magnet: dashed pull line from the puck towards the target mouth.
+  function drawMagnetPull(sx, sy, pr, t, now) {
+    const gxa = curSnap && curSnap.gx ? curSnap.gx : NO_RD;
+    const tx = sxw(W / 2 + (gxa[t] || 0));
+    const ty = syw(t === 0 ? bottomY : 0);
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const d = Math.hypot(dx, dy);
+    if (d < pr * 1.5) return;
+    const ux = dx / d;
+    const uy = dy / d;
+    const len = Math.min(d - pr * 1.3, pr * 6);
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(itemGlow('magnet'), sx, sy, pr * 2.4, 0.45 + 0.15 * Math.sin(now / 90));
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = ITEM_COL.magnet;
+    ctx.lineWidth = Math.max(2, pr * 0.16);
+    ctx.lineCap = 'round';
+    ctx.setLineDash(magDash);
+    ctx.lineDashOffset = -now / 25;
+    ctx.beginPath();
+    ctx.moveTo(sx + ux * pr * 1.3, sy + uy * pr * 1.3);
+    ctx.lineTo(sx + ux * (pr * 1.3 + len), sy + uy * (pr * 1.3 + len));
+    ctx.stroke();
+    ctx.setLineDash(NO_DASH);
+    ctx.lineCap = 'butt';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  // Decoys: on the target's screen exactly like the puck; on the user's screen faint and dashed.
+  function drawDecoys(dk, bt, now) {
+    const v = solo ? 0 : myIdx;
+    const dc = bt.dc || NO_RD;
+    const fooled = dc[v] > 0;
+    const pr = puckR * scale * puckK;
+    for (let i = 0; i < dk.length && i < 4; i++) {
+      const d = dk[i];
+      if (!d || !Number.isFinite(d[0]) || !Number.isFinite(d[1])) continue;
+      if (d[1] < visTop - puckR * 3 || d[1] > visBot + puckR * 3) continue;
+      if (fooled) {
+        envPuck(d[0], d[1], puckK, 1);
+      } else {
+        const sx = sxw(d[0]);
+        const sy = syw(d[1]);
+        ctx.globalAlpha = 0.35;
+        drawSprite(spr.puck, sx, sy, puckK);
+        ctx.globalAlpha = 0.7;
+        ctx.strokeStyle = ITEM_COL.decoys;
+        ctx.lineWidth = Math.max(1.5, pr * 0.1);
+        ctx.setLineDash(magDash);
+        ctx.lineDashOffset = -now / 60;
+        ctx.beginPath();
+        ctx.arc(sx, sy, pr * 1.15, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash(NO_DASH);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // A bright vertical band sweeping across the screen as the mirror starts and ends.
+  function drawMirrorShimmer(now) {
+    let t = (now - mirOnT) / MIRROR_SHIMMER_MS;
+    if (!(t >= 0 && t < 1)) t = (now - mirOffT) / MIRROR_SHIMMER_MS;
+    if (!(t >= 0 && t < 1)) return;
+    const bw = Math.max(40, screenW * 0.12);
+    const e = easeOutCubic(t);
+    const bx = -bw + (screenW + 2 * bw) * e;
+    const a = Math.sin(Math.PI * t);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.55 * a;
+    ctx.drawImage(itemGlow('mirror'), bx - bw, -screenH * 0.1, bw * 2, screenH * 1.2);
+    ctx.globalAlpha = 0.5 * a;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(bx - 1.5, 0, 3, screenH);
+    ctx.globalAlpha = 0.25 * a;
+    ctx.fillRect(bx - bw * 0.45, 0, 2, screenH);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  // Quake dust: a few puffs on the shaken player's half and round their mallet.
+  function quakeDust(v, snap) {
+    const y0 = v === 0 ? H + G : 0;
+    fx.dust(W * (0.08 + 0.84 * Math.random()), y0 + H * (0.1 + 0.8 * Math.random()), 2);
+    const m = snap.m;
+    if (m) fx.dust(m[v * 2], m[v * 2 + 1], 1);
   }
 
   // The button of `idx` nearest (in x) to sxRef, or null when this screen has none.
@@ -3043,7 +3760,7 @@ export function createView(canvas, role, cfg) {
       const f = flights[i];
       if (!f.on) continue;
       const age = now - f.t0;
-      const dur = f.kind ? USE_FLY_MS : BOX_FLY_MS;
+      const dur = f.kind === 2 ? STEAL_FLY_MS : f.kind ? USE_FLY_MS : BOX_FLY_MS;
       if (age >= dur) {
         f.on = false;
         continue;
@@ -3067,6 +3784,34 @@ export function createView(canvas, role, cfg) {
         ctx.globalCompositeOperation = 'lighter';
         drawGlow(itemGlow(f.item), x, y, ir * 2.2, 0.6 * a);
         ctx.globalCompositeOperation = 'source-over';
+      } else if (f.kind === 2) {
+        // ghost hand from the victim's button (or pill) to the thief's button, item in tow
+        const sb = findBtn(f.src, rx + rw / 2);
+        let x0;
+        let y0;
+        if (sb) {
+          x0 = sb.x;
+          y0 = sb.y;
+        } else {
+          pillXY();
+          x0 = pillX;
+          y0 = pillY;
+        }
+        flightTarget(f.idx, x0);
+        const e = p * p * (3 - 2 * p);
+        x = x0 + (tgtX - x0) * e + Math.sin(p * Math.PI * 3) * br * 0.25;
+        y = y0 + (tgtY - y0) * e - Math.sin(Math.PI * p) * br * 1.1;
+        a = p < 0.12 ? p / 0.12 : p < 0.85 ? 1 : (1 - p) / 0.15;
+        k = 0.85 + 0.3 * Math.sin(Math.PI * p);
+        ctx.globalCompositeOperation = 'lighter';
+        drawGlow(itemGlow('steal'), x, y, ir * 2.4, 0.55 * a);
+        drawGlow(itemGlow(f.item), x + ir * 0.7, y + ir * 0.6, ir * 1.6, 0.5 * a);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = a;
+        drawSprite(icon, x + ir * 0.7, y + ir * 0.6, k * 0.75);
+        ctx.globalAlpha = a * 0.9;
+        drawSprite(spr.items.steal, x, y, k);
+        continue;
       } else {
         const b = findBtn(f.idx, f.left ? rx : rx + rw);
         if (!b) {
@@ -3214,6 +3959,21 @@ export function createView(canvas, role, cfg) {
       const oi = solo ? 1 : 1 - myIdx;
       drawPill(oi, (snap.it && snap.it[oi]) || '', now);
     }
+  }
+
+  // Random mode: 'Random: <twist>  ·  first to N', rebuilt only when the twist name changes.
+  function updateModeLabel(snap) {
+    if (!tw || typeof tw.label !== 'function') return;
+    let name = null;
+    try {
+      name = tw.label(snap);
+    } catch (e) {
+      twFail(e);
+    }
+    if (typeof name !== 'string' || !name) name = null;
+    if (name === twName) return;
+    twName = name;
+    modeLabel = name ? `Random: ${name}  ·  first to ${target}` : `Random · first to ${target}`;
   }
 
   function drawModeLabel(now) {
@@ -3365,7 +4125,16 @@ export function createView(canvas, role, cfg) {
       glowText('GOAL!', 0, -18 * u, 98 * u, '#ffffff', a, 900, `rgb(${lgRgb})`);
       ctx.restore();
       let sub;
-      if (goalWhy === 'bomb') {
+      let twWhy = null;
+      if (tw && goalWhy && typeof tw.goalWhy === 'function') {
+        try {
+          twWhy = tw.goalWhy(goalWhy);
+        } catch (e) {
+          twFail(e);
+        }
+      }
+      if (typeof twWhy === 'string' && twWhy) sub = twWhy;
+      else if (goalWhy === 'bomb') {
         if (solo && players === 'bot') sub = mine ? 'Bot touched a bomb' : 'You touched a bomb';
         else sub = mine ? 'They touched a bomb' : 'You touched a bomb';
       } else if (solo && players === 'bot') sub = mine ? 'You scored' : 'Bot scored';
@@ -3787,6 +4556,13 @@ export function createView(canvas, role, cfg) {
       trCount = 0;
       fx.reset();
       if (battle) resetBattleFx();
+      if (tw && typeof tw.reset === 'function') {
+        try {
+          tw.reset();
+        } catch (e) {
+          twFail(e);
+        }
+      }
     }
     if (rp) {
       rpT = clamp(Number(rp.t) || 0, 0, 1);
@@ -3798,18 +4574,55 @@ export function createView(canvas, role, cfg) {
     const z = rpE > 0 ? 1 - (1 - rpZoom) * rpE : 1;
     const zx = rpE > 0 ? (screenW * (1 - z)) / 2 : 0;
     const zy = rpE > 0 ? (screenH * (1 - z)) / 2 : 0;
+    // The twist layer cuts the guest's blackout hole where its own mallet is drawn.
+    if (role === 'guest' && localMallet && Number.isFinite(localMallet.x) && Number.isFinite(localMallet.y)) {
+      envLocalM.x = localMallet.x;
+      envLocalM.y = localMallet.y;
+      env.localM = envLocalM;
+    } else env.localM = null;
     // A shallow copy of the snapshot we already processed (same p/m arrays) is not new.
     if (snap !== curSnap && !(curSnap && snap.p === curP && snap.m === curM)) newSnap(snap, now);
     fx.setRain(!replayOn && snap.ph === 'over' && (solo || snap.wn === role));
     fx.update(now);
     heldK.v += ((uiNow.held ? 1 : 0) - heldK.v) * (1 - Math.exp(-dt * 14));
 
-    const shaking = fx.getShake(now, shk);
+    let shaking = fx.getShake(now, shk);
+    // Battle: quake shakes the target's screen every frame; mirror flips it left to right.
+    const btE = battle ? snap.bt || null : null;
+    curBt = btE;
+    const vIdx = solo ? 0 : myIdx; // the side this screen belongs to (solo: the human host)
+    if (players === 'pass') {
+      // Shared screen: no shake (it would move both halves); dust in each quaked half.
+      if (btE && btE.qk && !replayOn && (btE.qk[0] > 0 || btE.qk[1] > 0) && now - quakeDustT > QUAKE_DUST_MS) {
+        quakeDustT = now;
+        if (btE.qk[0] > 0) quakeDust(0, snap);
+        if (btE.qk[1] > 0) quakeDust(1, snap);
+      }
+    } else if (btE && btE.qk && btE.qk[vIdx] > 0 && !replayOn) {
+      const qa = 6 * u * Math.min(1, btE.qk[vIdx] / 0.25);
+      quakeSeed = (quakeSeed * 1103515245 + 12345) >>> 0;
+      shk[0] += Math.sin(now * 0.11) * qa * 0.6 + ((quakeSeed & 1023) / 1023 - 0.5) * qa * 0.8;
+      shk[1] += Math.cos(now * 0.137) * qa * 0.6 + (((quakeSeed >>> 10) & 1023) / 1023 - 0.5) * qa * 0.8;
+      shaking = true;
+      if (now - quakeDustT > QUAKE_DUST_MS) {
+        quakeDustT = now;
+        quakeDust(vIdx, snap);
+      }
+    }
+    const mir = !!(btE && btE.mi && btE.mi[vIdx] > 0 && !replayOn && rpE <= 0);
+    if (battle && mir !== mirWas) {
+      if (mir) mirOnT = now;
+      else mirOffT = now;
+      mirWas = mir;
+    }
+    // Every transform below goes through mirror: x' = cw - x when the screen is flipped.
+    const cw = canvas.width;
     const shx = Math.round(shk[0] * 2) / 2;
     const shy = Math.round(shk[1] * 2) / 2;
 
     // Background (cached) at pixel-exact scale.
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (mir) ctx.setTransform(-1, 0, 0, 1, cw, 0);
+    else ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     if (rpE > 0) {
@@ -3825,15 +4638,27 @@ export function createView(canvas, role, cfg) {
     } else {
       ctx.drawImage(bg, 0, 0);
     }
-    ctx.setTransform(dpr * z, 0, 0, dpr * z, (zx + shx * z) * dpr, (zy + shy * z) * dpr);
+    if (mir) ctx.setTransform(-dpr * z, 0, 0, dpr * z, cw - (zx + shx * z) * dpr, (zy + shy * z) * dpr);
+    else ctx.setTransform(dpr * z, 0, 0, dpr * z, (zx + shx * z) * dpr, (zy + shy * z) * dpr);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
+    if (random) updateModeLabel(snap);
+    // Drawn puck radius follows snap.pr (tinypuck), smoothed so it does not pop.
+    const prT = snap.pr > 0 ? snap.pr / puckR : 1;
+    puckK += (prT - puckK) * (1 - Math.exp(-dt * 12));
+    if (Math.abs(prT - puckK) < 0.005) puckK = prT;
+
     if (hasLetterbox) drawBokeh(now);
+    const gxa = snap.gx || NO_RD;
     for (let i = 0; i < goals.length; i++) {
       const g = goals[i];
-      const tw = (snap.gw && snap.gw[g.idx]) || goalW0;
-      g.w += (tw - g.w) * (1 - Math.exp(-dt * 9));
+      const tgw = (snap.gw && snap.gw[g.idx]) || goalW0;
+      g.w += (tgw - g.w) * (1 - Math.exp(-dt * 9));
+      // Moving mouths: smoothed faster than the width so the drawn mouth keeps up with physics.
+      const tgx = W / 2 + (Number.isFinite(gxa[g.idx]) ? gxa[g.idx] : 0);
+      g.x += (tgx - g.x) * (1 - Math.exp(-dt * 24));
+      if (Math.abs(tgx - g.x) < 0.05) g.x = tgx;
       drawGoalSlot(g, now);
     }
 
@@ -3844,6 +4669,15 @@ export function createView(canvas, role, cfg) {
 
     const s = snap;
     for (let i = 0; i < goals.length; i++) drawGoalInside(goals[i], now);
+    if (tw) twDraw('drawUnder', s, now);
+    let twHide = false;
+    if (tw && typeof tw.hidePuck === 'function') {
+      try {
+        twHide = !!tw.hidePuck(s);
+      } catch (e) {
+        twFail(e);
+      }
+    }
 
     // Puck position (extrapolated along its velocity).
     const px = s.p[0] + s.p[2] * puckExtrapolate;
@@ -3855,7 +4689,7 @@ export function createView(canvas, role, cfg) {
 
     // Battle: ghost hides the puck from the targeted screen (solo: the human host); the
     // side that fired it sees the puck with a spectral outline instead.
-    const bt = battle ? s.bt || null : null;
+    const bt = btE;
     const ghArr = bt && bt.gh ? bt.gh : NO_RD;
     const ghosted = ghArr[myIdx] > 0;
     const ghSeen = !ghosted && ghArr[1 - myIdx] > 0;
@@ -3868,10 +4702,11 @@ export function createView(canvas, role, cfg) {
 
     if (s.ph === 'ready' && uiNow.calibrating) drawCalibration(now);
 
-    drawHud(s, now, dt);
+    // Random mode draws the HUD after the mallets and the blackout (see below).
+    if (!tw) drawHud(s, now, dt);
 
     // Seam glow: the puck is about to cross to the other iPad.
-    if (playing && !ghosted) {
+    if (playing && !ghosted && !twHide) {
       const sxp = sxw(px);
       if (solo) {
         // No physical seam without a gap: nothing crosses to another device.
@@ -3889,7 +4724,6 @@ export function createView(canvas, role, cfg) {
 
     if (s.ob && s.ob.length) drawObstacles(s.ob, now);
     if (battle) {
-      drawBlasts(now);
       if (bt && bt.sh) {
         for (let i = 0; i < goals.length; i++) {
           const sh = bt.sh[goals[i].idx];
@@ -3900,15 +4734,19 @@ export function createView(canvas, role, cfg) {
 
     if (s.ph === 'countdown') drawServeHint(s, now);
 
+    // Battle decoys (snap.dk) under the real puck.
+    if (bt && s.dk && s.dk.length && spr) drawDecoys(s.dk, bt, now);
+
     // Trail, shadow, glow and puck.
-    if (playing && !ghosted) {
+    if (playing && !ghosted && !twHide) {
       pushTrail(px, py, now);
       drawTrail(px, py, speed, now);
     }
     {
       const sx = sxw(px);
       const sy = syw(py);
-      const pr = puckR * scale;
+      const pr = puckR * scale * puckK;
+      const pk = puckK;
       // The light is fixed at the top left, so the shadow falls down-right; it also
       // lags behind the puck in proportion to its velocity.
       const vsx = kx * pvx;
@@ -3927,9 +4765,9 @@ export function createView(canvas, role, cfg) {
       const dim = playing ? 1 : 0.6 + 0.12 * Math.sin(now / 260);
       glitchPy = sy;
       if (ghosted) drawGhostHint(now);
-      else {
+      else if (!twHide) {
         ctx.globalAlpha = dim;
-        drawSprite(spr.puckShadow, sx + shOx, sy + shOy);
+        drawSprite(spr.puckShadow, sx + shOx, sy + shOy, pk);
         const hitT = (now - fx.state.hitAt) / 1000;
         const gk = clamp((speed - 500) / 1800, 0, 1) * 0.35 + (hitT >= 0 && hitT < 0.22 ? 0.85 * Math.pow(1 - hitT / 0.22, 2) : 0);
         if (gk > 0.02 && playing) {
@@ -3954,11 +4792,11 @@ export function createView(canvas, role, cfg) {
           const gy = syw(glitchFy);
           const off = 3 + 6 * ge;
           ctx.globalAlpha = 0.45 * (1 - ge) * (1 - ge);
-          drawSprite(spr.puck, gx, gy);
+          drawSprite(spr.puck, gx, gy, pk);
           ctx.globalCompositeOperation = 'lighter';
           ctx.globalAlpha = 0.5 * (1 - ge);
-          drawSprite(spr.puckCyan, gx - off, gy);
-          drawSprite(spr.puckMag, gx + off, gy);
+          drawSprite(spr.puckCyan, gx - off, gy, pk);
+          drawSprite(spr.puckMag, gx + off, gy, pk);
           ctx.globalCompositeOperation = 'source-over';
         }
         // Glitch warning: the puck jitters and splits into cyan / magenta ghosts.
@@ -3974,22 +4812,37 @@ export function createView(canvas, role, cfg) {
           jy = (h2 - Math.floor(h2) - 0.5) * 8;
         }
         ctx.globalAlpha = dim;
-        drawSprite(spr.puck, sx + jx, sy + jy);
+        drawSprite(spr.puck, sx + jx, sy + jy, pk);
         if (warn) {
           // The split has to read from across a table: a quarter puck radius each way.
           const woff = Math.max(6, pr * 0.28);
           ctx.globalCompositeOperation = 'lighter';
           ctx.globalAlpha = 0.55;
-          drawSprite(spr.puckCyan, sx + jx - woff, sy + jy);
-          drawSprite(spr.puckMag, sx + jx + woff, sy + jy);
+          drawSprite(spr.puckCyan, sx + jx - woff, sy + jy, pk);
+          drawSprite(spr.puckMag, sx + jx + woff, sy + jy, pk);
           ctx.globalCompositeOperation = 'source-over';
         }
         ctx.globalAlpha = 1;
+        // Magnet: magenta tint on the puck and a dashed pull towards the target mouth.
+        if (bt && bt.mg && spr.puckMagnet) {
+          const mt = bt.mg[0] > 0 ? 0 : bt.mg[1] > 0 ? 1 : -1;
+          if (mt >= 0) {
+            ctx.globalAlpha = 0.6 + 0.25 * Math.sin(now / 90);
+            drawSprite(spr.puckMagnet, sx, sy, pk);
+            ctx.globalAlpha = 1;
+            drawMagnetPull(sx, sy, pr, mt, now);
+          }
+        }
+        // Catch: the puck sits in front of the owner's mallet.
+        if (bt && bt.ct) {
+          const ct = bt.ct[0] > 0 ? bt.ct[0] : bt.ct[1] > 0 ? bt.ct[1] : 0;
+          if (ct > 0) drawCatchHold(sx, sy, pr, ct, now);
+        }
         // Frozen: pale blue tint, frost ring and crystals; a brief flash when it thaws.
         if (bt && bt.fz > 0) {
           const fk = easeOutCubic(clamp((now - fzT) / 200, 0, 1));
           ctx.globalAlpha = fk;
-          drawSprite(spr.puckIce, sx, sy);
+          drawSprite(spr.puckIce, sx, sy, pk);
           ctx.globalAlpha = 1;
           drawFrost(sx, sy, pr, fk, now);
         }
@@ -4001,9 +4854,10 @@ export function createView(canvas, role, cfg) {
           ctx.globalAlpha = 1;
         }
       }
-      predK += ((uiNow.predicted && !ghosted ? 1 : 0) - predK) * (1 - Math.exp(-dt * 12));
+      predK += ((uiNow.predicted && !ghosted && !twHide ? 1 : 0) - predK) * (1 - Math.exp(-dt * 12));
       if (predK > 0.02) drawPredRing(sx, sy, pr, now);
     }
+    if (tw) twDraw('drawPucks', s, now);
 
     if (role !== 'guest') drawMallet('host', 0, now);
     if (role !== 'host') {
@@ -4032,6 +4886,13 @@ export function createView(canvas, role, cfg) {
       drawMallet('guest', 2, now, local);
     }
 
+    if (tw) {
+      // Random: blackout over the rink, then the scores on top so they stay readable.
+      twDraw('drawDark', s, now);
+      drawHud(s, now, dt);
+      twDraw('drawHud', s, now);
+    }
+
     if (battle) {
       if (!replayOn) drawButtons(s, now);
       drawFlights(now);
@@ -4043,15 +4904,22 @@ export function createView(canvas, role, cfg) {
     if (!replayOn) {
       drawModeLabel(now);
       drawMessages(s, now, true);
+      // The layer decides when its twist card shows (ready / countdown plus a fade-out).
+      if (tw) twDraw('announce', s, now);
     }
 
     ctx.restore();
 
     drawGlitchTear(now);
 
-    ctx.setTransform(dpr * z, 0, 0, dpr * z, zx * dpr, zy * dpr);
+    if (mir) ctx.setTransform(-dpr * z, 0, 0, dpr * z, cw - zx * dpr, zy * dpr);
+    else ctx.setTransform(dpr * z, 0, 0, dpr * z, zx * dpr, zy * dpr);
     drawLatency();
     if (uiNow.diag) drawDiag(uiNow.diag);
+    if (battle && !replayOn) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawMirrorShimmer(now);
+    }
 
     if (rpE > 0) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -4071,6 +4939,15 @@ export function createView(canvas, role, cfg) {
 
   function setLatency(ms) {
     latency = ms == null || Number.isNaN(ms) ? null : ms;
+  }
+
+  if (random) {
+    try {
+      tw = createTwistLayer(env);
+    } catch (e) {
+      tw = null;
+      twFail(e);
+    }
   }
 
   const onResize = () => resize();
@@ -4124,6 +5001,16 @@ export function createView(canvas, role, cfg) {
     free(glowIce);
     for (const k in itemGlows) free(itemGlows[k]);
     resetBattleFx();
+    if (tw && typeof tw.reset === 'function') {
+      try {
+        tw.reset();
+      } catch (e) {
+        twFail(e);
+      }
+    }
+    tw = null;
+    free(scratchCv);
+    scratchCv = null;
     free(vignette);
     free(grain);
     vignette = null;

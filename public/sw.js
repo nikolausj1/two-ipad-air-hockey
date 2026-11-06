@@ -19,7 +19,7 @@
 //    page is closed, so one page load never mixes two workers' files.
 // Bump CACHE_VERSION when this list changes (it also forces a new install).
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const PREFIX = 'ah-';
 const MARKER = '.complete';
 const REFRESH_EVERY_MS = 10 * 60 * 1000;
@@ -31,6 +31,7 @@ const SCRIPTS = [
   'sim.js',
   'bot.js',
   'view.js',
+  'twists-view.js',
   'fx.js',
   'audio.js',
   'transport.js',

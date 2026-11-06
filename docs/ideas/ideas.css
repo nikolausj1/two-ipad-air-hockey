@@ -1,0 +1,115 @@
+/* Shared look for the idea review pages (matches the game's lobby palette). */
+:root {
+  --bg: #0b1020;
+  --panel: #151c33;
+  --panel-2: #1d2744;
+  --panel-3: #263259;
+  --text: #eef2ff;
+  --muted: #9aa6c9;
+  --accent: #ff7a45;
+  --accent-2: #4fd1ff;
+  --ok: #5ee38a;
+  --warn: #ffd166;
+  --no: #ff5c7a;
+  --line: rgba(255, 255, 255, 0.1);
+}
+
+* { box-sizing: border-box; }
+html { color-scheme: dark; }
+body {
+  margin: 0;
+  background: radial-gradient(1200px 600px at 20% -10%, #1a2550 0, transparent 60%), var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--accent-2); }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 140px; }
+header.page { margin-bottom: 22px; }
+header.page h1 { font-size: 34px; margin: 0 0 6px; letter-spacing: -0.01em; }
+header.page h1 b { color: var(--accent); }
+header.page p { color: var(--muted); max-width: 760px; margin: 4px 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; color: var(--muted); font-size: 13px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.legend .you::before { background: var(--accent); }
+.legend .them::before { background: var(--accent-2); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; }
+.idea {
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+.idea.state-yes { border-color: rgba(94, 227, 138, 0.6); }
+.idea.state-maybe { border-color: rgba(255, 209, 102, 0.6); }
+.idea.state-no { border-color: rgba(255, 92, 122, 0.55); opacity: 0.8; }
+.idea h2 { margin: 0; font-size: 20px; display: flex; align-items: baseline; gap: 8px; }
+.idea h2 .num { color: var(--muted); font-weight: 600; font-size: 14px; }
+.idea .hook { margin: 0; color: var(--text); font-weight: 600; }
+.idea p { margin: 0; color: var(--muted); font-size: 14px; }
+.idea .meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--panel-3); color: var(--text); border: 1px solid var(--line); }
+.tag.you { background: rgba(255, 122, 69, 0.18); border-color: rgba(255, 122, 69, 0.5); }
+.tag.them { background: rgba(79, 209, 255, 0.16); border-color: rgba(79, 209, 255, 0.5); }
+.tag.both { background: rgba(238, 242, 255, 0.1); }
+.tag.effort-S { color: var(--ok); }
+.tag.effort-M { color: var(--warn); }
+.tag.effort-L { color: var(--no); }
+
+.anim { width: 100%; aspect-ratio: 16 / 10; border-radius: 12px; background: #0e1430; border: 1px solid var(--line); display: block; }
+.anim-wrap { position: relative; }
+.anim-wrap .replay {
+  position: absolute; right: 8px; bottom: 8px;
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  background: rgba(11, 16, 32, 0.75); color: var(--text); border: 1px solid var(--line); cursor: pointer;
+}
+
+/* feedback widget (filled in by feedback.js) */
+.fb { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.fb .choices { display: flex; gap: 6px; }
+.fb .choices button {
+  flex: 1; padding: 8px 6px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel-3); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.fb .choices button.on-yes { background: rgba(94, 227, 138, 0.22); border-color: var(--ok); color: var(--ok); }
+.fb .choices button.on-maybe { background: rgba(255, 209, 102, 0.2); border-color: var(--warn); color: var(--warn); }
+.fb .choices button.on-no { background: rgba(255, 92, 122, 0.2); border-color: var(--no); color: var(--no); }
+.fb textarea {
+  width: 100%; min-height: 64px; resize: vertical; border-radius: 10px; border: 1px solid var(--line);
+  background: #0e1430; color: var(--text); font: inherit; font-size: 14px; padding: 8px 10px;
+}
+.fb textarea:focus { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+
+.fb-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  background: rgba(11, 16, 32, 0.92); backdrop-filter: blur(10px); border-top: 1px solid var(--line);
+  padding: 12px 20px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+}
+.fb-bar .count { color: var(--muted); font-size: 14px; flex: 1; min-width: 200px; }
+.fb-bar button {
+  padding: 10px 16px; border-radius: 12px; border: 0; font: inherit; font-weight: 700; cursor: pointer;
+  background: linear-gradient(180deg, #7adfff, var(--accent-2)); color: #06202c;
+}
+.fb-bar button.secondary { background: var(--panel-3); color: var(--text); border: 1px solid var(--line); }
+.fb-out {
+  position: fixed; inset: 10% 8% auto; z-index: 20; max-height: 80vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.fb-out textarea { width: 100%; min-height: 50vh; background: #0e1430; color: var(--text); border: 1px solid var(--line); border-radius: 10px; font: 13px/1.4 ui-monospace, Menlo, monospace; padding: 10px; }
+.fb-out .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+.fb-out .row button { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-3); color: var(--text); font: inherit; cursor: pointer; }
+.toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: var(--ok); color: #06240f; padding: 8px 14px; border-radius: 999px; font-weight: 700; z-index: 30; }
+
+@media (max-width: 720px) {
+  .wrap { padding: 18px 14px 150px; }
+  header.page h1 { font-size: 26px; }
+  .grid { grid-template-columns: 1fr; }
+}

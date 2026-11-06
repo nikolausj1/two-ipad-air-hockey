@@ -45,8 +45,25 @@ const ITEM_COLS = {
   ghost: ['#c8a8ff', '#e6d8ff', '#ffffff'],
   shrink: ['#7cffd4', '#c4ffee', '#ffffff'],
   freeze: ICE_COLS,
-  mine: ['#ff5252', '#ffb0a0', '#ffffff'],
+  magnet: ['#ff4fd8', '#ffb0ef', '#ffffff'],
+  widegoal: ['#ffd166', '#fff0c0', '#ffffff'],
+  goalie: ['#7cc4ff', '#cfe8ff', '#ffffff'],
+  giant: ['#ffb347', '#ffd9a0', '#ffffff'],
+  catch: ['#5ee38a', '#c4ffd8', '#ffffff'],
+  mirror: ['#d9f1ff', '#9fd8ff', '#ffffff'],
+  quake: ['#ff7a45', '#ffc2a0', '#ffffff'],
+  decoys: ['#b388ff', '#dccbff', '#ffffff'],
+  steal: ['#f4f6ff', '#c8d0ff', '#ffffff'],
+  tinypuck: ['#a8ecff', '#e0faff', '#ffffff'],
 };
+const MAGNET_COLS = ITEM_COLS.magnet;
+const GOALIE_COLS = ITEM_COLS.goalie;
+const CATCH_COLS = ITEM_COLS.catch;
+const DECOY_COLS = ITEM_COLS.decoys;
+const STEAL_COLS = ITEM_COLS.steal;
+const WIND_COLS = ['#e8f4ff', '#cfe3ff', '#ffffff'];
+const WELL_COLS = ['#b388ff', '#7c5cff', '#e6d8ff', '#ffffff'];
+const TURBO_COLS = ['#ffb347', '#ff6a2e', '#fff3d0', '#7cf2ff'];
 const RAIN_RATE = 46; // confetti per second while the game-over rain is on
 
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -201,6 +218,31 @@ export function createFx(opts) {
     addRing(x, y, 10, 150, 0.45, finaleCols[0], 4, now, 0.5);
   }
 
+  // Big explosion: bombs and the hot potato.
+  function bigBlast(x, y, now) {
+    for (let i = 0; i < 54; i++) {
+      const a = rnd(0, TAU);
+      const sp = rnd(120, 1100);
+      spawn(SPARK, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.3, 0.9), rnd(2, 4.5), pick(MINE_COLS), 2.4);
+    }
+    for (let i = 0; i < 18; i++) {
+      const a = rnd(0, TAU);
+      const sp = rnd(30, 260);
+      const p = spawn(PUFF, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.8, 1.4), rnd(14, 26), pick(SMOKE_COLS), 2.5);
+      p.grow = rnd(60, 130);
+    }
+    for (let i = 0; i < 12; i++) {
+      const a = rnd(0, TAU);
+      spawn(GLOW, x, y, Math.cos(a) * rnd(20, 160), Math.sin(a) * rnd(20, 160), rnd(0.3, 0.6), rnd(14, 28), '#ff9a3a', 3);
+    }
+    spawn(GLOW, x, y, 0, 0, 0.4, 60, '#ffd9a0', 0);
+    spawn(GLOW, x, y, 0, 0, 0.2, 90, '#ffffff', 0);
+    addRing(x, y, 10, puckR * 9.6, 0.8, '#ff7a1a', 10, now, 0.9);
+    addRing(x, y, 5, puckR * 5.6, 0.45, '#ffffff', 5, now, 0.8);
+    addRing(x, y, puckR, puckR * 4, 0.6, '#ffd23a', 6, now, 0.6);
+    shake(11, now);
+  }
+
   function onEvent(ev, now, snap) {
     const k = ev.k;
     const x = ev.x == null ? W / 2 : ev.x;
@@ -293,32 +335,104 @@ export function createFx(opts) {
         shake(0.8 + s, now);
         break;
       }
-      case 'bomb': {
+      case 'bomb':
+      case 'potato': {
         if (!visible(x, y, 160)) {
           shake(6, now);
           return;
         }
-        for (let i = 0; i < 54; i++) {
-          const a = rnd(0, TAU);
-          const sp = rnd(120, 1100);
-          spawn(SPARK, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.3, 0.9), rnd(2, 4.5), pick(MINE_COLS), 2.4);
-        }
+        bigBlast(x, y, now);
+        break;
+      }
+      case 'goaliehit': {
+        if (!visible(x, y, 80)) return;
+        sparkBurst(x, y, 6 + Math.round(s * 10), 120, 380 + 500 * s, GOALIE_COLS, 0.15, 0.35, 3.4);
+        addRing(x, y, puckR * 0.9, puckR * (1.8 + 1.2 * s), 0.22, '#7cc4ff', 4, now, 0.8);
+        if (s > 0.5) shake(1 + s * 2, now);
+        break;
+      }
+      case 'catch': {
+        if (!visible(x, y, 80)) return;
+        addRing(x, y, puckR * 3, puckR * 1.1, 0.25, '#5ee38a', 4, now, 0.9);
+        sparkBurst(x, y, 10, 80, 300, CATCH_COLS, 0.2, 0.4, 4);
+        spawn(GLOW, x, y, 0, 0, 0.25, 22, '#c4ffd8', 0);
+        break;
+      }
+      case 'fling': {
+        if (!visible(x, y, 100)) return;
+        sparkBurst(x, y, 8 + Math.round(s * 16), 160, 400 + 700 * s, CATCH_COLS, 0.2, 0.45, 2.8);
+        addRing(x, y, puckR, puckR * (2.5 + 2 * s), 0.3, '#5ee38a', 5, now, 0.85);
+        if (s > 0.5) shake(1 + s * 3, now);
+        break;
+      }
+      case 'decoys': {
+        if (!visible(x, y, 100)) return;
         for (let i = 0; i < 18; i++) {
           const a = rnd(0, TAU);
-          const sp = rnd(30, 260);
-          const p = spawn(PUFF, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.8, 1.4), rnd(14, 26), pick(SMOKE_COLS), 2.5);
-          p.grow = rnd(60, 130);
+          const sp = rnd(80, 460);
+          spawn(PIXEL, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.3, 0.6), rnd(3, 6), pick(DECOY_COLS), 3);
         }
-        for (let i = 0; i < 12; i++) {
+        addRing(x, y, puckR, puckR * 3.4, 0.34, '#b388ff', 4, now, 0.8);
+        addRing(x, y, puckR * 0.7, puckR * 2.2, 0.24, '#ffffff', 3, now, 0.6);
+        break;
+      }
+      case 'steal': {
+        if (!visible(x, y, 100)) return;
+        sparkBurst(x, y, 12, 100, 420, STEAL_COLS, 0.2, 0.45, 3);
+        addRing(x, y, puckR * 3, puckR, 0.3, '#f4f6ff', 3, now, 0.7);
+        break;
+      }
+      case 'magnetoff': {
+        if (!visible(x, y, 80)) return;
+        sparkBurst(x, y, 10, 100, 380, MAGNET_COLS, 0.15, 0.35, 3.4);
+        addRing(x, y, puckR, puckR * 2.8, 0.26, '#ff4fd8', 4, now, 0.8);
+        break;
+      }
+      case 'clack': {
+        if (!visible(x, y, 80)) return;
+        sparkBurst(x, y, 3 + Math.round(s * 8), 100, 260 + 500 * s, SPARK_COLS, 0.12, 0.3, 3.6);
+        addRing(x, y, puckR * 0.6, puckR * (1.4 + s), 0.16, '#ffffff', 3, now, 0.4 + 0.4 * s);
+        break;
+      }
+      case 'wind': {
+        // A gust sweeps the rink in the new direction: long pale streaks.
+        const ang = typeof ev.ang === 'number' ? ev.ang : 0;
+        const dx = Math.cos(ang);
+        const dy = Math.sin(ang);
+        for (let i = 0; i < 26; i++) {
+          const gx = rnd(0, W);
+          const gy = rnd(0, bottomY);
+          if (!visible(gx, gy, 40)) continue;
+          const sp = rnd(700, 1300);
+          spawn(SPARK, gx - dx * 120, gy - dy * 120, dx * sp, dy * sp, rnd(0.35, 0.7), rnd(1.2, 2.2), pick(WIND_COLS), 0.6);
+        }
+        break;
+      }
+      case 'swallow': {
+        if (!visible(x, y, 120)) return;
+        addRing(x, y, puckR * 6, puckR * 0.4, 0.45, '#b388ff', 5, now, 0.9);
+        addRing(x, y, puckR * 3.5, puckR * 0.2, 0.3, '#ffffff', 3, now, 0.7);
+        for (let i = 0; i < 16; i++) {
           const a = rnd(0, TAU);
-          spawn(GLOW, x, y, Math.cos(a) * rnd(20, 160), Math.sin(a) * rnd(20, 160), rnd(0.3, 0.6), rnd(14, 28), '#ff9a3a', 3);
+          const d = rnd(puckR * 3, puckR * 6);
+          const sp = d / 0.35;
+          spawn(SPARK, x + Math.cos(a) * d, y + Math.sin(a) * d, -Math.cos(a) * sp, -Math.sin(a) * sp, 0.35, rnd(1.4, 2.4), pick(WELL_COLS), 0);
         }
-        spawn(GLOW, x, y, 0, 0, 0.4, 60, '#ffd9a0', 0);
-        spawn(GLOW, x, y, 0, 0, 0.2, 90, '#ffffff', 0);
-        addRing(x, y, 10, puckR * 9.6, 0.8, '#ff7a1a', 10, now, 0.9);
-        addRing(x, y, 5, puckR * 5.6, 0.45, '#ffffff', 5, now, 0.8);
-        addRing(x, y, puckR, puckR * 4, 0.6, '#ffd23a', 6, now, 0.6);
-        shake(11, now);
+        shake(2, now);
+        break;
+      }
+      case 'spit': {
+        if (!visible(x, y, 120)) return;
+        sparkBurst(x, y, 22, 160, 760, WELL_COLS, 0.25, 0.5, 2.6);
+        spawn(GLOW, x, y, 0, 0, 0.25, 30, '#e6d8ff', 0);
+        addRing(x, y, puckR, puckR * 5, 0.4, '#b388ff', 6, now, 0.9);
+        shake(3, now);
+        break;
+      }
+      case 'turbo': {
+        if (!visible(x, y, 80)) return;
+        sparkBurst(x, y, 6 + Math.round(s * 18), 200, 500 + 900 * s, TURBO_COLS, 0.15, 0.35 + 0.2 * s, 3);
+        addRing(x, y, puckR, puckR * (2 + 2 * s), 0.22, '#ffb347', 4, now, 0.5 + 0.4 * s);
         break;
       }
       case 'glitchwarn': {
@@ -373,7 +487,7 @@ export function createFx(opts) {
           const sp = rnd(60, 340);
           spawn(PIXEL, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.25, 0.5), rnd(3, 5), pick(cols), 3);
         }
-        if (ev.item === 'shrink') addRing(x, y, puckR * 3.6, puckR * 0.9, 0.34, cols[0], 4, now, 0.8);
+        if (ev.item === 'shrink' || ev.item === 'tinypuck') addRing(x, y, puckR * 3.6, puckR * 0.9, 0.34, cols[0], 4, now, 0.8);
         else addRing(x, y, puckR * 1.1, puckR * 3.6, 0.34, cols[0], 5, now, 0.8);
         addRing(x, y, puckR * 0.8, puckR * 2.2, 0.22, '#ffffff', 3, now, 0.6);
         break;
@@ -437,20 +551,6 @@ export function createFx(opts) {
         shake(2, now);
         break;
       }
-      case 'minedrop': {
-        // Dust puff where the mine lands.
-        if (!visible(x, y, 80)) return;
-        for (let i = 0; i < 10; i++) {
-          const a = rnd(0, TAU);
-          const sp = rnd(40, 200);
-          const p = spawn(PUFF, x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.3, 0.55), rnd(4, 8), pick(DUST_COLS), 5);
-          p.grow = rnd(14, 30);
-        }
-        sparkBurst(x, y, 4, 80, 240, SPARK_COLS, 0.12, 0.24, 4);
-        addRing(x, y, puckR * 0.8, puckR * 2.6, 0.26, '#c8ccd8', 4, now, 0.45);
-        shake(1, now);
-        break;
-      }
       case 'goal': {
         const by = ev.by || (snap && snap.lg) || 'host';
         const conceded = by === 'host' ? 'guest' : 'host';
@@ -459,7 +559,7 @@ export function createFx(opts) {
         const gy = by === 'host' ? 0 : bottomY; // the goal line that was crossed
         const inward = by === 'host' ? Math.PI / 2 : -Math.PI / 2; // into the rink from that goal
         const gx = Math.min(W * 0.8, Math.max(W * 0.2, x));
-        const viaBomb = ev.why === 'bomb'; // the point came from a bomb, not a goal line
+        const viaBomb = ev.why === 'bomb' || ev.why === 'potato'; // the point came from a blast, not a goal line
         if (viaBomb && visible(x, y, 40)) {
           confettiBurst(x, y, 0, Math.PI, 48, cols, 800);
           sparkBurst(x, y, 30, 200, 900, cols, 0.35, 0.8, 2.2);
@@ -681,6 +781,24 @@ export function createFx(opts) {
     ctx.lineCap = 'butt';
   }
 
+  /** A few dust puffs drifting up from (x, y) (quake). Pooled like every particle. */
+  function dust(x, y, count) {
+    if (!visible(x, y, 60)) return;
+    const c = count || 2;
+    for (let i = 0; i < c; i++) {
+      const a = rnd(0, TAU);
+      const sp = rnd(20, 90);
+      const p = spawn(PUFF, x + rnd(-12, 12), y + rnd(-12, 12), Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.45, 0.8), rnd(3, 6), pick(DUST_COLS), 3);
+      p.grow = rnd(16, 32);
+    }
+  }
+
+  /** A small twinkle of sparks at (x, y) in the given colours. */
+  function sparkle(x, y, count, cols) {
+    if (!visible(x, y, 60)) return;
+    sparkBurst(x, y, count || 8, 60, 260, cols || SPARK_COLS, 0.2, 0.45, 3.5);
+  }
+
   /** Turn the game-over confetti rain (falling from the top of the screen) on or off. */
   function setRain(on) {
     if (on && !rainOn) rainAcc = 0;
@@ -702,6 +820,10 @@ export function createFx(opts) {
     getShake,
     setRain,
     reset,
+    shake,
+    addRing,
+    dust,
+    sparkle,
     state,
     get count() {
       return n;

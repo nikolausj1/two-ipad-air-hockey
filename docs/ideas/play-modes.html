@@ -1,0 +1,1290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New play modes</title>
+<link rel="stylesheet" href="./ideas.css">
+</head>
+<body data-page="play-modes">
+<div class="wrap">
+  <header class="page">
+    <h1>New <b>play modes</b></h1>
+    <p>Fourteen ideas for new ways to play on two iPads. Every card runs a small self-playing simulation of the mode, with two bots, so you can watch how it plays instead of reading rules. The sims are a sketch of the feel, not the final physics.</p>
+    <p>For each card tap Yes, Maybe or No and add a note if you have one. When you are done, press "Copy feedback for Claude" at the bottom and paste the summary into the chat.</p>
+    <div class="legend"><span class="you">P1 (orange, defends the left goal)</span><span class="them">P2 (blue, defends the right goal)</span></div>
+  </header>
+  <section class="grid">
+
+  <article class="idea" data-id="hotpotato">
+    <h2><span class="num">01</span>Hot Potato</h2>
+    <p class="hook">The puck is a bomb with a fuse. Do not be holding it when it blows.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="hotpotato"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>The puck carries a 6 second fuse, shown as a ring that shrinks. Any mallet hit resets it to 6 seconds minus 0.5 seconds for every hit so far this rally, so long rallies get twitchy. When the fuse runs out the puck explodes and the player whose half it is in concedes a point. Goals still count as normal.</p>
+    <p>Watch for the stalling game: nobody wants to touch it late, but whoever leaves it alone in their own half pays for it.</p>
+    <div class="meta"><span class="tag">Inspired by Hot Potato</span><span class="tag effort-M">Effort M</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="breakout">
+    <h2><span class="num">02</span>Breakout</h2>
+    <p class="hook">Wall off both goals with bricks. Smash a hole, then shoot through it.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="breakout"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>Each goal is walled by a row of 7 bricks. A puck hitting a brick breaks it and bounces. Only a shot through a hole in the row scores. Bricks come back after every goal.</p>
+    <p>Every attack has two jobs: open a gap and then thread it. Defenders can wait for the hole to open and guard it.</p>
+    <div class="meta"><span class="tag">Inspired by Arkanoid</span><span class="tag effort-M">Effort M</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="tron">
+    <h2><span class="num">03</span>Tron Trails</h2>
+    <p class="hook">Your mallet draws a light wall. The puck bounces off it.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="tron"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>Each mallet leaves a glowing trail for 2 seconds. The puck treats trail segments as walls and bounces off them. Sweep your mallet across the goal mouth to build a barrier, or lay a wall to bank the puck somewhere new. In this sim a bounce chips a gap in the wall so rallies keep flowing.</p>
+    <p>Defending becomes drawing. Look for the zigzag walls in front of each goal and shots that ricochet off them.</p>
+    <div class="meta"><span class="tag">Inspired by Tron light cycles</span><span class="tag effort-M">Effort M</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="twinpuck">
+    <h2><span class="num">04</span>Twin Puck</h2>
+    <p class="hook">Two pucks on the table, always. Score on either.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="twinpuck"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>The serve drops two pucks. Both are live, both score, and the pucks also collide with each other. When one scores it respawns at the centre while the other keeps going, so there are always two in play.</p>
+    <p>Pure chaos mode. Watch for attention splitting: you cannot guard one puck and attack the other at once.</p>
+    <div class="meta"><span class="tag">Inspired by pinball multiball</span><span class="tag effort-L">Effort L</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="movinggoals">
+    <h2><span class="num">05</span>Moving Goals</h2>
+    <p class="hook">The goal mouths slide along the end rails. Aim where it will be.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="movinggoals"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>Each goal mouth glides side to side along its end rail, about 4 seconds per sweep, with the two goals out of phase. Everything else is classic.</p>
+    <p>Cheap to build and it changes every shot: lead your aim, or wait for the goal to swing into line.</p>
+    <div class="meta"><span class="tag">Inspired by moving targets in Pong clones</span><span class="tag effort-S">Effort S</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="gravity">
+    <h2><span class="num">06</span>Gravity Well</h2>
+    <p class="hook">A black hole in the middle bends every shot.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="gravity"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>A well sits at the centre of the rink and pulls the puck toward it. Fast pucks curve and slingshot past. Slow pucks orbit, spiral in and get swallowed, which ends the rally with a new serve and no point.</p>
+    <p>Curved shots open up new angles. Watch for the slingshots and the doomed slow pucks.</p>
+    <div class="meta"><span class="tag">Inspired by orbital physics games</span><span class="tag effort-M">Effort M</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="shrinking">
+    <h2><span class="num">07</span>Shrinking Rink</h2>
+    <p class="hook">The side rails close in. The longer the rally, the tighter it gets.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="shrinking"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>Every 10 seconds of rally time the side rails move in by 10 percent, down to half width. The next goal resets them. In this sim the clock runs about three times faster so you can see it.</p>
+    <p>Sudden death feel: late in a rally there is no room to hide and the goal looks huge.</p>
+    <div class="meta"><span class="tag">Inspired by battle royale zones</span><span class="tag effort-M">Effort M</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="tugofwar">
+    <h2><span class="num">08</span>Tug of War</h2>
+    <p class="hook">One shared score bar. Every goal drags the line toward the loser.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="tugofwar"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>There is a single bar across the seam instead of two scores. Each goal pushes the line 20 percent toward the loser's goal. Push it all the way to the end to win.</p>
+    <p>Comebacks are built in: a streak is easy to see and easy to break. Watch the bar swing.</p>
+    <div class="meta"><span class="tag">Inspired by tug of war</span><span class="tag effort-S">Effort S</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="curling">
+    <h2><span class="num">09</span>Curling</h2>
+    <p class="hook">No goals. Take turns sliding the puck onto the rings.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="curling"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>Players alternate sliding a puck toward the target on the far side. It scores by where it stops: 3 points in the inner ring, 2 in the middle, 1 in the outer. Best of 8 stones. Stones can knock each other out of the rings.</p>
+    <p>A calm, skill-and-patience mode for a change of pace. Watch for the takeout shots.</p>
+    <div class="meta"><span class="tag">Inspired by curling</span><span class="tag effort-M">Effort M</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="bankshot">
+    <h2><span class="num">10</span>Bank Shots</h2>
+    <p class="hook">A goal only counts if the puck kissed a side rail first.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="bankshot"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>The puck must touch a side rail after the last mallet hit and before it enters the goal. A straight shot bounces back out of the mouth. The goal mouths glow green when the puck is armed.</p>
+    <p>Turns the table into a pool table. Watch the straight shot get rejected and the banked one go in.</p>
+    <div class="meta"><span class="tag">Inspired by pool bank shots</span><span class="tag effort-S">Effort S</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="blackoutrink">
+    <h2><span class="num">11</span>Blackout Rink</h2>
+    <p class="hook">The lights are off. The puck is your lantern.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="blackoutrink"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>The rink goes dark. The puck lights a radius around itself and each mallet has a faint glow. You track the puck by its light and guess the rest.</p>
+    <p>A pure view change, no new physics. Watch how little you can see of the other half.</p>
+    <div class="meta"><span class="tag">Inspired by lantern and fog of war games</span><span class="tag effort-S">Effort S</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="wind">
+    <h2><span class="num">12</span>Wind</h2>
+    <p class="hook">A steady wind shoves the puck. It turns every 8 seconds.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="wind"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>A wind pushes the puck constantly. Every 8 seconds the direction changes, shown by an arrow in the corner and a gust sound. Fight it or ride it.</p>
+    <p>The sim shows the arrow and drifting streaks but no sound. Watch the puck creep when nobody touches it.</p>
+    <div class="meta"><span class="tag">Inspired by wind in mini golf</span><span class="tag effort-S">Effort S</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="pinball">
+    <h2><span class="num">13</span>Pinball</h2>
+    <p class="hook">Four bumpers score for whoever hit the puck last.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="pinball"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>Four bumpers sit on the rink. Each time the puck hits one, the player who last touched the puck gets 1 point. A goal is worth 5. First to 21 wins.</p>
+    <p>Rewards messy, high-bounce play. Watch the plus ones pop and the lead swing.</p>
+    <div class="meta"><span class="tag">Inspired by pinball</span><span class="tag effort-M">Effort M</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  <article class="idea" data-id="turbo">
+    <h2><span class="num">14</span>Turbo</h2>
+    <p class="hook">Every hit makes the puck 10 percent faster, with no cap.</p>
+    <div class="anim-wrap"><canvas class="anim" data-sim="turbo"></canvas><button class="replay" type="button">Restart</button></div>
+    <p>The puck speeds up 10 percent each time a mallet hits it in a rally, until someone scores. Then it resets to normal speed.</p>
+    <p>Rallies escalate until someone cannot keep up. Watch the speed meter climb and the trail stretch.</p>
+    <div class="meta"><span class="tag">Inspired by Pong speed ramps</span><span class="tag effort-S">Effort S</span><span class="tag">Best with 2 iPads</span></div>
+  </article>
+
+  </section>
+</div>
+<script>
+(function () {
+'use strict';
+// ---------------------------------------------------------------------------
+// Tiny air hockey toy engine. Landscape rink, goals left (P1) and right (P2).
+// ---------------------------------------------------------------------------
+var W = 400, H = 250, L = 12, R = 388, T = 32, B = 238, CX = 200, CYF = 135;
+var RM = 14, RP = 8, GH = 40;
+var STEP = 1 / 240;
+var REST_RAIL = 0.92, REST_MAL = 0.85;
+var ACC = 3600;
+var COL = { rink: '#0e1430', line: 'rgba(255,255,255,.25)', p1: '#ff7a45', p2: '#4fd1ff', puck: '#f4f6ff', gold: '#ffd166', danger: '#ff5c7a', green: '#5ee38a' };
+var FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif';
+
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function fold(y, a, b) {
+  var span = b - a, t = (y - a) % (2 * span);
+  if (t < 0) t += 2 * span;
+  return a + (t > span ? 2 * span - t : t);
+}
+function pcol(s) { return s === 0 ? COL.p1 : COL.p2; }
+
+var MODES = {};
+var ORDER = ['hotpotato', 'breakout', 'tron', 'twinpuck', 'movinggoals', 'gravity', 'shrinking', 'tugofwar', 'curling', 'bankshot', 'blackoutrink', 'wind', 'pinball', 'turbo'];
+
+function rngMake(seed) {
+  var s = seed >>> 0;
+  return function () {
+    s = (s + 0x6D2B79F5) >>> 0;
+    var t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function cyOf(w) { return (w.t + w.b) / 2; }
+function gcy(w, s, ahead) { return w.mode.goalCy ? w.mode.goalCy(w, s, w.time + (ahead || 0)) : cyOf(w); }
+function ghalf(w, s) { return w.mode.goalHalf || GH; }
+
+function mkPuck(x, y) {
+  return { x: x, y: y, vx: 0, vy: 0, r: RP, last: -1, railTouched: false, hidden: false, hold: 0, hvx: 0, hvy: 0, tr: [], tc: 0, stall: 0, color: COL.puck };
+}
+function launch(p, x, y, vx, vy, hold) {
+  p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.hvx = vx; p.hvy = vy; p.hold = hold; p.hidden = false;
+  p.last = -1; p.railTouched = false; p.tr = []; p.stall = 0;
+}
+
+function makeWorld(id, seed) {
+  var mode = MODES[id];
+  var rnd = rngMake(seed || 1);
+  var w = {
+    id: id, mode: mode, r: rnd, time: 0, rallyT: 0, hits: 0,
+    l: L, rr: R, t: T, b: B,
+    pucks: [], mallets: [], score: [0, 0], goals: [0, 0], events: [0, 0], total: [0, 0], firstEvent: [-1, -1], lastConc: [0, 0],
+    fx: [], pops: [], cap: { text: '', color: '#fff', t: 0, max: 1 },
+    goalT: 0, pending: 0, centerOwner: 0, won: false,
+    friction: 0.8, decel: mode.decel || 0, vmax: mode.vmax || 640, noGoals: !!mode.noGoals
+  };
+  w.r2 = w.rr; // alias used for the right rail x
+  for (var s = 0; s < 2; s++) {
+    w.mallets.push({
+      side: s, x: s === 0 ? L + RM + 26 : R - RM - 26, y: CYF, vx: 0, vy: 0, r: RM, color: pcol(s),
+      tx: 0, ty: 0, spd: 300, mode: 'go', hitCd: 0, think: 0, err: 0, jy: 0, pickN: 0, ang: 0,
+      strikeV: 200, waitT: 0, strikeT: 0, was: false, maxV: 400, tl: [], tlT: 0, bank: false, firstDone: false
+    });
+  }
+  if (mode.init) mode.init(w);
+  if (!mode.noServe) serve(w, w.r() < 0.5 ? 0 : 1);
+  return w;
+}
+
+function say(w, text, dur, color) {
+  w.cap.text = text; w.cap.t = dur || 1.1; w.cap.max = w.cap.t; w.cap.color = color || '#fff';
+}
+function burst(w, x, y, color, n, speed, life) {
+  for (var i = 0; i < n; i++) {
+    if (w.fx.length > 160) break;
+    var a = w.r() * 6.2832, sp = speed * (0.3 + w.r() * 0.7);
+    w.fx.push({ type: 'p', x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: life * (0.6 + w.r() * 0.4), max: life, color: color, size: 1 + w.r() * 2 });
+  }
+}
+function ringFx(w, x, y, max, color, life) {
+  w.fx.push({ type: 'ring', x: x, y: y, r: 4, dr: (max - 4) / life, life: life, max: life, color: color });
+}
+function pop(w, x, y, text, color) {
+  if (w.pops.length > 12) w.pops.shift();
+  w.pops.push({ x: x, y: y, text: text, color: color, t: 0.9 });
+}
+
+function award(w, side, n, isGoal, x, y) {
+  w.score[side] += n; w.events[side]++; w.total[side] += n;
+  if (isGoal) { w.goals[side]++; w.lastConc[1 - side] = w.time; }
+  if (w.firstEvent[side] < 0) w.firstEvent[side] = w.time;
+  if (x !== undefined) { pop(w, x, y, (n >= 0 ? '+' : '') + n, pcol(side)); }
+  var ws = w.mode.winScore;
+  if (ws && w.score[side] >= ws) {
+    say(w, 'P' + (side + 1) + ' wins to ' + ws + '!', 1.6, pcol(side));
+    w.won = true;
+    endRally(w, 1 - side, 1.8);
+  }
+}
+function endRally(w, conceder, delay) { w.goalT = delay; w.pending = conceder; }
+
+function serve(w, conceder) {
+  var m = w.mode;
+  w.hits = 0; w.rallyT = 0; w.centerOwner = conceder;
+  if (w.won) { w.score = [0, 0]; w.won = false; }
+  if (m.serve) m.serve(w, conceder); else defaultServe(w, conceder);
+  if (m.onServe) m.onServe(w, conceder);
+}
+function defaultServe(w, c) {
+  var d = c === 0 ? -1 : 1;
+  var p = mkPuck(CX, cyOf(w) + (w.r() - 0.5) * 70);
+  p.hold = 0.5; p.hvx = d * (80 + w.r() * 50); p.hvy = (w.r() - 0.5) * 70;
+  w.pucks = [p];
+}
+
+function stdGoal(w, scorer, p, text) {
+  p.vx = 0; p.vy = 0;
+  var v = w.mode.goalValue || 1;
+  award(w, scorer, v, true, p.x < CX ? w.l + 30 : w.rr - 30, p.y);
+  if (w.goalT <= 0) {
+    say(w, text || ('GOAL! P' + (scorer + 1) + (v > 1 ? ' +' + v : '')), 1.0, pcol(scorer));
+    endRally(w, 1 - scorer, 0.9);
+  }
+}
+function goal(w, scorer, p) {
+  if (w.mode.onGoal && w.mode.onGoal(w, scorer, p)) return;
+  stdGoal(w, scorer, p);
+}
+
+// --- bots -------------------------------------------------------------------
+function pick(w, s) {
+  var dir = s ? -1 : 1, best = null, bd = 1e9;
+  for (var i = 0; i < w.pucks.length; i++) {
+    var p = w.pucks[i];
+    if (p.hidden) continue;
+    var mine = (p.x - CX) * dir < 0;
+    var key = mine ? Math.abs(p.x - (s === 0 ? w.l : w.rr)) : 1000 + Math.abs(p.x - CX);
+    if (key < bd) { bd = key; best = p; }
+  }
+  return best;
+}
+function roll(w, m) {
+  var gh = ghalf(w, 1 - m.side);
+  m.jy = (w.r() - 0.5) * 2 * gh * 0.65;
+  m.pickN = (w.r() * 1000) | 0;
+  m.ang = (w.r() - 0.5) * 2 * (w.mode.angNoise !== undefined ? w.mode.angNoise : 0.05);
+  m.strikeV = (170 + w.r() * 110) * (w.mode.strikeScale || 1);
+}
+function bounds(w, m) {
+  var s = m.side, x0, x1;
+  if (w.mode.mBounds) { var bb = w.mode.mBounds(w, m); return bb; }
+  if (s === 0) { x0 = w.l + RM; x1 = CX - RM - 1; } else { x0 = CX + RM + 1; x1 = w.rr - RM; }
+  return [x0, x1, w.t + RM, w.b - RM];
+}
+function plan(w, m, h) {
+  var mode = w.mode, s = m.side, dir = s ? -1 : 1;
+  var homeX = s === 0 ? w.l + RM + 26 : w.rr - RM - 26;
+  var gc = gcy(w, s), gh = ghalf(w, s);
+  var p = w.goalT > 0 ? null : pick(w, s);
+  m.mode = 'go';
+  if (!p) { m.tx = homeX; m.ty = cyOf(w); m.spd = m.maxV * 0.6; m.was = false; return; }
+  var sp = Math.hypot(p.vx, p.vy);
+  var mineNow = (p.x - CX) * dir < (w.centerOwner === s ? 6 : -4);
+  if (mineNow && !m.was) {
+    m.was = true; roll(w, m);
+    var wr = typeof mode.wait === 'function' ? mode.wait(w) : mode.wait;
+    m.waitT = wr ? wr[0] + w.r() * (wr[1] - wr[0]) : 0;
+  }
+  if (!mineNow) m.was = false;
+  var threat = (-p.vx * dir > 110) && sp > 200;
+  var wob = (mode.wobble || 0) * clamp(1 - (w.time - w.lastConc[s]) / 6, 0, 1);
+  var passive = mode.passive && mode.passive(w, s);
+  if (passive) { m.tx = homeX; m.ty = clamp(gc + (m.err >= 0 ? 1 : -1) * (gh + 22), w.t + RM, w.b - RM); m.spd = m.maxV * 0.5; if (!(mineNow && m.waitT <= 0)) return; }
+  if (threat && !passive) {
+    var tt = Math.max(0.01, ((p.x - homeX) * dir) / (-p.vx * dir));
+    var py = fold(p.y + p.vy * tt, w.t + RP, w.b - RP);
+    m.tx = homeX; m.ty = clamp(py + m.err, gc - gh - 6, gc + gh + 6); m.spd = m.maxV;
+    return;
+  }
+  if (mineNow && m.waitT > 0) m.waitT -= h;
+  if (m.strikeT > 0) m.strikeT -= h;
+  var trap = (p.x > w.rr - 34 || p.x < w.l + 34) && (p.y < w.t + 34 || p.y > w.b - 34) && sp < 60;
+  if (!trap && mineNow && m.waitT <= 0 && (sp < (mode.attackSp || 280) || m.strikeT > 0)) {
+    var oppX = s === 0 ? w.rr : w.l;
+    var aim = mode.botAim ? mode.botAim(w, s, p, m) : [oppX, gcy(w, 1 - s, 0.6) + m.jy];
+    var lead = m.strikeT > 0 ? 0 : 0.1;
+    var qx = p.x + p.vx * lead, qy = p.y + p.vy * lead;
+    var ax = aim[0] - qx, ay = aim[1] - qy, len = Math.hypot(ax, ay) || 1;
+    ax /= len; ay /= len;
+    var ca = Math.cos(m.ang), sa = Math.sin(m.ang);
+    var ux = ax * ca - ay * sa, uy = ax * sa + ay * ca;
+    var bd = bounds(w, m);
+    var Tx = qx - ux * (RM + RP + 24), Ty = qy - uy * (RM + RP + 24);
+    var Tcx = clamp(Tx, bd[0], bd[1]), Tcy = clamp(Ty, bd[2], bd[3]);
+    var clampedT = Math.abs(Tcx - Tx) + Math.abs(Tcy - Ty) > 1;
+    var behind = (m.x - qx) * ux + (m.y - qy) * uy;
+    var dS = Math.hypot(Tcx - m.x, Tcy - m.y);
+    if (m.strikeT > 0 || dS <= 7 || (clampedT && dS < 22 && behind < -6)) {
+      if (!(m.strikeT > 0)) m.strikeT = 0.5;
+      m.tx = p.x + ux * 30; m.ty = p.y + uy * 30; m.spd = m.strikeV; m.mode = 'strike';
+    } else if (behind > -14 && !clampedT) {
+      var px = -uy, py2 = ux;
+      var side = ((m.x - qx) * px + (m.y - qy) * py2) >= 0 ? 1 : -1;
+      m.tx = Tx + px * side * (RM + RP + 22); m.ty = Ty + py2 * side * (RM + RP + 22); m.spd = m.maxV;
+    } else {
+      m.tx = Tcx; m.ty = Tcy; m.spd = Math.min(m.maxV, 70 + dS * 9);
+    }
+    return;
+  }
+  // hover in front of the goal, shadowing the puck
+  var shade = wob ? 0.65 * (0.15 + 0.85 * clamp(1 - (w.time - w.lastConc[s]) / 6, 0, 1)) : (mode.shade !== undefined ? mode.shade : 0.65);
+  m.tx = homeX + dir * (mode.hoverFwd !== undefined ? mode.hoverFwd : 14) + (wob ? dir * wob * 0.5 * Math.sin(w.time * 2.3 + s) : 0);
+  m.ty = clamp(gc + (p.y - gc) * shade, gc - gh - 8, gc + gh + 8) + (wob ? wob * Math.sin(w.time * 5 + s * 2) : 0);
+  m.spd = m.maxV * 0.65;
+}
+function integ(w, m, h) {
+  var dx = m.tx - m.x, dy = m.ty - m.y, d = Math.hypot(dx, dy), vdx, vdy, k;
+  if (m.mode === 'strike') { k = d > 1 ? m.spd / d : 0; vdx = dx * k; vdy = dy * k; }
+  else { var sp = Math.min(m.spd, d * 14); k = d > 0.01 ? sp / d : 0; vdx = dx * k; vdy = dy * k; }
+  var ax = vdx - m.vx, ay = vdy - m.vy, am = Math.hypot(ax, ay), mx = ACC * h;
+  if (am > mx) { ax *= mx / am; ay *= mx / am; }
+  m.vx += ax; m.vy += ay;
+  m.x += m.vx * h; m.y += m.vy * h;
+  var bd = bounds(w, m);
+  if (m.x < bd[0]) { m.x = bd[0]; if (m.vx < 0) m.vx = 0; }
+  if (m.x > bd[1]) { m.x = bd[1]; if (m.vx > 0) m.vx = 0; }
+  if (m.y < bd[2]) { m.y = bd[2]; if (m.vy < 0) m.vy = 0; }
+  if (m.y > bd[3]) { m.y = bd[3]; if (m.vy > 0) m.vy = 0; }
+}
+function botStep(w, m, h) {
+  m.hitCd -= h;
+  if (!(w.mode.bot && w.mode.bot(w, m, h))) plan(w, m, h);
+  integ(w, m, h);
+}
+
+// --- physics ----------------------------------------------------------------
+function railHit(w, p, which) {
+  if (which === 't' || which === 'b') p.railTouched = true;
+  if (w.mode.onRail) w.mode.onRail(w, p, which);
+}
+function malletHit(w, m, p) {
+  p.last = m.side; p.railTouched = false; w.hits++;
+  if (w.mode.assist !== undefined) {
+    // skilled bots: steer a forward hit onto the intended line (used where precision is the point of the mode)
+    var dir = m.side ? -1 : 1, sp0 = Math.hypot(p.vx, p.vy) || 1;
+    if (p.vx * dir > 0.35 * sp0 && (p.x - CX) * dir < 30) {
+      var aim = w.mode.botAim ? w.mode.botAim(w, m.side, p, m) : [m.side === 0 ? w.rr : w.l, gcy(w, 1 - m.side, 0.6) + m.jy], ax = aim[0] - p.x, ay = aim[1] - p.y, al = Math.hypot(ax, ay) || 1;
+      var an = (w.r() - 0.5) * 2 * w.mode.assist, ca = Math.cos(an), sa = Math.sin(an);
+      var ux = ax / al, uy = ay / al;
+      p.vx = sp0 * (ux * ca - uy * sa); p.vy = sp0 * (ux * sa + uy * ca);
+    }
+  }
+  roll(w, m); m.strikeT = 0;
+  var de = w.mode.defErr !== undefined ? w.mode.defErr : 110;
+  for (var q = 0; q < w.mallets.length; q++) w.mallets[q].err = (w.r() + w.r() - 1) * de * (1 + (w.time - w.lastConc[q]) / 1.7);
+  if (w.mode.onHit) w.mode.onHit(w, m, p);
+}
+function movePuck(w, p, h) {
+  if (p.hidden) return;
+  if (p.hold > 0) {
+    p.hold -= h;
+    if (p.hold <= 0) { p.vx = p.hvx || 0; p.vy = p.hvy || 0; } else return;
+  }
+  var m = w.mode;
+  var f = Math.pow(w.friction, h);
+  p.vx *= f; p.vy *= f;
+  var sp = Math.hypot(p.vx, p.vy);
+  if (w.decel && sp > 0) {
+    var ns = Math.max(0, sp - w.decel * h), k0 = ns / sp;
+    p.vx *= k0; p.vy *= k0; sp = ns;
+  }
+  if (sp > w.vmax) { var kk = w.vmax / sp; p.vx *= kk; p.vy *= kk; }
+  p.x += p.vx * h; p.y += p.vy * h;
+  var r = p.r, s, i;
+  if (p.y - r < w.t) { p.y = w.t + r; if (p.vy < 0) { p.vy = -p.vy * REST_RAIL; railHit(w, p, 't'); } }
+  if (p.y + r > w.b) { p.y = w.b - r; if (p.vy > 0) { p.vy = -p.vy * REST_RAIL; railHit(w, p, 'b'); } }
+  for (s = 0; s < 2; s++) {
+    var ex = s === 0 ? w.l : w.rr;
+    var out = s === 0 ? (p.x - r < ex) : (p.x + r > ex);
+    if (!out) continue;
+    var gc = gcy(w, s), gh = ghalf(w, s);
+    var inMouth = !w.noGoals && Math.abs(p.y - gc) < gh - 1;
+    var open = inMouth && (!m.goalOpen || m.goalOpen(w, s, p));
+    if (open) {
+      var beyond = s === 0 ? p.x < ex - 3 : p.x > ex + 3;
+      if (beyond) { p.x = s === 0 ? Math.max(p.x, ex - 6) : Math.min(p.x, ex + 6); goal(w, 1 - s, p); return; }
+    } else {
+      p.x = s === 0 ? ex + r : ex - r;
+      var into = s === 0 ? p.vx < 0 : p.vx > 0;
+      if (into) { p.vx = -p.vx * REST_RAIL; if (inMouth && m.onReject) m.onReject(w, s, p); railHit(w, p, 'e'); }
+    }
+  }
+  if (!w.noGoals) {
+    for (s = 0; s < 2; s++) {
+      var pxp = s === 0 ? w.l : w.rr, gcc = gcy(w, s), ghh = ghalf(w, s);
+      for (var sg = -1; sg <= 1; sg += 2) {
+        var qy = gcc + sg * ghh, dx = p.x - pxp, dy = p.y - qy, d = Math.hypot(dx, dy), rr = r + 2.5;
+        if (d < rr && d > 0.001) {
+          var nx = dx / d, ny = dy / d, vn = p.vx * nx + p.vy * ny;
+          p.x = pxp + nx * rr; p.y = qy + ny * rr;
+          if (vn < 0) { p.vx -= (1 + REST_RAIL) * vn * nx; p.vy -= (1 + REST_RAIL) * vn * ny; }
+        }
+      }
+    }
+  }
+  for (i = 0; i < w.mallets.length; i++) {
+    var ml = w.mallets[i];
+    var mx = p.x - ml.x, my = p.y - ml.y, md = Math.hypot(mx, my), mn = ml.r + r;
+    if (md < mn && md > 0.0001) {
+      var qx = mx / md, qy2 = my / md;
+      var rel = (p.vx - ml.vx) * qx + (p.vy - ml.vy) * qy2;
+      if (rel < 0) { var kf = -(1 + REST_MAL) * rel; p.vx += kf * qx; p.vy += kf * qy2; }
+      p.x = ml.x + qx * (mn + 0.05); p.y = ml.y + qy2 * (mn + 0.05);
+      if (p.y - r < w.t) p.y = w.t + r;
+      if (p.y + r > w.b) p.y = w.b - r;
+      if (ml.hitCd <= 0) { ml.hitCd = 0.1; malletHit(w, ml, p); }
+    }
+  }
+  if (m.collide) m.collide(w, p, h);
+  var sp2 = Math.hypot(p.vx, p.vy);
+  if (sp2 > w.vmax) { var k2 = w.vmax / sp2; p.vx *= k2; p.vy *= k2; }
+  if (m.trail) {
+    p.tc++;
+    if (p.tc % 3 === 0) { p.tr.push(p.x, p.y); if (p.tr.length > m.trail * 2) p.tr.splice(0, 2); }
+  }
+}
+function puckPairs(w) {
+  var a = w.pucks;
+  for (var i = 0; i < a.length; i++) {
+    for (var j = i + 1; j < a.length; j++) {
+      var p = a[i], q = a[j];
+      if (p.hidden || q.hidden || p.hold > 0 || q.hold > 0) continue;
+      var dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy), mn = p.r + q.r;
+      if (d < mn && d > 0.0001) {
+        var nx = dx / d, ny = dy / d, rel = (q.vx - p.vx) * nx + (q.vy - p.vy) * ny;
+        if (rel < 0) { var k = -(1 + 0.95) * rel / 2; p.vx -= k * nx; p.vy -= k * ny; q.vx += k * nx; q.vy += k * ny; }
+        var ov = (mn - d) / 2 + 0.02;
+        p.x -= nx * ov; p.y -= ny * ov; q.x += nx * ov; q.y += ny * ov;
+      }
+    }
+  }
+}
+function fxStep(w, h) {
+  var i, f;
+  for (i = w.fx.length - 1; i >= 0; i--) {
+    f = w.fx[i]; f.life -= h;
+    if (f.life <= 0) { w.fx.splice(i, 1); continue; }
+    if (f.type === 'ring') f.r += f.dr * h;
+    else { f.x += f.vx * h; f.y += f.vy * h; var k = Math.pow(0.08, h); f.vx *= k; f.vy *= k; }
+  }
+  for (i = w.pops.length - 1; i >= 0; i--) {
+    f = w.pops[i]; f.t -= h; f.y -= 22 * h;
+    if (f.t <= 0) w.pops.splice(i, 1);
+  }
+  if (w.cap.t > 0) w.cap.t -= h;
+}
+function step(w, h) {
+  var m = w.mode, i;
+  w.time += h;
+  fxStep(w, h);
+  if (w.goalT > 0) {
+    w.goalT -= h;
+    if (m.idle) m.idle(w, h);
+    for (i = 0; i < w.mallets.length; i++) botStep(w, w.mallets[i], h);
+    if (w.goalT <= 0) serve(w, w.pending);
+    return;
+  }
+  w.rallyT += h;
+  if (m.step) m.step(w, h);
+  if (w.goalT > 0) return;
+  for (i = 0; i < w.mallets.length; i++) botStep(w, w.mallets[i], h);
+  for (i = 0; i < w.pucks.length; i++) movePuck(w, w.pucks[i], h);
+  if (w.pucks.length > 1) puckPairs(w);
+  for (i = 0; i < w.pucks.length; i++) {
+    var p = w.pucks[i];
+    if (p.hidden || w.goalT > 0) continue;
+    if (!isFinite(p.x) || !isFinite(p.y) || !isFinite(p.vx) || !isFinite(p.vy) || p.x < w.l - 20 || p.x > w.rr + 20 || p.y < w.t - 20 || p.y > w.b + 20) {
+      launch(p, CX, cyOf(w), 60, 0, 0.3); say(w, 'puck reset', 0.8);
+      continue;
+    }
+    if (!m.noNudge && p.hold <= 0) {
+      if (Math.hypot(p.vx, p.vy) < 8) {
+        p.stall += h;
+        var inCorner = (p.x > w.rr - 34 || p.x < w.l + 34) && (p.y < w.t + 34 || p.y > w.b - 34);
+        if (p.stall > (inCorner ? 1.2 : 2.5)) { p.vx = (CX - p.x) * 0.9 + (w.r() - 0.5) * 80; p.vy = (cyOf(w) - p.y) * 0.9 + (w.r() - 0.5) * 80; p.stall = 0; }
+      } else p.stall = 0;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Modes
+// ---------------------------------------------------------------------------
+function addMode(id, def) { def.id = id; MODES[id] = def; }
+function hatch(ctx, x, y, wd, ht) {
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, wd, ht); ctx.clip();
+  ctx.fillStyle = 'rgba(255,92,122,.10)'; ctx.fillRect(x, y, wd, ht);
+  ctx.strokeStyle = 'rgba(255,92,122,.35)'; ctx.lineWidth = 3; ctx.beginPath();
+  for (var i = -ht; i < wd + ht; i += 12) { ctx.moveTo(x + i, y + ht); ctx.lineTo(x + i + ht, y); }
+  ctx.stroke(); ctx.restore();
+}
+
+// 01 Hot Potato -------------------------------------------------------------
+addMode('hotpotato', {
+  intro: 'fuse 6 s, minus 0.5 s per hit', wait: function (w) { return w.hits === 0 ? [7.5, 9] : [1.2, 4.5]; }, strikeScale: 0.7, defErr: 70,
+  hoverFwd: -12, shade: 0.12,
+  serve: function (w, c) { w.centerOwner = 1 - c; defaultServe(w, 1 - c); w.pucks[0].hvx *= 0.55; },
+  onServe: function (w) { w.fuse = 6; },
+  step: function (w, h) {
+    var p = w.pucks[0];
+    if (!p || p.hidden || p.hold > 0) return;
+    w.fuse -= h;
+    if (w.fuse <= 0) {
+      var loser = p.x < CX ? 0 : 1, scorer = 1 - loser;
+      burst(w, p.x, p.y, COL.danger, 36, 240, 0.8); burst(w, p.x, p.y, COL.gold, 18, 160, 0.6);
+      ringFx(w, p.x, p.y, 60, COL.danger, 0.5);
+      p.hidden = true;
+      award(w, scorer, 1, true, p.x, p.y);
+      say(w, 'BOOM! point to P' + (scorer + 1), 1.2, COL.danger);
+      endRally(w, loser, 1.1);
+    }
+  },
+  onHit: function (w) { w.fuse = Math.max(1.5, 6 - 0.5 * w.hits); },
+  sub: function (w) { return 'hits this rally: ' + w.hits + '  fuse resets to ' + Math.max(1.5, 6 - 0.5 * w.hits).toFixed(1) + ' s'; },
+  over: function (ctx, w) {
+    var p = w.pucks[0];
+    if (!p || p.hidden) return;
+    var f = clamp(w.fuse / 6, 0, 1), col = f > 0.5 ? COL.green : f > 0.25 ? COL.gold : COL.danger;
+    if (w.fuse < 2) {
+      ctx.fillStyle = 'rgba(255,92,122,' + (0.18 + 0.15 * Math.sin(w.time * 22)) + ')';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 21, 0, 6.2832); ctx.fill();
+    }
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.14)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 15, 0, 6.2832); ctx.stroke();
+    ctx.strokeStyle = col; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 15, -1.5708, -1.5708 + 6.2832 * f); ctx.stroke(); ctx.lineCap = 'butt';
+    ctx.fillStyle = col; ctx.font = '700 10px ' + FONT; ctx.textAlign = 'center';
+    ctx.fillText(Math.max(0, w.fuse).toFixed(1), p.x, p.y - 20);
+  }
+});
+
+// 02 Breakout ---------------------------------------------------------------
+function buildBricks(w) {
+  w.bricks = [];
+  for (var s = 0; s < 2; s++) {
+    var gc = gcy(w, s), gh = ghalf(w, s), bh = 2 * gh / 7;
+    for (var i = 0; i < 7; i++) w.bricks.push({ s: s, x: s === 0 ? w.l : w.rr - 9, y: gc - gh + i * bh, w: 9, h: bh, alive: true, fl: 0 });
+  }
+}
+addMode('breakout', {
+  intro: 'smash a brick, then shoot the hole', goalHalf: 50, assist: 0.012, strikeScale: 1.2,
+  init: function (w) { buildBricks(w); },
+  onServe: function (w) { buildBricks(w); },
+  botAim: function (w, s, p, m) {
+    var o = 1 - s, mine = [], holes = [], i;
+    for (i = 0; i < w.bricks.length; i++) if (w.bricks[i].s === o) { mine.push(w.bricks[i]); if (!w.bricks[i].alive) holes.push(w.bricks[i]); }
+    var tgt;
+    if (holes.length) { var hb = holes[m.pickN % holes.length]; tgt = hb.y + hb.h / 2; }
+    else { var bb = mine[m.pickN % mine.length]; tgt = bb.y + bb.h / 2; }
+    return [o === 0 ? w.l + 4 : w.rr - 4, tgt];
+  },
+  collide: function (w, p) {
+    var rr = 2;
+    for (var i = 0; i < w.bricks.length; i++) {
+      var b = w.bricks[i];
+      if (!b.alive) continue;
+      var qx = clamp(p.x, b.x, b.x + b.w), qy = clamp(p.y, b.y, b.y + b.h);
+      var dx = p.x - qx, dy = p.y - qy, d = Math.hypot(dx, dy);
+      if (d < rr) {
+        var nx, ny;
+        if (d > 0.001) { nx = dx / d; ny = dy / d; } else { nx = b.s === 0 ? 1 : -1; ny = 0; }
+        p.x = qx + nx * rr; p.y = qy + ny * rr;
+        var vn = p.vx * nx + p.vy * ny;
+        if (vn < 0) { p.vx -= 1.92 * vn * nx; p.vy -= 1.92 * vn * ny; }
+        b.alive = false;
+        burst(w, b.x + b.w / 2, b.y + b.h / 2, pcol(b.s), 10, 120, 0.5);
+        say(w, 'brick broken', 0.8, COL.gold);
+      }
+    }
+  },
+  onGoal: function (w, scorer, p) { stdGoal(w, scorer, p, 'through the hole! P' + (scorer + 1) + ' scores'); return true; },
+  draw: function (ctx, w) {
+    for (var i = 0; i < w.bricks.length; i++) {
+      var b = w.bricks[i];
+      if (!b.alive) continue;
+      ctx.fillStyle = pcol(b.s); ctx.globalAlpha = 0.9;
+      ctx.fillRect(b.x, b.y + 0.8, b.w, b.h - 1.6);
+      ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(255,255,255,.35)';
+      ctx.fillRect(b.s === 0 ? b.x + 1 : b.x + b.w - 3, b.y + 1.6, 2, b.h - 3.2);
+    }
+  }
+});
+
+// 03 Tron Trails ------------------------------------------------------------
+addMode('tron', {
+  intro: 'mallets draw 2 s walls that bank the puck', defErr: 200, assist: 0.05, passive: function (w, s) { return w.time - w.lastConc[s] > 4; }, wobble: 26, hoverFwd: 22,
+  step: function (w, h) {
+    for (var i = 0; i < w.mallets.length; i++) {
+      var m = w.mallets[i];
+      m.tlT -= h;
+      if (m.tlT <= 0) {
+        m.tlT = 0.03;
+        var last = m.tl[m.tl.length - 1];
+        if (Math.hypot(m.vx, m.vy) > 150 && (!last || Math.hypot(last.x - m.x, last.y - m.y) > 1.2)) m.tl.push({ x: m.x, y: m.y, t: w.time });
+      }
+      while (m.tl.length && w.time - m.tl[0].t > 2) m.tl.shift();
+    }
+  },
+  collide: function (w, p) {
+    for (var q0 = 0; q0 < w.mallets.length; q0++) if (Math.hypot(p.x - w.mallets[q0].x, p.y - w.mallets[q0].y) < 70) return;
+    for (var i = 0; i < w.mallets.length; i++) {
+      var tl = w.mallets[i].tl;
+      for (var j = 1; j < tl.length; j++) {
+        var a = tl[j - 1], b = tl[j];
+        var ex = b.x - a.x, ey = b.y - a.y, l2 = ex * ex + ey * ey;
+        if (a.dead || b.dead || l2 > 3600 || l2 < 0.01 || w.time - b.t < 0.25) continue;
+        var u = clamp(((p.x - a.x) * ex + (p.y - a.y) * ey) / l2, 0, 1);
+        var qx = a.x + ex * u, qy = a.y + ey * u, dx = p.x - qx, dy = p.y - qy, d = Math.hypot(dx, dy);
+        if (d < p.r * 0.6 + 1) {
+          var nx, ny;
+          if (d > 0.001) { nx = dx / d; ny = dy / d; } else { var ll = Math.sqrt(l2); nx = -ey / ll; ny = ex / ll; }
+          var vn = p.vx * nx + p.vy * ny;
+          if (vn < 0) {
+            p.vx -= 1.9 * vn * nx; p.vy -= 1.9 * vn * ny;
+            if (w.time - (w.lastBank || -9) > 0.7) { w.lastBank = w.time; say(w, 'wall bank!', 0.8, pcol(i)); }
+            burst(w, qx, qy, pcol(i), 6, 110, 0.35);
+            for (var k = 0; k < tl.length; k++) if (Math.hypot(tl[k].x - qx, tl[k].y - qy) < 15) tl[k].dead = true;
+          }
+          p.x = qx + nx * (p.r * 0.6 + 1.2); p.y = qy + ny * (p.r * 0.6 + 1.2);
+        }
+      }
+    }
+  },
+  under: function (ctx, w) {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (var i = 0; i < w.mallets.length; i++) {
+      var tl = w.mallets[i].tl, c = i === 0 ? '255,122,69' : '79,209,255';
+      for (var pass = 0; pass < 2; pass++) {
+        for (var j = 1; j < tl.length; j++) {
+          var a = tl[j - 1], b = tl[j];
+          if (a.dead || b.dead || (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y) > 3600) continue;
+          var al = clamp(1 - (w.time - b.t) / 2, 0, 1);
+          ctx.strokeStyle = 'rgba(' + c + ',' + (pass ? al * 0.95 : al * 0.22) + ')';
+          ctx.lineWidth = pass ? 2 : 7;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+      }
+    }
+    ctx.lineCap = 'butt';
+  }
+});
+
+// 04 Twin Puck --------------------------------------------------------------
+addMode('twinpuck', {
+  intro: 'two pucks, score on either',
+  serve: function (w, c) {
+    var d = c === 0 ? -1 : 1, cy = cyOf(w);
+    var a = mkPuck(CX, cy - 40), b = mkPuck(CX, cy + 40);
+    a.hold = b.hold = 0.5;
+    a.hvx = d * 90; a.hvy = 25; b.hvx = -d * 90; b.hvy = -25;
+    b.color = COL.gold;
+    w.pucks = [a, b];
+  },
+  onGoal: function (w, scorer, p) {
+    p.vx = p.vy = 0;
+    award(w, scorer, 1, true, p.x < CX ? w.l + 30 : w.rr - 30, p.y);
+    say(w, 'GOAL P' + (scorer + 1) + '! puck respawns', 1.0, pcol(scorer));
+    p.hidden = true; p.respawn = 0.9; p.rc = 1 - scorer;
+    return true;
+  },
+  step: function (w) {
+    for (var i = 0; i < w.pucks.length; i++) {
+      var p = w.pucks[i];
+      if (p.hidden && p.respawn !== undefined) {
+        p.respawn -= STEP;
+        if (p.respawn <= 0) {
+          var d = p.rc === 0 ? -1 : 1;
+          launch(p, CX, cyOf(w) + (w.r() - 0.5) * 90, d * 90, (w.r() - 0.5) * 60, 0.4);
+          p.respawn = undefined;
+        }
+      }
+    }
+  }
+});
+
+// 05 Moving Goals -----------------------------------------------------------
+addMode('movinggoals', {
+  intro: 'goals glide, about 4 s per sweep',
+  goalCy: function (w, s, t) { return CYF + 62 * Math.sin(t * 2 * Math.PI / 4 + (s === 0 ? 0 : 2.4)); },
+  goalColorExtra: true
+});
+
+// 06 Gravity Well -----------------------------------------------------------
+addMode('gravity', {
+  intro: 'a black hole bends the puck', trail: 12, strikeScale: 1.25, defErr: 220, attackSp: 520, assist: 0.06,
+  serve: function (w, c) {
+    var d = c === 0 ? -1 : 1, cy = cyOf(w);
+    var x = CX + d * 58, y = cy + (w.r() - 0.5) * 70, rx = x - CX, ry = y - cy, rl = Math.hypot(rx, ry) || 1;
+    var sg = w.r() < 0.5 ? -1 : 1, p = mkPuck(x, y);
+    p.hold = 0.5; p.hvx = -ry / rl * sg * 130; p.hvy = rx / rl * sg * 130;
+    w.pucks = [p];
+  },
+  step: function (w, h) {
+    var cy = cyOf(w);
+    for (var i = 0; i < w.pucks.length; i++) {
+      var p = w.pucks[i];
+      if (p.hidden || p.hold > 0) continue;
+      var dx = CX - p.x, dy = cy - p.y, d2 = dx * dx + dy * dy, d = Math.sqrt(d2);
+      if (d < 11) {
+        burst(w, CX, cy, '#b48cff', 24, 150, 0.7); ringFx(w, CX, cy, 40, '#b48cff', 0.5);
+        p.hidden = true; say(w, 'swallowed! new serve', 1.1, '#b48cff');
+        endRally(w, w.r() < 0.5 ? 0 : 1, 0.9);
+        return;
+      }
+      var a = 5.5e5 / (d2 + 700);
+      p.vx += dx / d * a * h; p.vy += dy / d * a * h;
+      if (d < 50 && Math.hypot(p.vx, p.vy) > 320 && w.time - (w.lastSling || -9) > 2) { w.lastSling = w.time; say(w, 'slingshot!', 0.8, COL.gold); }
+    }
+  },
+  under: function (ctx, w) {
+    var cy = cyOf(w);
+    ctx.strokeStyle = 'rgba(180,140,255,.10)'; ctx.lineWidth = 1;
+    for (var r = 28; r <= 88; r += 20) { ctx.beginPath(); ctx.arc(CX, cy, r, 0, 6.2832); ctx.stroke(); }
+    var g = ctx.createRadialGradient(CX, cy, 2, CX, cy, 32);
+    g.addColorStop(0, 'rgba(120,70,255,.5)'); g.addColorStop(1, 'rgba(120,70,255,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(CX, cy, 32, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = '#02030a'; ctx.beginPath(); ctx.arc(CX, cy, 11, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = 'rgba(190,150,255,.8)'; ctx.lineWidth = 2;
+    for (var k = 0; k < 3; k++) {
+      var a0 = w.time * 2.2 + k * 2.0944;
+      ctx.beginPath(); ctx.arc(CX, cy, 15, a0, a0 + 1.1); ctx.stroke();
+      ctx.beginPath(); ctx.arc(CX, cy, 22, -a0 * 0.7, -a0 * 0.7 + 0.8); ctx.stroke();
+    }
+  }
+});
+
+// 07 Shrinking Rink ---------------------------------------------------------
+var SHRINK_EVERY = 3.3;
+addMode('shrinking', {
+  intro: 'sim runs 3x: rails in 10% per step', strikeScale: 0.78,
+  init: function (w) { w.lvl = 0; },
+  onServe: function (w) { w.lvl = 0; },
+  step: function (w, h) {
+    var lvl = Math.min(5, Math.floor(w.rallyT / SHRINK_EVERY));
+    if (lvl > w.lvl) { w.lvl = lvl; say(w, 'rails in 10%', 0.9, COL.danger); }
+    var inset = w.lvl * 0.1 * (B - T) / 2;
+    var tt = T + inset, tb = B - inset, sp = 6 * h;
+    w.t += clamp(tt - w.t, -sp, sp); w.b += clamp(tb - w.b, -sp, sp);
+  },
+  idle: function (w, h) {
+    var sp = 90 * h;
+    w.t += clamp(T - w.t, -sp, sp); w.b += clamp(B - w.b, -sp, sp);
+  },
+  sub: function (w) { return 'rink width ' + Math.round(100 * (w.b - w.t) / (B - T)) + '%   (clock x3 in this sim)'; },
+  under: function (ctx, w) {
+    if (w.t - T > 0.5) hatch(ctx, L, T, R - L, w.t - T);
+    if (B - w.b > 0.5) hatch(ctx, L, w.b, R - L, B - w.b);
+  },
+  draw: function (ctx, w) {
+    if (w.lvl > 0 || w.t - T > 1) {
+      ctx.strokeStyle = COL.danger; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(w.l, w.t); ctx.lineTo(w.rr, w.t); ctx.moveTo(w.l, w.b); ctx.lineTo(w.rr, w.b); ctx.stroke();
+    }
+  }
+});
+
+// 08 Tug of War -------------------------------------------------------------
+addMode('tugofwar', {
+  intro: 'goals push the shared line', capY: 27,
+  init: function (w) { w.bp = 0.5; w.wins = [0, 0]; },
+  onGoal: function (w, scorer, p) {
+    p.vx = p.vy = 0;
+    award(w, scorer, 1, true);
+    w.bp += scorer === 0 ? 0.2 : -0.2;
+    if (w.bp >= 0.995 || w.bp <= 0.005) {
+      w.wins[scorer]++; w.bp = 0.5;
+      say(w, 'P' + (scorer + 1) + ' wins the tug!', 1.6, pcol(scorer));
+      endRally(w, 1 - scorer, 1.6);
+    } else {
+      say(w, 'line pushed 20% by P' + (scorer + 1), 1.0, pcol(scorer));
+      endRally(w, 1 - scorer, 0.9);
+    }
+    return true;
+  },
+  under: function (ctx, w) {
+    var x = L + w.bp * (R - L);
+    ctx.fillStyle = 'rgba(255,122,69,.06)'; ctx.fillRect(L, T, x - L, B - T);
+    ctx.fillStyle = 'rgba(79,209,255,.06)'; ctx.fillRect(x, T, R - x, B - T);
+    ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, B); ctx.stroke(); ctx.setLineDash([]);
+  },
+  hud: function (ctx, w) {
+    var x0 = 44, x1 = 356, y = 3, hh = 9, mx = x0 + w.bp * (x1 - x0);
+    ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(x0, y, x1 - x0, hh);
+    ctx.fillStyle = COL.p1; ctx.globalAlpha = 0.85; ctx.fillRect(x0, y, mx - x0, hh);
+    ctx.fillStyle = COL.p2; ctx.fillRect(mx, y, x1 - mx, hh); ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    for (var i = 1; i < 5; i++) ctx.fillRect(x0 + (x1 - x0) * i / 5 - 0.5, y + hh - 4, 1, 4);
+    ctx.fillStyle = '#fff'; ctx.fillRect(mx - 2, y - 3, 4, hh + 6);
+    ctx.font = '800 13px ' + FONT; ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'right'; ctx.fillStyle = COL.p1; ctx.fillText(String(w.wins[0]), 36, 13);
+    ctx.textAlign = 'left'; ctx.fillStyle = COL.p2; ctx.fillText(String(w.wins[1]), 364, 13);
+    ctx.textAlign = 'center'; ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(238,242,255,.55)';
+    ctx.fillText('wins', 20, 22); ctx.fillText('wins', 380, 22);
+    return true;
+  }
+});
+
+// 09 Curling ----------------------------------------------------------------
+var CURL_D = 118;
+function curlTarget(s) { return s === 0 ? { x: R - CURL_D, y: CYF } : { x: L + CURL_D, y: CYF }; }
+function stopDist(v0, w) {
+  var v = v0, d = 0, h = 1 / 120, f = Math.pow(w.friction, h);
+  for (var i = 0; i < 2000 && v > 6; i++) { v *= f; v = Math.max(0, v - w.decel * h); d += v * h; }
+  return d;
+}
+function solveV(D, w) {
+  var lo = 20, hi = 420;
+  for (var i = 0; i < 30; i++) { var mid = (lo + hi) / 2; if (stopDist(mid, w) < D) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+}
+function curlReset(w) { w.pucks = []; w.score = [0, 0]; w.cur = { side: 0, stage: 'new', t: 0, thrown: 0, settle: 0 }; }
+function curlPoints(st) {
+  var tg = curlTarget(st.owner), d = Math.hypot(st.x - tg.x, st.y - tg.y);
+  return d <= 14 ? 3 : d <= 28 ? 2 : d <= 42 ? 1 : 0;
+}
+function gauss(w) { return (w.r() + w.r() + w.r() - 1.5) / 0.7; }
+addMode('curling', {
+  noGoals: true, noNudge: true, noServe: true, decel: 50, vmax: 420, intro: 'take turns: stop on the rings',
+  init: function (w) { curlReset(w); },
+  step: function (w, h) {
+    var c = w.cur, i;
+    c.t += h;
+    if (c.stage === 'end') { if (c.t > 2.6) curlReset(w); return; }
+    if (c.stage === 'new') {
+      var s = c.side, tg = curlTarget(s);
+      var sx = s === 0 ? w.l + 54 : w.rr - 54, sy = CYF + (w.r() - 0.5) * 110;
+      var st = mkPuck(sx, sy); st.hold = 999; st.stone = true; st.owner = s; st.color = pcol(s);
+      w.pucks.push(st); c.stone = st; c.thrown++; c.stage = 'aim'; c.t = 0;
+      var ax = tg.x - sx, ay = tg.y - sy, al = Math.hypot(ax, ay);
+      c.D = al; c.ux = ax / al; c.uy = ay / al; c.tg = tg;
+    }
+    var m = w.mallets[c.side], st2 = c.stone;
+    if (c.stage === 'aim') {
+      var bx = st2.x - c.ux * (RM + RP + 4), by = st2.y - c.uy * (RM + RP + 4);
+      if (c.t > 0.9 && Math.hypot(m.x - bx, m.y - by) < 3) {
+        var ang = gauss(w) * 0.012, ca = Math.cos(ang), sa = Math.sin(ang);
+        var ux = c.ux * ca - c.uy * sa, uy = c.ux * sa + c.uy * ca;
+        c.ux = ux; c.uy = uy;
+        c.v0 = solveV(c.D, w) * (1 + gauss(w) * 0.06);
+        st2.hold = 0; st2.vx = 0; st2.vy = 0; c.stage = 'slide'; c.t = 0;
+      }
+    } else if (c.stage === 'slide') {
+      if (c.t > 1.2) { st2.vx = c.ux * c.v0; st2.vy = c.uy * c.v0; c.stage = 'fly'; c.t = 0; c.settle = 0; }
+    } else if (c.stage === 'fly') {
+      var moving = false;
+      for (i = 0; i < w.pucks.length; i++) if (Math.hypot(w.pucks[i].vx, w.pucks[i].vy) > 7) moving = true;
+      if (c.t > 0.6 && !moving) c.settle += h; else c.settle = 0;
+      if (c.settle > 0.35) {
+        var before = w.score.slice(), tot = [0, 0];
+        for (i = 0; i < w.pucks.length; i++) tot[w.pucks[i].owner] += curlPoints(w.pucks[i]);
+        var pts = curlPoints(st2), side = c.side;
+        w.score = tot;
+        for (var q = 0; q < 2; q++) if (tot[q] > before[q]) { w.events[q]++; w.goals[q]++; w.total[q] += tot[q] - before[q]; if (w.firstEvent[q] < 0) w.firstEvent[q] = w.time; }
+        if (pts > 0) { pop(w, st2.x, st2.y - 12, '+' + pts, pcol(side)); say(w, 'P' + (side + 1) + ' stone: ' + pts + (pts === 1 ? ' point' : ' points'), 1.1, pcol(side)); }
+        else { pop(w, st2.x, st2.y - 12, 'miss', 'rgba(238,242,255,.7)'); say(w, 'P' + (side + 1) + ' missed the rings', 1.0, 'rgba(238,242,255,.8)'); }
+        if (c.thrown >= 8) {
+          c.stage = 'end'; c.t = 0;
+          say(w, 'End: P1 ' + tot[0] + ', P2 ' + tot[1] + (tot[0] === tot[1] ? ' (tie)' : tot[0] > tot[1] ? ': P1 wins' : ': P2 wins'), 2.4, COL.gold);
+        } else { c.side = 1 - c.side; c.stage = 'new'; c.t = 0; }
+      }
+    }
+  },
+  bot: function (w, m) {
+    var c = w.cur;
+    if (c.side !== m.side || c.stage !== 'aim' && c.stage !== 'slide') {
+      m.tx = m.side === 0 ? w.l + RM + 6 : w.rr - RM - 6; m.ty = m.side === 0 ? w.b - RM - 6 : w.t + RM + 6;
+      m.spd = 300; m.mode = 'go'; return true;
+    }
+    var st = c.stone;
+    if (c.stage === 'aim') { m.tx = st.x - c.ux * (RM + RP + 4); m.ty = st.y - c.uy * (RM + RP + 4); m.spd = 280; m.mode = 'go'; }
+    else { m.tx = st.x + c.ux * 60; m.ty = st.y + c.uy * 60; m.spd = Math.max(40, c.v0 / 1.85); m.mode = 'strike'; }
+    return true;
+  },
+  onHit: function (w, m, p) {
+    var c = w.cur;
+    if (c.stage === 'slide' && p === c.stone) { p.vx = c.ux * c.v0; p.vy = c.uy * c.v0; c.stage = 'fly'; c.t = 0; c.settle = 0; }
+  },
+  sub: function (w) { var c = w.cur; return c.stage === 'end' ? 'end of match' : 'stone ' + c.thrown + ' of 8, P' + (c.side + 1) + ' to throw'; },
+  under: function (ctx, w) {
+    for (var s = 0; s < 2; s++) {
+      var tg = curlTarget(s), c = s === 0 ? '255,122,69' : '79,209,255', rs = [42, 28, 14];
+      for (var i = 0; i < 3; i++) {
+        ctx.fillStyle = 'rgba(' + c + ',' + (0.07 + 0.05 * i) + ')'; ctx.strokeStyle = 'rgba(' + c + ',.55)'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(tg.x, tg.y, rs[i], 0, 6.2832); ctx.fill(); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(238,242,255,.55)'; ctx.font = '700 8px ' + FONT; ctx.textAlign = 'center';
+      ctx.fillText('3', tg.x, tg.y + 3); ctx.fillText('2', tg.x, tg.y - 18); ctx.fillText('1', tg.x, tg.y - 32);
+    }
+    var cu = w.cur;
+    if (cu && cu.stone && (cu.stage === 'aim' || cu.stage === 'slide')) {
+      ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1.2; ctx.setLineDash([4, 5]);
+      ctx.beginPath(); ctx.moveTo(cu.stone.x, cu.stone.y); ctx.lineTo(cu.tg.x, cu.tg.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+  },
+  over: function (ctx, w) {
+    for (var i = 0; i < w.pucks.length; i++) {
+      var p = w.pucks[i];
+      ctx.strokeStyle = p.color; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 1.2, 0, 6.2832); ctx.stroke();
+    }
+  }
+});
+
+// 10 Bank Shots -------------------------------------------------------------
+addMode('bankshot', {
+  intro: 'goal counts only after a side rail touch', assist: 0.02,
+  goalOpen: function (w, s, p) { return p.railTouched; },
+  onReject: function (w, s, p) {
+    say(w, 'no bank, no goal!', 1.0, COL.danger);
+    ringFx(w, s === 0 ? w.l : w.rr, p.y, 22, COL.danger, 0.4);
+  },
+  onHit: function (w, m) { m.firstDone = true; },
+  botAim: function (w, s, p, m) {
+    var o = 1 - s, gx = o === 0 ? w.l : w.rr, gy = gcy(w, o) + m.jy * 0.5;
+    var bank = m.firstDone ? (m.pickN % 100) < 80 : false;
+    if (!bank) return [gx, gy];
+    var rail = p.y < cyOf(w) ? w.t + RP : w.b - RP;
+    return [gx, 2 * rail - gy];
+  },
+  onGoal: function (w, scorer, p) { stdGoal(w, scorer, p, 'bank goal! P' + (scorer + 1) + ' scores'); return true; },
+  goalColor: function (w, s) {
+    var p = w.pucks[0];
+    return p && p.railTouched ? COL.green : COL.danger;
+  },
+  sub: function (w) { var p = w.pucks[0]; return p && p.railTouched ? 'puck armed: goals count' : 'puck not armed: rail first'; }
+});
+
+// 11 Blackout Rink ----------------------------------------------------------
+addMode('blackoutrink', {
+  intro: 'puck lights 58 px, mallets glow faintly',
+  post: function (ctx, w) {
+    if (typeof document === 'undefined') return;
+    var cv = ctx.canvas, sc = cv.width / W;
+    var dc = w.dc;
+    if (!dc) { dc = w.dc = document.createElement('canvas'); }
+    if (dc.width !== cv.width || dc.height !== cv.height) { dc.width = cv.width; dc.height = cv.height; }
+    var g = dc.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, dc.width, dc.height);
+    g.fillStyle = 'rgba(2,4,12,0.975)'; g.fillRect(0, 0, dc.width, dc.height);
+    g.globalCompositeOperation = 'destination-out'; g.setTransform(sc, 0, 0, sc, 0, 0);
+    function light(x, y, rad, a) {
+      var rg = g.createRadialGradient(x, y, 0, x, y, rad);
+      rg.addColorStop(0, 'rgba(0,0,0,' + a + ')'); rg.addColorStop(0.55, 'rgba(0,0,0,' + a * 0.8 + ')'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = rg; g.beginPath(); g.arc(x, y, rad, 0, 6.2832); g.fill();
+    }
+    for (var i = 0; i < w.pucks.length; i++) if (!w.pucks[i].hidden) light(w.pucks[i].x, w.pucks[i].y, 58, 1);
+    for (var j = 0; j < w.mallets.length; j++) light(w.mallets[j].x, w.mallets[j].y, 24, 0.5);
+    ctx.drawImage(dc, 0, 0, W, H);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (var k = 0; k < w.pucks.length; k++) {
+      var p = w.pucks[k]; if (p.hidden) continue;
+      var rg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 34);
+      rg.addColorStop(0, 'rgba(255,209,102,.30)'); rg.addColorStop(1, 'rgba(255,209,102,0)');
+      ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(p.x, p.y, 34, 0, 6.2832); ctx.fill();
+    }
+    ctx.restore();
+  }
+});
+
+// 12 Wind -------------------------------------------------------------------
+var WIND = 60;
+addMode('wind', {
+  intro: 'wind turns every 8 s',
+  init: function (w) {
+    w.wa = 0.3 + w.r() * 0.6; w.wt = w.wa; w.windT = 8; w.streaks = [];
+    for (var i = 0; i < 26; i++) w.streaks.push({ x: L + w.r() * (R - L), y: T + w.r() * (B - T), s: 0.6 + w.r() * 0.8 });
+  },
+  step: function (w, h) {
+    w.windT -= h;
+    if (w.windT <= 0) {
+      w.windT = 8; w.wt = w.wa + (w.r() < 0.5 ? -1 : 1) * (1.3 + w.r() * 1.0);
+      say(w, 'gust! the wind turns', 1.2, COL.gold);
+    }
+    w.wa += (w.wt - w.wa) * Math.min(1, h * 3.5);
+    var ax = Math.cos(w.wa) * WIND, ay = Math.sin(w.wa) * WIND;
+    for (var i = 0; i < w.pucks.length; i++) { var p = w.pucks[i]; if (!p.hidden && p.hold <= 0) { p.vx += ax * h; p.vy += ay * h; } }
+    for (var j = 0; j < w.streaks.length; j++) {
+      var s = w.streaks[j];
+      s.x += Math.cos(w.wa) * 90 * s.s * h; s.y += Math.sin(w.wa) * 90 * s.s * h;
+      if (s.x < L) s.x += R - L; if (s.x > R) s.x -= R - L; if (s.y < T) s.y += B - T; if (s.y > B) s.y -= B - T;
+    }
+  },
+  botAim: function (w, s, p, m) {
+    var o = 1 - s, gx = o === 0 ? w.l : w.rr, tt = Math.abs(gx - p.x) / 330;
+    return [gx, gcy(w, o) + m.jy - 0.5 * Math.sin(w.wa) * WIND * tt * tt * 0.9];
+  },
+  under: function (ctx, w) {
+    ctx.strokeStyle = 'rgba(238,242,255,.13)'; ctx.lineWidth = 1.2; ctx.beginPath();
+    var dx = Math.cos(w.wa) * 9, dy = Math.sin(w.wa) * 9;
+    for (var i = 0; i < w.streaks.length; i++) { var s = w.streaks[i]; ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + dx * s.s, s.y + dy * s.s); }
+    ctx.stroke();
+  },
+  over: function (ctx, w) {
+    var x = L + 26, y = T + 26, a = w.wa;
+    ctx.fillStyle = 'rgba(11,16,32,.65)'; ctx.beginPath(); ctx.arc(x, y, 19, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = COL.gold; ctx.fillStyle = COL.gold; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    var c = Math.cos(a), s = Math.sin(a);
+    ctx.beginPath(); ctx.moveTo(x - c * 11, y - s * 11); ctx.lineTo(x + c * 9, y + s * 9); ctx.stroke(); ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(x + c * 14, y + s * 14); ctx.lineTo(x + c * 5 - s * 6, y + s * 5 + c * 6); ctx.lineTo(x + c * 5 + s * 6, y + s * 5 - c * 6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(238,242,255,.6)'; ctx.font = '700 8px ' + FONT; ctx.textAlign = 'center';
+    ctx.fillText('WIND ' + Math.max(0, Math.ceil(w.windT)) + 's', x, y + 30);
+  }
+});
+
+// 13 Pinball ----------------------------------------------------------------
+addMode('pinball', {
+  intro: 'bumper +1 to last hitter, goal +5', winScore: 21, goalValue: 5,
+  init: function (w) {
+    var cy = CYF;
+    w.bump = [{ x: CX, y: cy - 52 }, { x: CX, y: cy + 52 }, { x: CX - 64, y: cy }, { x: CX + 64, y: cy }].map(function (b) { b.r = 11; b.pulse = 0; return b; });
+  },
+  step: function (w, h) {
+    for (var i = 0; i < w.bump.length; i++) {
+      var b = w.bump[i]; b.pulse = Math.max(0, b.pulse - h * 4);
+      for (var j = 0; j < w.mallets.length; j++) {
+        var m = w.mallets[j], dx = m.x - b.x, dy = m.y - b.y, d = Math.hypot(dx, dy), mn = b.r + m.r;
+        if (d < mn && d > 0.001) { m.x = b.x + dx / d * mn; m.y = b.y + dy / d * mn; }
+      }
+    }
+  },
+  collide: function (w, p) {
+    for (var i = 0; i < w.bump.length; i++) {
+      var b = w.bump[i], dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy), mn = b.r + p.r;
+      if (d < mn && d > 0.001) {
+        var nx = dx / d, ny = dy / d, vn = p.vx * nx + p.vy * ny;
+        p.x = b.x + nx * mn; p.y = b.y + ny * mn;
+        if (vn < 0) { p.vx -= 2.2 * vn * nx; p.vy -= 2.2 * vn * ny; }
+        var vo = p.vx * nx + p.vy * ny;
+        if (vo < 220) { p.vx += (220 - vo) * nx; p.vy += (220 - vo) * ny; }
+        b.pulse = 1;
+        if (p.last >= 0) { award(w, p.last, 1, false, b.x, b.y - 14); burst(w, b.x, b.y, pcol(p.last), 6, 100, 0.35); }
+      }
+    }
+  },
+  onGoal: function (w, scorer, p) { stdGoal(w, scorer, p, 'GOAL +5 for P' + (scorer + 1)); return true; },
+  draw: function (ctx, w) {
+    for (var i = 0; i < w.bump.length; i++) {
+      var b = w.bump[i], k = b.pulse;
+      var g = ctx.createRadialGradient(b.x, b.y, 1, b.x, b.y, b.r + 6 + k * 6);
+      g.addColorStop(0, 'rgba(255,209,102,' + (0.25 + 0.5 * k) + ')'); g.addColorStop(1, 'rgba(255,209,102,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 8 + k * 6, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = k > 0.2 ? '#fff0c4' : '#3a3220'; ctx.strokeStyle = COL.gold; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 1 + k * 1.5, 0, 6.2832); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = COL.gold; ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, 6.2832); ctx.fill();
+    }
+  }
+});
+
+// 14 Turbo ------------------------------------------------------------------
+addMode('turbo', {
+  intro: 'each hit makes the puck 10% faster', vmax: 2600, trail: 26,
+  onServe: function (w) { w.sayT = -9; },
+  onHit: function (w, m, p) {
+    var mult = Math.pow(1.1, w.hits), sp = Math.hypot(p.vx, p.vy) || 1, k = 300 * mult / sp;
+    p.vx *= k; p.vy *= k;
+    if (w.hits >= 3) say(w, 'x' + mult.toFixed(1) + ' speed', 0.7, mult > 2.2 ? COL.danger : COL.gold);
+  },
+  sub: function (w) { return 'puck speed x' + Math.pow(1.1, w.hits).toFixed(2); },
+  hud: null,
+  post: function (ctx, w) {
+    var mult = Math.pow(1.1, w.hits), f = clamp(Math.log(mult) / Math.log(4), 0, 1);
+    var x0 = 108, x1 = 292, y = 28;
+    ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(x0, y, x1 - x0, 3);
+    ctx.fillStyle = f < 0.4 ? COL.green : f < 0.75 ? COL.gold : COL.danger; ctx.fillRect(x0, y, (x1 - x0) * f, 3);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function drawMallet(ctx, m) {
+  var c = m.side === 0 ? ['#ffb590', '#ff7a45', '#b9421a'] : ['#b4ecff', '#4fd1ff', '#1a86b0'];
+  var g = ctx.createRadialGradient(m.x - 4, m.y - 4, 2, m.x, m.y, m.r);
+  g.addColorStop(0, c[0]); g.addColorStop(0.6, c[1]); g.addColorStop(1, c[2]);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, 6.2832); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.fillStyle = c[2]; ctx.beginPath(); ctx.arc(m.x, m.y, 5.5, 0, 6.2832); ctx.fill();
+  ctx.fillStyle = c[0]; ctx.beginPath(); ctx.arc(m.x - 1, m.y - 1, 3.2, 0, 6.2832); ctx.fill();
+}
+function drawPuck(ctx, p, mode) {
+  if (p.hidden) return;
+  if (mode.trail && p.tr.length > 4) {
+    var n = p.tr.length / 2;
+    ctx.lineCap = 'round';
+    for (var i = 1; i < n; i++) {
+      var f = i / n;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (f * 0.35) + ')';
+      ctx.lineWidth = p.r * 2 * f * 0.8;
+      ctx.beginPath(); ctx.moveTo(p.tr[i * 2 - 2], p.tr[i * 2 - 1]); ctx.lineTo(p.tr[i * 2], p.tr[i * 2 + 1]); ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+  }
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(p.x + 1.5, p.y + 2, p.r, 0, 6.2832); ctx.fill();
+  ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
+  ctx.strokeStyle = 'rgba(14,20,48,.35)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.x, p.y, p.r - 2, 0, 6.2832); ctx.stroke();
+}
+function drawHud(ctx, w) {
+  var m = w.mode;
+  ctx.textBaseline = 'alphabetic';
+  if (!(m.hud && m.hud(ctx, w))) {
+    ctx.font = '700 10px ' + FONT; ctx.textAlign = 'left'; ctx.fillStyle = COL.p1; ctx.fillText('P1', 14, 22);
+    ctx.font = '800 20px ' + FONT; ctx.fillText(String(w.score[0]), 32, 25);
+    ctx.font = '700 10px ' + FONT; ctx.textAlign = 'right'; ctx.fillStyle = COL.p2; ctx.fillText('P2', 386, 22);
+    ctx.font = '800 20px ' + FONT; ctx.fillText(String(w.score[1]), 368, 25);
+  }
+  ctx.textAlign = 'center';
+  if (w.cap.t > 0) {
+    ctx.globalAlpha = Math.min(1, w.cap.t / 0.3);
+    ctx.font = '700 13px ' + FONT; ctx.fillStyle = w.cap.color;
+    ctx.fillText(w.cap.text, CX, m.capY || 20);
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.font = '600 10.5px ' + FONT; ctx.fillStyle = 'rgba(238,242,255,.6)';
+    ctx.fillText(m.sub ? m.sub(w) : m.intro, CX, m.capY || 20);
+  }
+}
+function render(ctx, w) {
+  var m = w.mode, i, s;
+  ctx.fillStyle = '#0a0f26'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = COL.rink; ctx.fillRect(w.l, w.t, w.rr - w.l, w.b - w.t);
+  if (m.under) m.under(ctx, w);
+  var cy = cyOf(w);
+  ctx.strokeStyle = COL.line; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(CX, w.t); ctx.lineTo(CX, w.b); ctx.stroke();
+  ctx.beginPath(); ctx.arc(CX, cy, 26, 0, 6.2832); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(CX - 3, w.t - 3, 6, 3); ctx.fillRect(CX - 3, w.b, 6, 3);
+  // rails with goal gaps
+  ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(w.l, w.t); ctx.lineTo(w.rr, w.t); ctx.moveTo(w.l, w.b); ctx.lineTo(w.rr, w.b);
+  for (s = 0; s < 2; s++) {
+    var x = s === 0 ? w.l : w.rr;
+    if (w.noGoals) { ctx.moveTo(x, w.t); ctx.lineTo(x, w.b); }
+    else {
+      var gc = gcy(w, s), gh = ghalf(w, s);
+      ctx.moveTo(x, w.t); ctx.lineTo(x, gc - gh); ctx.moveTo(x, gc + gh); ctx.lineTo(x, w.b);
+    }
+  }
+  ctx.stroke(); ctx.lineCap = 'butt';
+  if (!w.noGoals) {
+    for (s = 0; s < 2; s++) {
+      var gx = s === 0 ? w.l : w.rr, g2 = gcy(w, s), h2 = ghalf(w, s), col = m.goalColor ? m.goalColor(w, s) : pcol(s);
+      ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(gx, g2, h2 + 12, s === 0 ? -1.5708 : 1.5708, s === 0 ? 1.5708 : 4.7124); ctx.stroke();
+      ctx.globalAlpha = 0.16; ctx.fillStyle = col;
+      ctx.fillRect(s === 0 ? gx - 9 : gx, g2 - h2, 9, 2 * h2); ctx.globalAlpha = 1;
+      ctx.strokeStyle = col; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(gx, g2 - h2); ctx.lineTo(gx, g2 + h2); ctx.stroke();
+    }
+  }
+  if (m.draw) m.draw(ctx, w);
+  for (i = 0; i < w.pucks.length; i++) drawPuck(ctx, w.pucks[i], m);
+  for (i = 0; i < w.mallets.length; i++) drawMallet(ctx, w.mallets[i]);
+  if (m.over) m.over(ctx, w);
+  for (i = 0; i < w.fx.length; i++) {
+    var f = w.fx[i], a = clamp(f.life / f.max, 0, 1);
+    ctx.globalAlpha = a;
+    if (f.type === 'ring') { ctx.strokeStyle = f.color; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 6.2832); ctx.stroke(); }
+    else { ctx.fillStyle = f.color; ctx.fillRect(f.x - f.size / 2, f.y - f.size / 2, f.size, f.size); }
+  }
+  ctx.globalAlpha = 1;
+  if (m.post) m.post(ctx, w);
+  ctx.textAlign = 'center'; ctx.font = '800 13px ' + FONT;
+  for (i = 0; i < w.pops.length; i++) {
+    var q = w.pops[i];
+    ctx.globalAlpha = clamp(q.t / 0.4, 0, 1); ctx.fillStyle = q.color; ctx.fillText(q.text, q.x, q.y);
+  }
+  ctx.globalAlpha = 1;
+  drawHud(ctx, w);
+}
+
+// ---------------------------------------------------------------------------
+// Page wiring: one rAF loop, only visible canvases simulate.
+// ---------------------------------------------------------------------------
+function boot() {
+  var sims = [];
+  var seedBase = (Date.now() & 0xffff) + 1;
+  var canvases = document.querySelectorAll('canvas.anim[data-sim]');
+  var io = null;
+  if ('IntersectionObserver' in window) {
+    io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        for (var i = 0; i < sims.length; i++) if (sims[i].canvas === e.target) sims[i].vis = e.isIntersecting;
+      });
+    }, { threshold: 0.1 });
+  }
+  Array.prototype.forEach.call(canvases, function (canvas, idx) {
+    var id = canvas.dataset.sim;
+    if (!MODES[id]) return;
+    var sim = { canvas: canvas, ctx: canvas.getContext('2d'), id: id, vis: !io, w: null, acc: 0, seed: seedBase + idx * 977, cw: 0 };
+    sims.push(sim);
+    sim.reset = function () { sim.seed += 13; sim.w = makeWorld(id, sim.seed); sim.acc = 0; };
+    sim.reset();
+    var btn = canvas.parentElement.querySelector('.replay');
+    if (btn) btn.addEventListener('click', sim.reset);
+    if (io) io.observe(canvas);
+  });
+  var last = 0;
+  function frame(ts) {
+    requestAnimationFrame(frame);
+    if (document.hidden) { last = 0; return; }
+    var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0.016;
+    last = ts;
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    for (var i = 0; i < sims.length; i++) {
+      var sim = sims[i];
+      if (!sim.vis) continue;
+      var cw = sim.canvas.clientWidth;
+      if (!cw) continue;
+      var pw = Math.round(cw * dpr);
+      if (sim.canvas.width !== pw) { sim.canvas.width = pw; sim.canvas.height = Math.round(pw * H / W); }
+      sim.acc += dt;
+      var n = 0;
+      while (sim.acc >= STEP && n < 16) { step(sim.w, STEP); sim.acc -= STEP; n++; }
+      if (sim.acc > STEP) sim.acc = 0;
+      var sc = sim.canvas.width / W;
+      sim.ctx.setTransform(sc, 0, 0, sc, 0, 0);
+      render(sim.ctx, sim.w);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+var Toy = { makeWorld: makeWorld, step: step, MODES: MODES, ORDER: ORDER, STEP: STEP, bounds: { L: L, R: R, T: T, B: B } };
+if (typeof module !== 'undefined' && module.exports) module.exports = Toy;
+if (typeof document !== 'undefined') boot();
+})();
+</script>
+<script src="./feedback.js"></script>
+</body>
+</html>

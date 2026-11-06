@@ -22,7 +22,7 @@ export const PHASE = {
   OVER: 'over',
 };
 
-export const MODES = ['classic', 'bumpers', 'ice', 'mines', 'bombs', 'glitch', 'battle'];
+export const MODES = ['classic', 'bumpers', 'ice', 'mines', 'bombs', 'glitch', 'battle', 'random'];
 
 // Per-mode physics. fric = fraction of puck speed kept after one second of
 // sliding, wall = rail restitution, mallet = mallet restitution, max = puck
@@ -35,6 +35,7 @@ export const MODE_PHYS = {
   bombs: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   glitch: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   battle: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  random: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   ice: { fric: 0.95, wall: 1.0, mallet: 0.85, max: 3000 },
 };
 
@@ -69,8 +70,12 @@ const BOX_RESPAWN_MIN_S = 6;
 const BOX_RESPAWN_MAX_S = 8;
 const BOX_FIRST_SPAWN_S = 1; // after the first serve of the match
 const BOX_TRIES = 12;
-const ITEMS = ['rocket', 'shield', 'ghost', 'shrink', 'freeze', 'mine'];
-const OFFENSIVE_ITEMS = ['rocket', 'ghost', 'shrink', 'mine'];
+export const ITEMS = [
+  'rocket', 'shield', 'ghost', 'shrink', 'freeze',
+  'magnet', 'widegoal', 'goalie', 'giant', 'catch', 'mirror', 'quake', 'decoys', 'steal', 'tinypuck',
+];
+const OFFENSIVE_ITEMS = ['rocket', 'ghost', 'shrink', 'magnet', 'widegoal', 'mirror', 'quake', 'decoys', 'steal'];
+const PASS_BANNED = ['ghost', 'mirror', 'decoys']; // one shared screen: these would hit both players
 const ROCKET_MULT = 1.6;
 const ROCKET_MIN = 1800; // px/s
 const ROCKET_MAX = 3900; // px/s, puck cap while the rocket flight timer runs
@@ -81,8 +86,30 @@ const GHOST_S = 2;
 const SHRINK_S = 4;
 const SHRINK_FACTOR = 0.6; // of malletR
 const FREEZE_S = 0.5;
-const DROP_FUSE_S = 1;
-const DROP_LIVE_S = 10;
+const MAGNET_S = 2;
+const MAGNET_MIN = 700; // px/s
+const MAGNET_RATE = 6; // 1/s
+const WIDEGOAL_S = 6;
+const WIDEGOAL_MULT = 1.5;
+const WIDEGOAL_MAX = 0.6; // of W
+const GOALIE_S = 5;
+const GOALIE_R_FACTOR = 0.55; // of malletR
+const GOALIE_LINE = 0.9; // of malletR, from the end rail
+const GOALIE_SPEED = 1.4; // of W, px/s
+const GIANT_S = 5;
+const GIANT_FACTOR = 1.5;
+const CATCH_HOLD_S = 1.5;
+const CATCH_FLICK = 900; // px/s of mallet speed that releases a held puck
+const CATCH_FLING_MULT = 1.5;
+const CATCH_DROP = 600; // px/s when the hold times out
+const MIRROR_S = 3;
+const QUAKE_S = 2;
+const QUAKE_FOLLOW = 0.6; // fraction of each move a quaking mallet makes
+const DECOY_S = 3;
+const DECOY_SLOW = 300; // px/s: slower pucks send decoys at the target goal
+const DECOY_SPEED = 800;
+const TINY_S = 5;
+const TINY_FACTOR = 0.6; // of puckR
 const BOT_HOLD_MIN_S = 1;
 const BOT_HOLD_MAX_S = 2.5;
 const BOT_WAIT_S = 10; // shield / freeze: use anyway this long after the hold time
@@ -92,6 +119,26 @@ const SUBSTEPS = 4;
 const GOAL_PAUSE_S = 1.6;
 const SERVE_COUNTDOWN_S = 1;
 const EVENT_CAP = 16;
+// Random mode: one twist per match.
+export const TWISTS = ['twinpuck', 'movinggoals', 'gravity', 'blackout', 'wind', 'hotpotato', 'shrinking', 'turbo'];
+const TWIN_REST = 0.9; // puck vs puck restitution
+const GOAL_SWING = 0.2; // of W, moving goals amplitude
+const GOAL_PERIOD_S = 4;
+const WELL_K = 0.105; // of W^3
+const WELL_S = 0.16; // of W, softening
+const WELL_SWALLOW_R = 0.03; // of W
+const WELL_SWALLOW_V = 500; // px/s
+const WELL_HOLD_S = 0.7;
+const WELL_SPIT_V = 900; // px/s
+const WIND_ACC = 0.15; // of W, px/s^2
+const WIND_TURN_S = 8;
+const FUSE_MAX_S = 6;
+const FUSE_MIN_S = 2;
+const FUSE_PER_HIT_S = 0.5;
+const SHRINK_RATE = 0.01; // of W per second
+const SHRINK_MAX = 0.25; // of W
+const TURBO_MULT = 1.1;
+const TURBO_K_MAX = 2;
 
 // Obstacle layouts in the HOST half, as fractions: [fx of W, fv of H] where fv
 // is the distance from the seam towards the host's own goal. The guest half
@@ -131,16 +178,18 @@ function frictionStep(p, phys, dt) {
   }
 }
 
-/** Rail bounces for the puck. g = {puckR, W, bottom}. `mouth(x, side)` says
+/** Rail bounces for the puck. g = {puckR, W, bottom, left?}: the side rails
+ *  are at x = left (default 0) and x = W. `mouth(x, side)` says
  *  whether x is inside the goal mouth on side 'guest' (top) or 'host' (bottom).
  *  `onWall(vn)` is called with the impact speed of every rail bounce. Returns
  *  the side that was scored on ('guest' | 'host') when the puck fully entered
  *  a goal mouth, else null. */
 function railBounce(p, g, phys, mouth, onWall) {
   const { puckR, W, bottom } = g;
+  const left = g.left || 0;
   // Side rails.
-  if (p.x < puckR) {
-    p.x = puckR;
+  if (p.x < left + puckR) {
+    p.x = left + puckR;
     if (p.vx < 0) onWall(-p.vx);
     p.vx = Math.abs(p.vx) * phys.wall;
   } else if (p.x > W - puckR) {
@@ -179,6 +228,7 @@ const HIT = { vn: 0, nx: 0, ny: 0 }; // scratch result of malletHit (read immedi
  *  applied; vn is the pre-impact approach speed along the normal). */
 function malletHit(p, m, role, g, phys, mouth) {
   const { puckR, malletR, W, bottom } = g;
+  const left = g.left || 0;
   let dx = p.x - m.x;
   let dy = p.y - m.y;
   let dist = Math.hypot(dx, dy);
@@ -202,8 +252,8 @@ function malletHit(p, m, role, g, phys, mouth) {
   dy = p.y - m.y;
   const sgnY = dy >= 0 ? 1 : -1;
   const sgnX = dx >= 0 ? 1 : -1;
-  if (p.x < puckR) {
-    p.x = puckR;
+  if (p.x < left + puckR) {
+    p.x = left + puckR;
     p.y = m.y + sgnY * Math.sqrt(Math.max(0, minDist * minDist - (p.x - m.x) ** 2));
   } else if (p.x > W - puckR) {
     p.x = W - puckR;
@@ -216,7 +266,7 @@ function malletHit(p, m, role, g, phys, mouth) {
     p.y = bottom - puckR;
     p.x = m.x + sgnX * Math.sqrt(Math.max(0, minDist * minDist - (p.y - m.y) ** 2));
   }
-  p.x = clamp(p.x, puckR, W - puckR);
+  p.x = clamp(p.x, left + puckR, W - puckR);
   // Reflect the relative velocity along the normal.
   const rvx = p.vx - m.vx;
   const rvy = p.vy - m.vy;
@@ -236,13 +286,35 @@ function malletHit(p, m, role, g, phys, mouth) {
   return HIT;
 }
 
-const mouthFor = (W, gw) => (x, side) => Math.abs(x - W / 2) < (side === 'guest' ? gw[1] : gw[0]) / 2;
+const NO_GX = [0, 0];
+const mouthFor = (W, gw, gx) => (x, side) =>
+  side === 'guest' ? Math.abs(x - W / 2 - gx[1]) < gw[1] / 2 : Math.abs(x - W / 2 - gx[0]) < gw[0] / 2;
+
+/** Shared-helper geometry and physics from a snapshot's optional fields:
+ *  pr (puck radius), tx.in (side rail inset), tx.k (turbo cap multiplier). */
+function snapGeom(snap, cfg, bottom) {
+  const tx = snap && snap.tx;
+  const inset = tx && tx.in > 0 ? tx.in : 0;
+  const pr = snap && snap.pr > 0 ? snap.pr : cfg.puckR;
+  return { puckR: pr, malletR: cfg.malletR, W: cfg.W - inset, left: inset, bottom };
+}
+const physScratch = {}; // reused by snapPhys so the Turbo helpers do not allocate per call
+function snapPhys(snap, cfg) {
+  const phys = physOf(cfg.mode);
+  const k = snap && snap.tx && snap.tx.k > 1 ? snap.tx.k : 1;
+  if (!(k > 1)) return phys;
+  for (const key in phys) physScratch[key] = phys[key];
+  physScratch.max = phys.max * k;
+  return physScratch;
+}
 const NO_MOUTH = () => false;
 
 /**
  * Pure: would the local mallet touch the puck within `dtSeconds`?
- *   snap  snapshot object ({p:[x,y,vx,vy], g?, gw?}); only p (and optionally
- *         g = seam gap, gw = goal widths) are read
+ *   snap  snapshot object ({p:[x,y,vx,vy], g?, gw?, gx?, pr?, tx?, tw?}); only
+ *         p (and optionally g = seam gap, gw = goal widths, gx = goal offsets,
+ *         pr = puck radius, tx.in = rail inset, tx.k = turbo cap, tw = twist:
+ *         'turbo' adds the per-hit speed up) are read
  *   cfg   {puckR, malletR, W, H, G, mode}
  *   role  'guest' | 'host' (only picks the push-out direction when the circles
  *         are exactly concentric)
@@ -255,17 +327,17 @@ const NO_MOUTH = () => false;
 export function predictMalletHit(snap, cfg, role, mallet, dtSeconds) {
   const sp = snap && snap.p;
   if (!sp || !mallet) return null;
-  const phys = physOf(cfg.mode);
+  const phys = snapPhys(snap, cfg);
   const Gp = typeof snap.g === 'number' ? snap.g : cfg.G;
-  const g = { puckR: cfg.puckR, malletR: cfg.malletR, W: cfg.W, bottom: 2 * cfg.H + Gp };
+  const g = snapGeom(snap, cfg, 2 * cfg.H + Gp);
   const gw = snap.gw || [cfg.goalW, cfg.goalW];
-  const mouth = cfg.goalW || snap.gw ? mouthFor(cfg.W, gw) : NO_MOUTH;
+  const mouth = cfg.goalW || snap.gw ? mouthFor(cfg.W, gw, snap.gx || NO_GX) : NO_MOUTH;
   const mvx = mallet.vx || 0;
   const mvy = mallet.vy || 0;
   const dt = Math.max(0, dtSeconds || 0);
   // Relative sweep distance decides how finely to sample (half a puck radius).
   const rel = Math.hypot(sp[2] - mvx, sp[3] - mvy) * dt;
-  const steps = clamp(Math.ceil(rel / (cfg.puckR * 0.5)), 1, 24);
+  const steps = clamp(Math.ceil(rel / (g.puckR * 0.5)), 1, 24);
   const p = { x: 0, y: 0, vx: sp[2], vy: sp[3] };
   const m = { x: 0, y: 0, vx: mvx, vy: mvy };
   for (let i = 0; i <= steps; i++) {
@@ -274,7 +346,21 @@ export function predictMalletHit(snap, cfg, role, mallet, dtSeconds) {
     p.y = sp[1] + sp[3] * t;
     m.x = mallet.x + mvx * t;
     m.y = mallet.y + mvy * t;
-    if (malletHit(p, m, role, g, phys, mouth)) return [p.x, p.y, p.vx, p.vy];
+    const hit = malletHit(p, m, role, g, phys, mouth);
+    if (!hit) continue;
+    if (hit.vn < 0 && snap.tw === 'turbo') {
+      // Turbo: the sim speeds the puck up 10 percent per hit and raises the cap.
+      const k = Math.min(TURBO_K_MAX, (phys.max / physOf(cfg.mode).max) * TURBO_MULT);
+      const cap = physOf(cfg.mode).max * k;
+      p.vx *= TURBO_MULT;
+      p.vy *= TURBO_MULT;
+      const s = Math.hypot(p.vx, p.vy);
+      if (s > cap) {
+        p.vx *= cap / s;
+        p.vy *= cap / s;
+      }
+    }
+    return [p.x, p.y, p.vx, p.vy];
   }
   return null;
 }
@@ -283,11 +369,12 @@ export function predictMalletHit(snap, cfg, role, mallet, dtSeconds) {
  * Pure: advance a puck [x, y, vx, vy] by `dtSeconds` with the mode's friction
  * and rail bounces (no goals, no mallets, no obstacles; the end rails are
  * solid). cfg needs {puckR, W, H, G, mode}. Returns a NEW [x, y, vx, vy]. Uses
- * the same per-step code as the sim, in sub-steps of at most 1/240 s.
+ * the same per-step code as the sim, in sub-steps of at most 1/240 s. The
+ * optional `snap` supplies pr, tx.in and tx.k (see predictMalletHit).
  */
-export function advancePuck(pArr, cfg, dtSeconds) {
-  const phys = physOf(cfg.mode);
-  const g = { puckR: cfg.puckR, W: cfg.W, bottom: 2 * cfg.H + cfg.G };
+export function advancePuck(pArr, cfg, dtSeconds, snap) {
+  const phys = snapPhys(snap, cfg);
+  const g = snapGeom(snap, cfg, 2 * cfg.H + cfg.G);
   const p = { x: pArr[0], y: pArr[1], vx: pArr[2], vy: pArr[3] };
   const dt = dtSeconds > 0 ? dtSeconds : 0;
   const n = clamp(Math.ceil(dt * 240 - 1e-9), 1, 1200);
@@ -317,21 +404,39 @@ export function createSim(cfg, opts = {}) {
   if (!['duo', 'bot', 'pass'].includes(cfg.players)) cfg.players = 'duo';
   if (!['easy', 'medium', 'hard', 'impossible'].includes(cfg.botLevel)) cfg.botLevel = 'medium';
   if (!(cfg.target >= 1)) cfg.target = 7;
+  if (cfg.twist !== undefined && !(cfg.mode === 'random' && TWISTS.includes(cfg.twist))) delete cfg.twist;
 
-  const { W, H, puckR, malletR, goalW, target, mode } = cfg;
+  const { W, H, malletR, goalW, target, mode } = cfg;
+  const puckR0 = cfg.puckR; // base puck radius; `puckR` below follows tinypuck
+  let puckR = puckR0;
+  let railL = 0; // side rails at x = railL and x = railR (the shrinking rink moves them)
+  let railR = W;
   let G = cfg.G; // seam gap; adjustable through setGap() while phase is 'ready'
   const rng = opts.rng || Math.random;
   const phys = MODE_PHYS[mode];
   const battleMode = mode === 'battle';
+  const randomMode = mode === 'random';
   const physRocket = { ...phys, max: ROCKET_MAX }; // puck cap while a rocket flies
   const MAX_PUCK_SPEED = phys.max;
   const seamTop = H; // where the guest half ends
   let seamBottom = H + G; // where the host half starts
   let bottom = 2 * H + G;
-  const geom = { puckR, malletR, W, bottom }; // shared-helper geometry; bottom follows setGap()
+  // Shared-helper geometry: bottom follows setGap(), puckR follows tinypuck,
+  // left / W are the side rails (shrinking rink). syncGeom() keeps them in step.
+  const geom = { puckR, malletR, W, bottom, left: 0 };
   // Per-side geometry for mallet hits: in battle mode a shrunk mallet has its
   // own radius, so host and guest each get their own object.
   const sideGeom = battleMode ? { host: { ...geom }, guest: { ...geom } } : { host: geom, guest: geom };
+  const goalieGeom = { ...geom, malletR: malletR * GOALIE_R_FACTOR };
+  const geoms = [geom, sideGeom.host, sideGeom.guest, goalieGeom];
+  function syncGeom() {
+    for (const g of geoms) {
+      g.puckR = puckR;
+      g.W = railR;
+      g.left = railL;
+      g.bottom = bottom;
+    }
+  }
 
   const state = {
     phase: PHASE.READY,
@@ -340,7 +445,13 @@ export function createSim(cfg, opts = {}) {
     stage: 0, // 1 during the post-goal mini countdown (phase stays 'goal')
     time: 0, // simulated seconds since creation
     serveTo: rng() < 0.5 ? 'host' : 'guest',
-    puck: { x: W / 2, y: bottom / 2, vx: 0, vy: 0 },
+    puck: { x: W / 2, y: bottom / 2, vx: 0, vy: 0, ss: 0 }, // ss = seconds at rest in the seam gap
+    pucks: null, // [puck] or, with the twin puck twist, [puck, second puck]
+    pr: puckR, // current puck radius
+    gx: [0, 0], // goal mouth centre offsets from W / 2 [host, guest]
+    lastHit: null, // side whose mallet (or goalie) last touched the puck; null after each serve
+    twist: null, // random mode: the twist id
+    tx: null, // random mode: twist data (streamed as snap.tx)
     mallets: {
       host: { x: W / 2, y: bottom - H * 0.2, vx: 0, vy: 0, lastT: 0 },
       guest: { x: W / 2, y: H * 0.2, vx: 0, vy: 0, lastT: 0 },
@@ -350,16 +461,20 @@ export function createSim(cfg, opts = {}) {
     lastGoalBy: null,
     winner: null,
   };
+  state.pucks = [state.puck];
+  const puck2 = { x: W / 2, y: bottom / 2, vx: 0, vy: 0, ss: 0 }; // twin puck (in pucks only while it runs)
   if (battleMode) {
     state.items = { host: null, guest: null };
-    state.lastHit = null; // side whose mallet last touched the puck; null after each serve
-    state.bt = { sh: [0, 0], gh: [0, 0], sk: [0, 0], fz: 0, rk: [0, 0], mr: [malletR, malletR] };
+    state.bt = {
+      sh: [0, 0], gh: [0, 0], sk: [0, 0], fz: 0, rk: [0, 0], mr: [malletR, malletR],
+      mg: [0, 0], wg: [0, 0], mi: [0, 0], qk: [0, 0], dc: [0, 0],
+      go: [0, 0], gi: [0, 0], ca: [0, 0], ct: [0, 0], tp: 0,
+    };
   }
 
   let events = [];
   let seq = 0;
   let lastTick = Infinity;
-  let seamStill = 0;
   const bombMode = mode === 'bombs';
   const glitchMode = mode === 'glitch';
   let glitchAt = Infinity; // sim time of the next glitch
@@ -374,6 +489,14 @@ export function createSim(cfg, opts = {}) {
   let frozenVy = 0;
   let botUseAt = -1; // sim time at which the bot may use its item (-1 = not holding)
   const lastUsed = { host: null, guest: null };
+  const decoys = []; // decoy pucks {x, y, vx, vy, t (target index), by (user index)}
+  let rallyHits = 0; // mallet hits since the serve (hot potato, turbo)
+  // Random mode bookkeeping.
+  const physTurbo = { ...phys }; // its max follows tx.k
+  let swallowed = false; // gravity: the puck sits in the well
+  let windT = 0; // wind: play seconds until the next turn
+  let windAng = 0;
+  let windOn = false; // the first direction is chosen at the first serve
 
   function emit(k, x, y, s, extra) {
     if (events.length >= EVENT_CAP) return;
@@ -428,7 +551,7 @@ export function createSim(cfg, opts = {}) {
   /** Mines rearm; bombs go home, at rest, unarmed. */
   function rearmAll() {
     for (const o of obstacles) {
-      if (o.k === 'box' || o.drop) continue; // item boxes and dropped mines have their own timers
+      if (o.k === 'box' || o.k === 'goalie') continue; // these have their own timers
       o.rearmAt = 0;
       if (o.k === 'bomb') {
         o.x = o.hx;
@@ -441,11 +564,11 @@ export function createSim(cfg, opts = {}) {
     }
   }
 
-  function collideObstacles() {
-    const p = state.puck;
+  function collideObstacles(p) {
     for (let i = 0; i < obstacles.length; i++) {
       const o = obstacles[i];
-      if (o.k === 'bomb' || o.k === 'box') continue; // bombs are bodies, see stepBombs(); boxes are not solid
+      // Bombs are bodies (stepBombs), boxes are not solid, goalies hit like mallets.
+      if (o.k === 'bomb' || o.k === 'box' || o.k === 'goalie') continue;
       const dx = p.x - o.x;
       const dy = p.y - o.y;
       const minDist = puckR + o.r;
@@ -461,12 +584,7 @@ export function createSim(cfg, opts = {}) {
         p.x = o.x + Math.cos(a) * (minDist + 1);
         p.y = o.y + Math.sin(a) * (minDist + 1);
         emit('mine', o.x, o.y, 1);
-        if (o.drop) {
-          obstacles.splice(i, 1); // a dropped mine goes off once
-          i--;
-        } else {
-          o.rearmAt = state.time + MINE_REARM_S;
-        }
+        o.rearmAt = state.time + MINE_REARM_S;
         continue;
       }
       let dist = Math.sqrt(d2);
@@ -589,9 +707,8 @@ export function createSim(cfg, opts = {}) {
   }
 
   /** Keep the puck on the table after a bomb pushed it (goal mouths stay open). */
-  function clampPuck() {
-    const p = state.puck;
-    p.x = clamp(p.x, puckR, W - puckR);
+  function clampPuck(p = state.puck) {
+    p.x = clamp(p.x, railL + puckR, railR - puckR);
     if (p.y < puckR && !inMouth(p.x, 'guest')) p.y = puckR;
     else if (p.y > bottom - puckR && !inMouth(p.x, 'host')) p.y = bottom - puckR;
   }
@@ -665,6 +782,28 @@ export function createSim(cfg, opts = {}) {
     detonateCheck(mg, 'guest');
   }
 
+  /** The puck that threatens the guest (bot) goal soonest: the one heading
+   *  to y = 0 that gets there first, else the one closest to that goal. */
+  function botThreat() {
+    const ps = state.pucks;
+    if (ps.length < 2) return state.puck;
+    let best = null;
+    let bestT = Infinity;
+    for (const q of ps) {
+      if (q.vy < 0) {
+        const t = q.y / -q.vy;
+        if (t < bestT) {
+          bestT = t;
+          best = q;
+        }
+      }
+    }
+    if (best) return best;
+    best = ps[0];
+    for (const q of ps) if (q.y < best.y) best = q;
+    return best;
+  }
+
   // --- serving --------------------------------------------------------------
 
   function placePuckForServe() {
@@ -673,7 +812,18 @@ export function createSim(cfg, opts = {}) {
     p.vy = 0;
     p.x = W / 2;
     // Serve into the half of the player who receives the puck.
-    p.y = state.serveTo === 'host' ? seamBottom + H / 2 : seamTop - H / 2;
+    const hostY = seamBottom + H / 2;
+    const guestY = seamTop - H / 2;
+    p.y = state.serveTo === 'host' ? hostY : guestY;
+    if (state.pucks.length > 1) {
+      // The twin waits in the other half.
+      puck2.vx = 0;
+      puck2.vy = 0;
+      puck2.x = W / 2;
+      puck2.y = state.serveTo === 'host' ? guestY : hostY;
+    }
+    swallowed = false;
+    if (state.tx && state.tx.sw !== undefined) state.tx.sw = 0;
   }
 
   function launchServe() {
@@ -684,10 +834,23 @@ export function createSim(cfg, opts = {}) {
     const angle = (rng() - 0.5) * 0.8;
     p.vx = Math.sin(angle) * SERVE_SPEED;
     p.vy = Math.cos(angle) * SERVE_SPEED * dir;
-    seamStill = 0;
+    p.ss = 0;
+    if (state.pucks.length > 1) {
+      // The twin leaves its waiting spot (centre of the other half, where
+      // placePuckForServe parked it) towards that half's own goal, so each
+      // player receives one puck.
+      const a2 = (rng() - 0.5) * 0.8;
+      puck2.x = W / 2;
+      puck2.y = state.serveTo === 'host' ? seamTop - H / 2 : seamBottom + H / 2;
+      puck2.vx = Math.sin(a2) * SERVE_SPEED;
+      puck2.vy = -Math.cos(a2) * SERVE_SPEED * dir;
+      puck2.ss = 0;
+    }
     rearmAll();
+    state.lastHit = null;
+    rallyHits = 0;
+    if (randomMode) twistServe();
     if (battleMode) {
-      state.lastHit = null;
       if (!boxesStarted) {
         boxesStarted = true;
         firstPair = true;
@@ -706,7 +869,7 @@ export function createSim(cfg, opts = {}) {
 
   function clampMallet(role, m) {
     const rr = battleMode ? state.bt.mr[role === 'host' ? 0 : 1] : malletR;
-    m.x = Math.min(W - rr, Math.max(rr, m.x));
+    m.x = Math.min(railR - rr, Math.max(railL + rr, m.x));
     if (role === 'host') m.y = Math.min(bottom - rr, Math.max(seamBottom + rr, m.y));
     else m.y = Math.min(seamTop - rr, Math.max(rr, m.y));
   }
@@ -737,6 +900,11 @@ export function createSim(cfg, opts = {}) {
     if (!m) return;
     const prevX = m.x;
     const prevY = m.y;
+    if (battleMode && state.bt.qk[sideIdx(role)] > 0) {
+      // Quake: the mallet only makes part of each move.
+      x = prevX + (x - prevX) * QUAKE_FOLLOW;
+      y = prevY + (y - prevY) * QUAKE_FOLLOW;
+    }
     m.x = x;
     m.y = y;
     clampMallet(role, m);
@@ -772,29 +940,62 @@ export function createSim(cfg, opts = {}) {
 
   function inMouth(x, side) {
     // side 'guest' = top goal, 'host' = bottom goal
-    const w = side === 'guest' ? state.gw[1] : state.gw[0];
-    return Math.abs(x - W / 2) < w / 2;
+    if (side === 'guest') return Math.abs(x - W / 2 - state.gx[1]) < state.gw[1] / 2;
+    return Math.abs(x - W / 2 - state.gx[0]) < state.gw[0] / 2;
   }
 
+  /** Physics for the puck right now: rocket flight and turbo raise the cap. */
+  function curPhys() {
+    if (battleMode && rocketT > 0) return physRocket;
+    if (randomMode && state.twist === 'turbo') return physTurbo;
+    return phys;
+  }
+
+  /** A puck that skips all physics (frozen, held by a catch, swallowed). */
+  function puckParked() {
+    if (swallowed) return true;
+    if (!battleMode) return false;
+    const bt = state.bt;
+    return bt.fz > 0 || bt.ct[0] > 0 || bt.ct[1] > 0;
+  }
+
+  /** Mallet `m` against every puck in play. */
   function collideMallet(m, role) {
     if (bombMode && detonateCheck(m, role)) return;
-    const p = state.puck;
+    for (let i = 0; i < state.pucks.length; i++) malletPuck(m, role, state.pucks[i]);
+  }
+
+  function malletPuck(m, role, p) {
+    if (puckParked()) return; // frozen, caught or swallowed: mallets do nothing
     if (battleMode) {
-      if (state.bt.fz > 0) return; // a frozen puck ignores mallets
-      const hit = malletHit(p, m, role, sideGeom[role], rocketT > 0 ? physRocket : phys, mouthB);
+      const idx = sideIdx(role);
+      const bt = state.bt;
+      const hit = malletHit(p, m, role, sideGeom[role], curPhys(), mouthB);
       if (!hit) return;
       state.lastHit = role;
+      if (bt.ca[idx]) {
+        catchPuck(idx, p);
+        return;
+      }
       if (hit.vn < 0) {
         const s = Math.min(1, -hit.vn / 2000);
         if (s > 0.03) emit('hit', p.x - hit.nx * puckR, p.y - hit.ny * puckR, s);
-        rocketHit(role, hit);
+        if (bt.mg[idx] > 0) {
+          bt.mg[idx] = 0;
+          emit('magnetoff', p.x, p.y, 1, { by: role });
+        }
+        rocketHit(role, hit, p);
       }
       return;
     }
-    const hit = malletHit(p, m, role, geom, phys, inMouth);
-    if (hit && hit.vn < 0) {
+    const hit = malletHit(p, m, role, geom, curPhys(), inMouth);
+    if (!hit) return;
+    state.lastHit = role;
+    if (hit.vn < 0) {
       const s = Math.min(1, -hit.vn / 2000);
       if (s > 0.03) emit('hit', p.x - hit.nx * puckR, p.y - hit.ny * puckR, s);
+      rallyHits += 1;
+      if (randomMode) twistHit(p);
     }
   }
 
@@ -808,15 +1009,21 @@ export function createSim(cfg, opts = {}) {
       h = goalW * behind(state.score.guest - state.score.host);
       g = goalW * behind(state.score.host - state.score.guest);
     }
+    if (battleMode) {
+      // Wide goal: the target's mouth grows while the timer runs.
+      if (state.bt.wg[0] > 0) h = Math.min(h * WIDEGOAL_MULT, W * WIDEGOAL_MAX);
+      if (state.bt.wg[1] > 0) g = Math.min(g * WIDEGOAL_MULT, W * WIDEGOAL_MAX);
+    }
     state.gw = [h, g];
   }
 
   /** `extra` {x, y, why} marks a goal that did not come from the puck (a bomb
-   *  going off): the event is placed at x, y and carries `why`. */
-  function goal(scoredOn, extra) {
+   *  going off, a hot potato): the event is placed at x, y and carries `why`.
+   *  `p` is the puck that went in (twin puck). */
+  function goal(scoredOn, extra, p = state.puck) {
     const scorer = scoredOn === 'host' ? 'guest' : 'host';
     if (extra) emit('goal', extra.x, extra.y, 1, { by: scorer, why: extra.why });
-    else emit('goal', state.puck.x, scoredOn === 'guest' ? 0 : bottom, 1, { by: scorer });
+    else emit('goal', p.x, scoredOn === 'guest' ? 0 : bottom, 1, { by: scorer });
     state.score[scorer] += 1;
     state.lastGoalBy = scorer;
     state.serveTo = scoredOn;
@@ -832,15 +1039,34 @@ export function createSim(cfg, opts = {}) {
       state.timer = GOAL_PAUSE_S;
     }
     if (battleMode) battleClear();
+    if (randomMode) twistGoal();
     placePuckForServe();
   }
 
   // --- puck physics ---------------------------------------------------------
 
-  function stepPuck(dt) {
-    const p = state.puck;
-    if (battleMode && state.bt.fz > 0) return; // frozen: no motion, no collisions
-    const ph = battleMode && rocketT > 0 ? physRocket : phys;
+  let curP = state.puck; // the puck stepPuck is working on (wallBounce reads it)
+
+  /** One substep for every puck, plus whatever moves with them. */
+  function substep(dt) {
+    if (battleMode) {
+      catchTick();
+      goalieTick(dt);
+      stepDecoys(dt);
+    }
+    const n = state.pucks.length;
+    for (let j = 0; j < n && state.phase === PHASE.PLAY; j++) stepPuck(state.pucks[j], dt);
+    if (n > 1 && state.phase === PHASE.PLAY) puckPuck(state.pucks[0], state.pucks[1]);
+  }
+
+  function stepPuck(p, dt) {
+    if (puckParked()) return; // frozen, held or swallowed: no motion, no collisions
+    if (battleMode) magnetPull(p, dt);
+    else if (randomMode) {
+      twistForces(p, dt);
+      if (swallowed) return; // the well just took it
+    }
+    const ph = curPhys();
     frictionStep(p, ph, dt);
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -859,6 +1085,7 @@ export function createSim(cfg, opts = {}) {
     }
 
     // Rails and goals.
+    curP = p;
     const scoredOn = railBounce(p, geom, ph, battleMode ? mouthB : inMouth, shield >= 0 ? noWall : wallBounce);
     if (shield >= 0) {
       p.vx *= SHIELD_BOUNCE;
@@ -870,24 +1097,30 @@ export function createSim(cfg, opts = {}) {
       }
       emit('shieldhit', p.x, p.y, Math.min(1, shieldVn / 2000), { by: shield === 0 ? 'host' : 'guest' });
     }
-    if (scoredOn) return goal(scoredOn);
+    if (scoredOn) return goal(scoredOn, null, p);
 
     // Mallets first, obstacles last, so a mallet can never shove the puck
     // into a bumper and keep it there with energy gained from the squeeze.
     const mh = state.mallets.host;
     const mg = state.mallets.guest;
     for (let i = 0; i < 3; i++) {
-      collideMallet(mh, 'host');
-      collideMallet(mg, 'guest');
-      if (obstacles.length) collideObstacles();
+      if (bombMode && detonateCheck(mh, 'host')) return;
+      malletPuck(mh, 'host', p);
+      if (bombMode && detonateCheck(mg, 'guest')) return;
+      malletPuck(mg, 'guest', p);
+      if (obstacles.length) {
+        if (battleMode) goaliesPuck(p);
+        collideObstacles(p);
+      }
       if (state.phase !== PHASE.PLAY) return; // a bomb went off
+      if (puckParked()) return; // a catch took it
     }
     // Bombs are bodies: the puck and each other can shove them around.
     if (bombMode) {
       stepBombs(dt);
       if (state.phase !== PHASE.PLAY) return;
     }
-    if (battleMode) collectBoxes();
+    if (battleMode) collectBoxes(p);
     // Still overlapping a mallet = squeezed between it and an obstacle or rail:
     // the puck just rides along with half the mallet's velocity.
     for (const m of [mh, mg]) {
@@ -900,23 +1133,52 @@ export function createSim(cfg, opts = {}) {
     }
 
     // Final safety: never leave the rink sideways.
-    p.x = clamp(p.x, puckR, W - puckR);
+    p.x = clamp(p.x, railL + puckR, railR - puckR);
 
     // A puck that dies in the seam gap is out of reach of both players.
     if (G > 2 * puckR) {
       const inGap = p.y > seamTop + puckR && p.y < seamBottom - puckR;
       if (inGap && Math.hypot(p.vx, p.vy) < 30) {
-        seamStill += dt;
-        if (seamStill > 1.2) {
+        p.ss += dt;
+        if (p.ss > 1.2) {
           const dir = rng() < 0.5 ? 1 : -1;
           p.vx = (rng() - 0.5) * 80;
           p.vy = dir * 260;
-          seamStill = 0;
+          p.ss = 0;
         }
       } else {
-        seamStill = 0;
+        p.ss = 0;
       }
     }
+  }
+
+  /** Twin pucks: equal masses, restitution 0.9, pushed apart evenly. */
+  function puckPuck(a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const minDist = 2 * puckR;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= minDist * minDist) return;
+    const d = Math.sqrt(d2);
+    const nx = d < 1e-6 ? 0 : dx / d;
+    const ny = d < 1e-6 ? 1 : dy / d;
+    const push = (minDist - d + 0.01) / 2;
+    a.x -= nx * push;
+    a.y -= ny * push;
+    b.x += nx * push;
+    b.y += ny * push;
+    const vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+    if (vn < 0) {
+      const j = (-(1 + TWIN_REST) * vn) / 2;
+      a.vx -= j * nx;
+      a.vy -= j * ny;
+      b.vx += j * nx;
+      b.vy += j * ny;
+      const s = Math.min(1, -vn / 2000);
+      if (s > 0.02) emit('clack', a.x + nx * puckR, a.y + ny * puckR, s);
+    }
+    clampPuck(a);
+    clampPuck(b);
   }
 
   // --- battle ---------------------------------------------------------------
@@ -958,10 +1220,6 @@ export function createSim(cfg, opts = {}) {
     return boxes.slice();
   }
 
-  function removeDroppedMines() {
-    for (let i = obstacles.length - 1; i >= 0; i--) if (obstacles[i].drop) obstacles.splice(i, 1);
-  }
-
   /** Change a side's mallet radius (physics and clamping follow). */
   function setMalletRadius(idx, rad) {
     const role = idx === 0 ? 'host' : 'guest';
@@ -970,22 +1228,48 @@ export function createSim(cfg, opts = {}) {
     clampMallet(role, state.mallets[role]);
   }
 
-  /** Drop every timed effect except rocket arming (goals and restart). The
-   *  frozen puck is not thawed: the caller repositions it. */
-  function battleClear() {
+  /** Mallet radius from shrink and giant: malletR * 0.6 (shrunk) * 1.5 (giant). */
+  function refreshRadius(idx) {
     const bt = state.bt;
-    bt.sh[0] = bt.sh[1] = 0;
-    bt.gh[0] = bt.gh[1] = 0;
-    bt.sk[0] = bt.sk[1] = 0;
-    bt.fz = 0;
-    rocketT = 0;
-    for (let i = 0; i < 2; i++) if (bt.mr[i] !== malletR) setMalletRadius(i, malletR);
-    removeDroppedMines();
+    const rad = malletR * (bt.sk[idx] > 0 ? SHRINK_FACTOR : 1) * (bt.gi[idx] > 0 ? GIANT_FACTOR : 1);
+    if (bt.mr[idx] !== rad) setMalletRadius(idx, rad);
   }
 
-  /** New match: held items, rocket arming, boxes and the bot's hold clock. */
+  /** Change the puck radius for every collision (tinypuck). */
+  function setPuckRadius(rad) {
+    puckR = rad;
+    state.pr = rad;
+    syncGeom();
+  }
+
+  /** Remove obstacles of kind `k` (and, when given, target `t`) in place. */
+  function removeObstacles(k, t) {
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      const o = obstacles[i];
+      if (o.k === k && (t === undefined || o.t === t)) obstacles.splice(i, 1);
+    }
+  }
+
+  /** Drop every timed effect except rocket and catch arming (goals and
+   *  restart). The frozen or held puck is not released: the caller
+   *  repositions it. */
+  function battleClear() {
+    const bt = state.bt;
+    for (const key of ['sh', 'gh', 'sk', 'mg', 'wg', 'mi', 'qk', 'dc', 'go', 'gi', 'ct']) bt[key][0] = bt[key][1] = 0;
+    bt.fz = 0;
+    bt.tp = 0;
+    rocketT = 0;
+    for (let i = 0; i < 2; i++) refreshRadius(i);
+    if (puckR !== puckR0) setPuckRadius(puckR0);
+    removeObstacles('goalie');
+    decoys.length = 0;
+    updateGoalWidths();
+  }
+
+  /** New match: held items, rocket and catch arming, boxes and the bot's hold clock. */
   function battleReset() {
     battleClear();
+    state.bt.ca[0] = state.bt.ca[1] = 0;
     state.items.host = null;
     state.items.guest = null;
     state.lastHit = null;
@@ -1023,19 +1307,22 @@ export function createSim(cfg, opts = {}) {
     };
     let item = pick();
     if (item === lastUsed[side]) item = pick(); // re-roll once
-    // Pass and play shares one screen: a ghost would blind both players.
-    if (item === 'ghost' && cfg.players === 'pass') item = pick();
-    if (item === 'ghost' && cfg.players === 'pass') item = 'shield';
+    // Pass and play shares one screen: ghost, mirror and decoys would hit both players.
+    if (cfg.players === 'pass' && PASS_BANNED.includes(item)) item = pick();
+    if (cfg.players === 'pass' && PASS_BANNED.includes(item)) item = 'shield';
     return item;
   }
 
-  /** The puck touches an active box: the credited player gets an item. */
-  function collectBoxes() {
-    const p = state.puck;
+  /** The puck touches an active box: the player on the OTHER side of the
+   *  table gets an item, provided they hit the puck last (or nobody did).
+   *  Dribbling the puck through a box in your own half does nothing, so the
+   *  only way to collect is to shoot through a box on the far side. */
+  function collectBoxes(p) {
     for (const b of boxes) {
       if (!b.on) continue;
       if (Math.hypot(p.x - b.x, p.y - b.y) >= puckR + b.r) continue;
-      const side = state.lastHit || (b.y > H + G / 2 ? 'host' : 'guest');
+      const side = b.y > H + G / 2 ? 'guest' : 'host'; // the far side of the box
+      if (state.lastHit && state.lastHit !== side) continue; // your own box: pass through
       if (state.items[side]) continue; // a full slot cannot collect: the puck passes through
       const item = rollItem(side);
       state.items[side] = item;
@@ -1045,16 +1332,13 @@ export function createSim(cfg, opts = {}) {
     }
   }
 
-  /** A spot for a new box: clear of the puck, both mallets and dropped mines. */
+  /** A spot for a new box: clear of the puck and both mallets. */
   function boxSpotOk(sp, rad) {
     const p = state.puck;
     if (Math.hypot(sp.x - p.x, sp.y - p.y) < puckR * 3) return false;
     for (const role of ['host', 'guest']) {
       const m = state.mallets[role];
       if (Math.hypot(sp.x - m.x, sp.y - m.y) < malletR * 2.5 + rad) return false;
-    }
-    for (const o of obstacles) {
-      if (o.drop && Math.hypot(sp.x - o.x, sp.y - o.y) < o.r + rad) return false;
     }
     return true;
   }
@@ -1101,11 +1385,10 @@ export function createSim(cfg, opts = {}) {
 
   /** A mallet hit by a side with a rocket armed: speed x1.6 (min 1800, cap 3900)
    *  and the puck keeps that cap for the flight time. */
-  function rocketHit(role, hit) {
+  function rocketHit(role, hit, p) {
     const idx = sideIdx(role);
     if (!state.bt.rk[idx]) return;
     state.bt.rk[idx] = 0;
-    const p = state.puck;
     const sp = Math.hypot(p.vx, p.vy);
     const ux = sp > 1e-6 ? p.vx / sp : hit.nx;
     const uy = sp > 1e-6 ? p.vy / sp : hit.ny;
@@ -1116,49 +1399,250 @@ export function createSim(cfg, opts = {}) {
     emit('rocket', p.x, p.y, 1, { by: role });
   }
 
-  /** Random spot in `ti`'s half for a dropped mine, or null. */
-  function findMineSpot(ti) {
-    const rad = malletR * MINE_R_FACTOR;
-    const lo = ti === 0 ? seamBottom + malletR * 2 : malletR * 2;
-    const hi = ti === 0 ? bottom - malletR * 2 : seamTop - malletR * 2;
-    const creaseLimit = goalW / 2 + malletR * 2 + rad;
-    const p = state.puck;
-    for (let t = 0; t < BOX_TRIES; t++) {
-      const x = rand(puckR * 3, W - puckR * 3);
-      const y = rand(lo, hi);
-      if (Math.hypot(x - W / 2, y) < creaseLimit || Math.hypot(x - W / 2, y - bottom) < creaseLimit) continue;
-      let ok = true;
-      for (const role of ['host', 'guest']) {
-        const m = state.mallets[role];
-        if (Math.hypot(x - m.x, y - m.y) < malletR * 2.5 + rad) ok = false;
-      }
-      if (Math.hypot(x - p.x, y - p.y) < puckR * 3 + rad) ok = false;
-      for (const o of obstacles) {
-        if (o.k === 'box' && !o.on) continue;
-        if (Math.hypot(x - o.x, y - o.y) < Math.max(2 * rad, rad + o.r)) ok = false;
-      }
-      if (ok) return { x, y, r: rad };
+  const roleOf = (idx) => (idx === 0 ? 'host' : 'guest');
+
+  /** Magnet: each running magnet steers the puck towards its target's mouth. */
+  function magnetPull(p, dt) {
+    const bt = state.bt;
+    for (let t = 0; t < 2; t++) {
+      if (bt.mg[t] <= 0) continue;
+      const dx = W / 2 + state.gx[t] - p.x;
+      const dy = (t === 0 ? bottom : 0) - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const sp = Math.max(Math.hypot(p.vx, p.vy), MAGNET_MIN);
+      const k = 1 - Math.exp(-MAGNET_RATE * dt);
+      p.vx += ((dx / d) * sp - p.vx) * k;
+      p.vy += ((dy / d) * sp - p.vy) * k;
     }
-    return null;
   }
 
-  /** Fire the item `role` holds. Returns true when it was used (phase 'play',
-   *  an item in hand, and for a mine a free spot); otherwise false and the
-   *  item is kept. */
+  // Goalie: a small mallet on the owner's goal line.
+  const goalieY = (o) => (o === 0 ? bottom - GOALIE_LINE * malletR : GOALIE_LINE * malletR);
+
+  function placeGoalie(o) {
+    for (const q of obstacles) if (q.k === 'goalie' && q.a === o) return; // already out: the timer restarts
+    const rad = malletR * GOALIE_R_FACTOR;
+    obstacles.push({ k: 'goalie', x: W / 2 + state.gx[o], y: goalieY(o), r: rad, a: o, t: o, vx: 0, vy: 0 });
+  }
+
+  /** Slide each goalie along its line towards where the puck will cross it. */
+  function goalieTick(dt) {
+    const p = state.puck;
+    for (const g of obstacles) {
+      if (g.k !== 'goalie') continue;
+      g.y = goalieY(g.a);
+      let tx = p.x;
+      const coming = g.a === 0 ? p.vy > 1 : p.vy < -1;
+      if (coming) tx = p.x + (p.vx * (g.y - p.y)) / p.vy;
+      const cx = W / 2 + state.gx[g.a];
+      const half = state.gw[g.a] / 2 + g.r;
+      tx = clamp(tx, cx - half, cx + half);
+      tx = clamp(tx, railL + g.r, railR - g.r);
+      const maxStep = GOALIE_SPEED * W * dt;
+      const dx = clamp(tx - g.x, -maxStep, maxStep);
+      g.x += dx;
+      g.vx = dx / dt;
+      g.vy = 0;
+    }
+  }
+
+  /** Goalies hit the puck exactly like mallets. */
+  function goaliesPuck(p) {
+    for (const g of obstacles) {
+      if (g.k !== 'goalie') continue;
+      const role = roleOf(g.a);
+      const hit = malletHit(p, g, role, goalieGeom, curPhys(), mouthB);
+      if (!hit) continue;
+      state.lastHit = role;
+      if (hit.vn < 0) {
+        const s = Math.min(1, -hit.vn / 2000);
+        if (s > 0.03) emit('goaliehit', p.x - hit.nx * puckR, p.y - hit.ny * puckR, s, { by: role });
+      }
+    }
+  }
+
+  // Catch: the armed side's next contact holds the puck in front of its mallet.
+  const CATCH_MIN_S = 0.15; // a flick only counts after this much hold time
+
+  function catchPuck(idx, p) {
+    const bt = state.bt;
+    bt.ca[idx] = 0;
+    bt.ct[idx] = CATCH_HOLD_S;
+    holdPuck(idx);
+    emit('catch', p.x, p.y, 1, { by: roleOf(idx) });
+  }
+
+  function holdPuck(idx) {
+    const p = state.puck;
+    const m = state.mallets[roleOf(idx)];
+    const s = idx === 0 ? -1 : 1;
+    p.x = clamp(m.x, railL + puckR, railR - puckR);
+    p.y = m.y + s * (state.bt.mr[idx] + puckR + 1);
+    p.vx = 0;
+    p.vy = 0;
+  }
+
+  /** Per substep: a held puck follows its mallet; a flick releases it. */
+  function catchTick() {
+    const bt = state.bt;
+    for (let i = 0; i < 2; i++) {
+      if (bt.ct[i] <= 0) continue;
+      const m = state.mallets[roleOf(i)];
+      if (bt.ct[i] < CATCH_HOLD_S - CATCH_MIN_S && Math.hypot(m.vx, m.vy) > CATCH_FLICK) releaseCatch(i, true);
+      else holdPuck(i);
+    }
+  }
+
+  /** Let go of a held puck: flung along the mallet (flick) or dropped forward. */
+  function releaseCatch(idx, flick) {
+    const bt = state.bt;
+    const p = state.puck;
+    const role = roleOf(idx);
+    const m = state.mallets[role];
+    const s = idx === 0 ? -1 : 1;
+    holdPuck(idx);
+    bt.ct[idx] = 0;
+    if (flick) {
+      p.vx = m.vx * CATCH_FLING_MULT;
+      p.vy = m.vy * CATCH_FLING_MULT;
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > phys.max) {
+        p.vx *= phys.max / sp;
+        p.vy *= phys.max / sp;
+      }
+    } else {
+      p.vx = 0;
+      p.vy = s * CATCH_DROP;
+    }
+    p.ss = 0;
+    state.lastHit = role;
+    emit('fling', p.x, p.y, Math.min(1, Math.hypot(p.vx, p.vy) / phys.max), { by: role });
+    if (bt.rk[idx]) {
+      HIT.vn = 0;
+      HIT.nx = 0;
+      HIT.ny = s;
+      rocketHit(role, HIT, p);
+    }
+    if (bt.fz > 0) {
+      // Frozen while held: the fling waits for the thaw.
+      frozenVx = p.vx;
+      frozenVy = p.vy;
+      p.vx = 0;
+      p.vy = 0;
+    }
+  }
+
+  /** Decoys: two fake pucks fan out from the real one. */
+  function spawnDecoys(ti, role) {
+    removeDecoys(ti);
+    const p = state.puck;
+    const sp = Math.hypot(p.vx, p.vy);
+    const deg = Math.PI / 180;
+    for (const sgn of [1, -1]) {
+      let vx;
+      let vy;
+      if (sp > DECOY_SLOW) {
+        const a = sgn * rand(25, 40) * deg;
+        const k = rand(0.9, 1.1);
+        const c = Math.cos(a);
+        const sn = Math.sin(a);
+        vx = (p.vx * c - p.vy * sn) * k;
+        vy = (p.vx * sn + p.vy * c) * k;
+      } else {
+        const base = Math.atan2((ti === 0 ? bottom : 0) - p.y, W / 2 + state.gx[ti] - p.x);
+        const a = base + rand(-30, 30) * deg;
+        vx = Math.cos(a) * DECOY_SPEED;
+        vy = Math.sin(a) * DECOY_SPEED;
+      }
+      decoys.push({ x: p.x, y: p.y, vx, vy, t: ti });
+    }
+    state.bt.dc[ti] = DECOY_S;
+    emit('decoys', p.x, p.y, 1, { by: role });
+  }
+
+  function removeDecoys(t) {
+    for (let i = decoys.length - 1; i >= 0; i--) if (decoys[i].t === t) decoys.splice(i, 1);
+  }
+
+  /** Decoys slide with friction, bounce off the side rails and the user's end
+   *  rail, ignore everything else and vanish past the target's goal line. */
+  function stepDecoys(dt) {
+    if (!decoys.length) return;
+    for (let i = decoys.length - 1; i >= 0; i--) {
+      const d = decoys[i];
+      frictionStep(d, phys, dt);
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+      if (d.x < railL + puckR) {
+        d.x = railL + puckR;
+        d.vx = Math.abs(d.vx) * phys.wall;
+      } else if (d.x > railR - puckR) {
+        d.x = railR - puckR;
+        d.vx = -Math.abs(d.vx) * phys.wall;
+      }
+      let gone = false;
+      if (d.t === 0) {
+        if (d.y < puckR) {
+          d.y = puckR;
+          d.vy = Math.abs(d.vy) * phys.wall;
+        }
+        gone = d.y > bottom + puckR;
+      } else {
+        if (d.y > bottom - puckR) {
+          d.y = bottom - puckR;
+          d.vy = -Math.abs(d.vy) * phys.wall;
+        }
+        gone = d.y < -puckR;
+      }
+      if (gone) decoys.splice(i, 1);
+    }
+    for (let t = 0; t < 2; t++) {
+      if (state.bt.dc[t] <= 0) continue;
+      let any = false;
+      for (const d of decoys) if (d.t === t) any = true;
+      if (!any) state.bt.dc[t] = 0;
+    }
+  }
+
+  /** Steal: take the target's item, or roll a fresh one (never steal). */
+  function stealItem(role, target) {
+    const got = state.items[target] ? 1 : 0;
+    let item = 'shield';
+    if (got) {
+      item = state.items[target];
+      state.items[target] = null;
+    } else {
+      for (let t = 0; t < 5; t++) {
+        const c = rollItem(role);
+        if (c !== 'steal') {
+          item = c;
+          break;
+        }
+      }
+    }
+    state.items[role] = item;
+    const m = state.mallets[role];
+    emit('steal', m.x, m.y, 1, { by: role, item, got });
+  }
+
+  /** Fire the item `role` holds. Returns true when it was used (phase 'play'
+   *  and an item in hand); otherwise false and the item is kept. An id that
+   *  is not a known item is refused and the slot cleared. */
   function useItem(role) {
     if (!battleMode || state.phase !== PHASE.PLAY) return false;
     if (role !== 'host' && role !== 'guest') return false;
     const item = state.items[role];
     if (!item) return false;
+    if (!ITEMS.includes(item)) {
+      state.items[role] = null;
+      return false;
+    }
     const idx = sideIdx(role);
     const ti = 1 - idx; // the target
     const bt = state.bt;
     const p = state.puck;
-    let mineSpot = null;
-    if (item === 'mine') {
-      mineSpot = findMineSpot(ti);
-      if (!mineSpot) return false;
-    }
+    state.items[role] = null;
+    lastUsed[role] = item;
     switch (item) {
       case 'rocket':
         bt.rk[idx] = 1;
@@ -1171,7 +1655,7 @@ export function createSim(cfg, opts = {}) {
         break;
       case 'shrink':
         bt.sk[ti] = SHRINK_S;
-        setMalletRadius(ti, malletR * SHRINK_FACTOR);
+        refreshRadius(ti);
         break;
       case 'freeze':
         if (bt.fz <= 0) {
@@ -1182,21 +1666,41 @@ export function createSim(cfg, opts = {}) {
         }
         bt.fz = FREEZE_S;
         break;
-      case 'mine':
-        obstacles.push({
-          k: 'mine',
-          x: mineSpot.x,
-          y: mineSpot.y,
-          r: mineSpot.r,
-          rearmAt: state.time + DROP_FUSE_S,
-          expireAt: state.time + DROP_FUSE_S + DROP_LIVE_S,
-          drop: true,
-        });
-        emit('minedrop', mineSpot.x, mineSpot.y, 1, { by: role });
+      case 'magnet':
+        bt.mg[ti] = MAGNET_S;
+        break;
+      case 'widegoal':
+        bt.wg[ti] = WIDEGOAL_S;
+        updateGoalWidths();
+        break;
+      case 'goalie':
+        bt.go[idx] = GOALIE_S;
+        placeGoalie(idx);
+        break;
+      case 'giant':
+        bt.gi[idx] = GIANT_S;
+        refreshRadius(idx);
+        break;
+      case 'catch':
+        bt.ca[idx] = 1;
+        break;
+      case 'mirror':
+        bt.mi[ti] = MIRROR_S;
+        break;
+      case 'quake':
+        bt.qk[ti] = QUAKE_S;
+        break;
+      case 'decoys':
+        spawnDecoys(ti, role);
+        break;
+      case 'steal':
+        stealItem(role, roleOf(ti));
+        break;
+      case 'tinypuck':
+        bt.tp = TINY_S;
+        setPuckRadius(puckR0 * TINY_FACTOR);
         break;
     }
-    state.items[role] = null;
-    lastUsed[role] = item;
     const m = state.mallets[role];
     emit('use', m.x, m.y, 1, { by: role, item });
     return true;
@@ -1216,23 +1720,44 @@ export function createSim(cfg, opts = {}) {
     let go = true;
     if (item === 'shield') go = late || (p.vy < 0 && Math.hypot(p.vx, p.vy) > 600 && p.y < 0.6 * H);
     else if (item === 'freeze') go = late || (p.y < H && p.vy < -800 && p.y < 0.5 * H);
+    else if (item === 'magnet') go = p.y > H + G / 2 || p.vy > 0;
+    else if (item === 'catch') go = p.y < H && p.vy < 0;
+    else if (item === 'steal') go = late || !!state.items.host;
     if (go && useItem('guest')) botUseAt = -1;
   }
 
-  /** Per-step battle upkeep while playing: effect timers, thaw, mine expiry,
+  /** Count a per-side timer down; returns true on the step it runs out. */
+  function tickDown(arr, i, dt) {
+    if (arr[i] <= 0) return false;
+    arr[i] -= dt;
+    if (arr[i] > 0) return false;
+    arr[i] = 0;
+    return true;
+  }
+
+  /** Per-step battle upkeep while playing: effect timers, thaw,
    *  box spawns and the bot's item use. */
   function battleTick(dt) {
     const bt = state.bt;
     if (rocketT > 0) rocketT = Math.max(0, rocketT - dt);
     for (let i = 0; i < 2; i++) {
-      if (bt.sh[i] > 0) bt.sh[i] = Math.max(0, bt.sh[i] - dt);
-      if (bt.gh[i] > 0) bt.gh[i] = Math.max(0, bt.gh[i] - dt);
-      if (bt.sk[i] > 0) {
-        bt.sk[i] -= dt;
-        if (bt.sk[i] <= 0) {
-          bt.sk[i] = 0;
-          setMalletRadius(i, malletR);
-        }
+      tickDown(bt.sh, i, dt);
+      tickDown(bt.gh, i, dt);
+      tickDown(bt.mg, i, dt);
+      tickDown(bt.mi, i, dt);
+      tickDown(bt.qk, i, dt);
+      if (tickDown(bt.sk, i, dt)) refreshRadius(i);
+      if (tickDown(bt.gi, i, dt)) refreshRadius(i);
+      if (tickDown(bt.wg, i, dt)) updateGoalWidths();
+      if (tickDown(bt.go, i, dt)) removeObstacles('goalie', i);
+      if (tickDown(bt.dc, i, dt)) removeDecoys(i);
+      if (tickDown(bt.ct, i, dt)) releaseCatch(i, false);
+    }
+    if (bt.tp > 0) {
+      bt.tp -= dt;
+      if (bt.tp <= 0) {
+        bt.tp = 0;
+        setPuckRadius(puckR0);
       }
     }
     if (bt.fz > 0) {
@@ -1244,9 +1769,6 @@ export function createSim(cfg, opts = {}) {
         p.vy = frozenVy;
         emit('thaw', p.x, p.y, 1);
       }
-    }
-    for (let i = obstacles.length - 1; i >= 0; i--) {
-      if (obstacles[i].drop && state.time >= obstacles[i].expireAt) obstacles.splice(i, 1);
     }
     boxTick();
     if (bot) botItemTick();
@@ -1301,7 +1823,7 @@ export function createSim(cfg, opts = {}) {
       p.y = cy;
       p.vx = Math.cos(dir) * sp;
       p.vy = Math.sin(dir) * sp;
-      seamStill = 0;
+      p.ss = 0;
       emit('glitch', cx, cy, Math.min(5, len / puckR), { fx: r(ox), fy: r(oy) });
       break;
     }
@@ -1312,7 +1834,188 @@ export function createSim(cfg, opts = {}) {
 
   function wallBounce(vn) {
     const s = Math.min(1, vn / 2600);
-    if (s > 0.04) emit('wall', state.puck.x, state.puck.y, s);
+    if (s > 0.04) emit('wall', curP.x, curP.y, s);
+  }
+
+  // --- random mode twists -----------------------------------------------------
+
+  /** A twist id for the next match: cfg.twist when forced, else uniform over
+   *  the twists other than the current one. */
+  function pickTwist() {
+    if (cfg.twist) return cfg.twist;
+    const pool = TWISTS.filter((t) => t !== state.twist);
+    return pool[Math.floor(rng() * pool.length) % pool.length];
+  }
+
+  /** Install a twist: fresh twist data, puck list, rails and goal offsets. */
+  function setTwist(id) {
+    state.twist = id;
+    const tx = {};
+    if (id === 'wind') tx.w = [0, 0];
+    else if (id === 'hotpotato') tx.f = tx.fm = FUSE_MAX_S;
+    else if (id === 'shrinking') tx.in = 0;
+    else if (id === 'turbo') tx.k = 1;
+    else if (id === 'gravity') tx.sw = 0;
+    state.tx = tx;
+    state.pucks.length = 1;
+    if (id === 'twinpuck') state.pucks.push(puck2);
+    physTurbo.max = phys.max;
+    swallowed = false;
+    windOn = false;
+    windT = 0;
+    setInset(0);
+    updateGoalOffsets();
+  }
+
+  function setInset(v) {
+    if (state.tx && state.tx.in !== undefined) state.tx.in = v;
+    railL = v;
+    railR = W - v;
+    syncGeom();
+  }
+
+  /** Moving goals: both mouths swing on the sim clock, a quarter period apart. */
+  function updateGoalOffsets() {
+    if (state.twist !== 'movinggoals') {
+      state.gx[0] = 0;
+      state.gx[1] = 0;
+      return;
+    }
+    const A = GOAL_SWING * W;
+    const ph = (2 * Math.PI * state.time) / GOAL_PERIOD_S;
+    state.gx[0] = A * Math.sin(ph);
+    state.gx[1] = A * Math.sin(ph + Math.PI / 2);
+  }
+
+  function windTurn(first) {
+    windAng = first ? rng() * 2 * Math.PI : windAng + (rng() < 0.5 ? 1 : -1) * (Math.PI / 2 + rng() * (Math.PI / 2));
+    windAng = ((windAng % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    const a = WIND_ACC * W;
+    state.tx.w[0] = Math.cos(windAng) * a;
+    state.tx.w[1] = Math.sin(windAng) * a;
+    windT = WIND_TURN_S;
+    emit('wind', W / 2, bottom / 2, 1, { ang: Math.round(windAng * 1000) / 1000 });
+  }
+
+  const fuseFor = () => Math.max(FUSE_MIN_S, FUSE_MAX_S - FUSE_PER_HIT_S * rallyHits);
+
+  /** Serve: per-rally twist state starts over. */
+  function twistServe() {
+    const tx = state.tx;
+    if (state.twist === 'hotpotato') tx.f = tx.fm = fuseFor();
+    else if (state.twist === 'turbo') {
+      tx.k = 1;
+      physTurbo.max = phys.max;
+    } else if (state.twist === 'wind' && !windOn) {
+      windOn = true;
+      windTurn(true);
+    }
+  }
+
+  /** A mallet hit (velocity response) on puck p. rallyHits already counts it. */
+  function twistHit(p) {
+    const tx = state.tx;
+    if (state.twist === 'hotpotato') {
+      tx.fm = fuseFor();
+      tx.f = tx.fm;
+    } else if (state.twist === 'turbo') {
+      tx.k = Math.min(TURBO_K_MAX, Math.pow(TURBO_MULT, rallyHits));
+      physTurbo.max = phys.max * tx.k;
+      p.vx *= TURBO_MULT;
+      p.vy *= TURBO_MULT;
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > physTurbo.max) {
+        p.vx *= physTurbo.max / sp;
+        p.vy *= physTurbo.max / sp;
+      }
+      emit('turbo', p.x, p.y, Math.min(1, tx.k - 1));
+    }
+  }
+
+  /** Per-substep forces on a puck: the gravity well and the wind. */
+  function twistForces(p, dt) {
+    if (state.twist === 'wind') {
+      p.vx += state.tx.w[0] * dt;
+      p.vy += state.tx.w[1] * dt;
+    } else if (state.twist === 'gravity') {
+      const dx = W / 2 - p.x;
+      const dy = bottom / 2 - p.y;
+      const d = Math.hypot(dx, dy);
+      if (d < WELL_SWALLOW_R * W && Math.hypot(p.vx, p.vy) < WELL_SWALLOW_V) {
+        swallowed = true;
+        p.x = W / 2;
+        p.y = bottom / 2;
+        p.vx = 0;
+        p.vy = 0;
+        p.ss = 0;
+        state.tx.sw = WELL_HOLD_S;
+        emit('swallow', W / 2, bottom / 2, 1);
+        return;
+      }
+      if (d > 1e-6) {
+        const S = WELL_S * W;
+        const a = (WELL_K * W * W * W * d) / Math.pow(d * d + S * S, 1.5);
+        p.vx += (dx / d) * a * dt;
+        p.vy += (dy / d) * a * dt;
+      }
+    }
+  }
+
+  /** The well spits the puck at the goal of whoever fed it. */
+  function spit() {
+    const p = state.puck;
+    const side = state.lastHit || (state.serveTo === 'host' ? 'guest' : 'host');
+    const base = side === 'host' ? Math.PI / 2 : -Math.PI / 2; // towards that side's own goal
+    const a = base + rand(-30, 30) * (Math.PI / 180);
+    swallowed = false;
+    state.tx.sw = 0;
+    p.x = W / 2;
+    p.y = bottom / 2;
+    p.vx = Math.cos(a) * WELL_SPIT_V;
+    p.vy = Math.sin(a) * WELL_SPIT_V;
+    p.ss = 0;
+    emit('spit', p.x, p.y, 1, { by: side });
+  }
+
+  /** Per-step twist upkeep. Goal offsets run in every phase; the rest only in play. */
+  function twistTick(dt) {
+    const tx = state.tx;
+    switch (state.twist) {
+      case 'wind':
+        if (windOn) {
+          windT -= dt;
+          if (windT <= 0) windTurn(false);
+        }
+        break;
+      case 'gravity':
+        if (swallowed) {
+          tx.sw = Math.max(0, tx.sw - dt);
+          if (tx.sw <= 0) spit();
+        }
+        break;
+      case 'hotpotato':
+        tx.f = Math.max(0, tx.f - dt);
+        if (tx.f <= 0) {
+          const p = state.puck;
+          const side = p.y > bottom / 2 ? 'host' : 'guest';
+          emit('potato', p.x, p.y, 1, { by: side });
+          goal(side, { x: p.x, y: p.y, why: 'potato' });
+        }
+        break;
+      case 'shrinking': {
+        setInset(Math.min(SHRINK_MAX * W, tx.in + SHRINK_RATE * W * dt));
+        // The rails push pucks and mallets inside without a bounce.
+        for (const p of state.pucks) p.x = clamp(p.x, railL + puckR, railR - puckR);
+        clampMallet('host', state.mallets.host);
+        clampMallet('guest', state.mallets.guest);
+        break;
+      }
+    }
+  }
+
+  /** A goal: the shrinking rink opens up again. */
+  function twistGoal() {
+    if (state.twist === 'shrinking') setInset(0);
   }
 
   // --- frame step -----------------------------------------------------------
@@ -1353,13 +2056,22 @@ export function createSim(cfg, opts = {}) {
     if (dt > 0.05) dt = 0.05; // survive a backgrounded tab
     state.time += dt;
     decayMallets(dt);
+    if (randomMode) updateGoalOffsets(); // the goals swing in every phase
     if (state.phase === PHASE.READY) return; // waiting for both players: nothing moves
 
     if (bot && state.phase !== PHASE.OVER) {
       const m = state.mallets.guest;
       const px = m.x;
       const py = m.y;
+      state.botPuck = botThreat();
       bot.update(state, dt, now === undefined ? state.time * 1000 : now);
+      if (battleMode && state.bt.qk[1] > 0) {
+        // Quake: the bot's mallet lags like a human one.
+        m.x = px + (m.x - px) * QUAKE_FOLLOW;
+        m.y = py + (m.y - py) * QUAKE_FOLLOW;
+        m.vx *= QUAKE_FOLLOW;
+        m.vy *= QUAKE_FOLLOW;
+      }
       clampMallet('guest', m);
       sweepMallet(m, px, py, 'guest');
     }
@@ -1384,8 +2096,9 @@ export function createSim(cfg, opts = {}) {
         break;
       case PHASE.PLAY: {
         if (battleMode) battleTick(dt);
+        if (randomMode) twistTick(dt);
         const h = dt / SUBSTEPS;
-        for (let i = 0; i < SUBSTEPS && state.phase === PHASE.PLAY; i++) stepPuck(h);
+        for (let i = 0; i < SUBSTEPS && state.phase === PHASE.PLAY; i++) substep(h);
         if (glitchMode && state.phase === PHASE.PLAY) glitchTick();
         break;
       }
@@ -1405,8 +2118,11 @@ export function createSim(cfg, opts = {}) {
     state.timer = 3;
     state.stage = 0;
     lastTick = Infinity;
-    seamStill = 0;
+    state.lastHit = null;
+    rallyHits = 0;
     state.serveTo = rng() < 0.5 ? 'host' : 'guest';
+    if (randomMode) setTwist(pickTwist());
+    for (const p of state.pucks) p.ss = 0;
     updateGoalWidths();
     if (battleMode) battleReset();
     rearmAll();
@@ -1445,9 +2161,7 @@ export function createSim(cfg, opts = {}) {
     cfg.G = newG;
     seamBottom = H + G;
     bottom = 2 * H + G;
-    geom.bottom = bottom;
-    sideGeom.host.bottom = bottom;
-    sideGeom.guest.bottom = bottom;
+    syncGeom();
     // The host's half slides down with the gap; keep the mallet at the same
     // place relative to the host's own goal, then clamp it into the half.
     const mh = state.mallets.host;
@@ -1482,7 +2196,7 @@ export function createSim(cfg, opts = {}) {
       x: r(o.x),
       y: r(o.y),
       r: r(o.r),
-      a: o.k === 'bumper' ? 1 : o.k === 'bomb' ? (o.armed ? 1 : 0) : o.k === 'box' ? (o.on ? 1 : 0) : state.time >= o.rearmAt ? 1 : 0,
+      a: obstacleA(o),
     }));
     const snap = {
       t: 's',
@@ -1501,25 +2215,71 @@ export function createSim(cfg, opts = {}) {
       wn: state.winner,
       gw: [r(state.gw[0]), r(state.gw[1])],
       ob,
+      pr: r(state.pr),
+      gx: [r(state.gx[0]), r(state.gx[1])],
       ev: null,
     };
+    const r2 = (v) => Math.round(v * 100) / 100;
+    if (randomMode) {
+      const t = state.tx;
+      const tx = {};
+      if (t.w) tx.w = [r(t.w[0]), r(t.w[1])];
+      if (t.f !== undefined) {
+        tx.f = r2(t.f);
+        tx.fm = r2(t.fm);
+      }
+      if (t.in !== undefined) tx.in = r(t.in);
+      if (t.k !== undefined) tx.k = r2(t.k);
+      if (t.sw !== undefined) tx.sw = r2(t.sw);
+      snap.tw = state.twist;
+      snap.tx = tx;
+      if (state.pucks.length > 1) snap.p2 = [r(puck2.x), r(puck2.y), r(puck2.vx), r(puck2.vy)];
+    }
     if (battleMode) {
       const b = state.bt;
-      const r2 = (v) => Math.round(v * 100) / 100;
+      const pair = (a) => [r2(a[0]), r2(a[1])];
       snap.it = [state.items.host || '', state.items.guest || ''];
       snap.bt = {
-        sh: [r2(b.sh[0]), r2(b.sh[1])],
-        gh: [r2(b.gh[0]), r2(b.gh[1])],
-        sk: [r2(b.sk[0]), r2(b.sk[1])],
+        sh: pair(b.sh),
+        gh: pair(b.gh),
+        sk: pair(b.sk),
         fz: r2(b.fz),
         rk: [b.rk[0], b.rk[1]],
         mr: [r(b.mr[0]), r(b.mr[1])],
+        mg: pair(b.mg),
+        wg: pair(b.wg),
+        mi: pair(b.mi),
+        qk: pair(b.qk),
+        dc: pair(b.dc),
+        go: pair(b.go),
+        gi: pair(b.gi),
+        ca: [b.ca[0], b.ca[1]],
+        ct: pair(b.ct),
+        tp: r2(b.tp),
       };
+      if (decoys.length) snap.dk = decoys.map((d) => [r(d.x), r(d.y), r(d.vx), r(d.vy)]);
     }
     snap.ev = drainEvents();
     return snap;
   }
 
+  /** Obstacle `a` in the snapshot: armed / live flag, or the goalie's owner. */
+  function obstacleA(o) {
+    switch (o.k) {
+      case 'bumper':
+        return 1;
+      case 'goalie':
+        return o.a;
+      case 'bomb':
+        return o.armed ? 1 : 0;
+      case 'box':
+        return o.on ? 1 : 0;
+      default:
+        return state.time >= o.rearmAt ? 1 : 0;
+    }
+  }
+
+  if (randomMode) setTwist(pickTwist());
   updateGoalWidths();
   placePuckForServe();
   return { state, cfg, step, setMallet, setReady, setGap, restart, snapshot, drainEvents, obstacles, useItem };

@@ -74,10 +74,11 @@ export function createBot(level, cfg) {
   function aimPoint(state, from) {
     const gw0 = (state.gw && state.gw[0]) || cfg.goalW;
     const host = state.mallets.host;
-    let ax = W / 2;
+    const cx = W / 2 + ((state.gx && state.gx[0]) || 0); // the host mouth centre (moving goals)
+    let ax = cx;
     if (L.corner > 0) {
       // Go for the side of the goal the host mallet is not covering.
-      const side = host.x > W / 2 ? -1 : 1;
+      const side = host.x > cx ? -1 : 1;
       ax += side * (gw0 / 2) * L.corner;
     }
     ax += aimNoise * W * 0.12 * L.aimErr;
@@ -199,7 +200,7 @@ export function createBot(level, cfg) {
       m.vy = 0;
       return;
     }
-    const obs = observe(state.puck);
+    const obs = observe(state.botPuck || state.puck);
     const speed = Math.hypot(obs.vx, obs.vy);
     const defY = clamp(H * L.defY, minY, maxY);
     let tx = W / 2;
@@ -285,7 +286,8 @@ export function createBot(level, cfg) {
 
     if (!attacking) {
       // Defend: sit in front of the goal, shaded towards the puck.
-      let x = W / 2 + (obs.x - W / 2) * L.track;
+      const home = W / 2 + ((state.gx && state.gx[1]) || 0); // our mouth centre (moving goals)
+      let x = home + (obs.x - home) * L.track;
       let coming = false;
       if (state.phase === 'play' && obs.vy < -60 && speed > 150) {
         coming = true;
@@ -301,7 +303,7 @@ export function createBot(level, cfg) {
         }
       }
       const half = Math.max(cfg.goalW * 0.65, W * 0.2);
-      tx = clamp(x, W / 2 - half, W / 2 + half);
+      tx = clamp(x, home - half, home + half);
       ty = defY;
       hurry = coming;
     }

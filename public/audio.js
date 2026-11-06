@@ -304,9 +304,58 @@ export function createAudio() {
         noise(t + 0.02, 0.12, 'highpass', 6000, 0.7, 0.06);
         break;
       }
-      case 'mine':
-        tone(t + 0.02, 'triangle', 220, 0.12, 0.2, 110, 0.002);
-        noise(t + 0.02, 0.05, 'bandpass', 1400, 2, 0.1);
+      case 'magnet':
+        // humming wobble that pulls upwards
+        tone(t + 0.02, 'sawtooth', 160, 0.32, 0.08, 330, 0.01, 700);
+        tone(t + 0.02, 'sine', 320, 0.32, 0.1, 660, 0.01);
+        tone(t + 0.02, 'sine', 324, 0.32, 0.06, 664, 0.01);
+        break;
+      case 'widegoal':
+        // two notes stepping apart
+        tone(t + 0.02, 'triangle', 523, 0.22, 0.12, 392, 0.004);
+        tone(t + 0.02, 'triangle', 659, 0.22, 0.12, 880, 0.004);
+        break;
+      case 'goalie':
+        // short whistle pair
+        tone(t + 0.02, 'sine', 1568, 0.08, 0.12, null, 0.003);
+        tone(t + 0.12, 'sine', 2093, 0.12, 0.12, null, 0.003);
+        break;
+      case 'giant':
+        // deep swell
+        tone(t + 0.02, 'sine', 70, 0.4, 0.3, 140, 0.03);
+        tone(t + 0.02, 'square', 140, 0.35, 0.05, 280, 0.03, 600);
+        break;
+      case 'catch':
+        // a soft cupped pop
+        tone(t + 0.02, 'sine', 660, 0.1, 0.14, 990, 0.003);
+        noise(t + 0.02, 0.06, 'bandpass', 900, 3, 0.08);
+        break;
+      case 'mirror':
+        // shimmering up-and-down glass sweep
+        tone(t + 0.02, 'sine', 1200, 0.18, 0.08, 2400, 0.004);
+        tone(t + 0.2, 'sine', 2400, 0.22, 0.07, 1200, 0.004);
+        noise(t + 0.02, 0.3, 'bandpass', 6000, 3, 0.04);
+        break;
+      case 'quake':
+        // low rumble
+        tone(t + 0.02, 'sawtooth', 48, 0.5, 0.18, 36, 0.02, 220);
+        noise(t + 0.02, 0.5, 'lowpass', 260, 0.8, 0.3, 120);
+        break;
+      case 'decoys':
+        // three quick blips fanning out
+        tone(t + 0.02, 'square', 880, 0.05, 0.06, null, 0.002);
+        tone(t + 0.07, 'square', 1046, 0.05, 0.06, null, 0.002);
+        tone(t + 0.12, 'square', 1318, 0.05, 0.06, null, 0.002);
+        break;
+      case 'steal':
+        // sly two-note slide down
+        tone(t + 0.02, 'triangle', 988, 0.12, 0.12, 740, 0.003);
+        tone(t + 0.13, 'triangle', 740, 0.16, 0.12, 494, 0.003);
+        break;
+      case 'tinypuck':
+        // rapid falling chirp
+        tone(t + 0.02, 'sine', 2600, 0.16, 0.1, 5200, 0.002);
+        tone(t + 0.1, 'sine', 3400, 0.1, 0.06, 6000, 0.002);
         break;
       default:
         break;
@@ -339,15 +388,87 @@ export function createAudio() {
     tone(t + 0.02, 'sine', 3136, 0.3, 0.05, null, 0.004);
   }
 
-  // A mine landed on the ice: a dull thud.
-  function minedrop(t) {
-    tone(t, 'sine', 120, 0.18, 0.5, 45, 0.003);
-    noise(t, 0.09, 'lowpass', 700, 0.8, 0.3);
-    tone(t + 0.03, 'triangle', 300, 0.06, 0.08, 180, 0.002);
+  // The goalie blocked the puck: a firm glove smack.
+  function goaliehit(t, s) {
+    const v = 0.18 + 0.4 * s;
+    noise(t, 0.05, 'bandpass', 1200, 1, v * 0.7);
+    tone(t, 'triangle', 300 + s * 200, 0.08, v * 0.6, 150, 0.002);
+  }
+
+  // The puck was caught: a soft thump and a little rising lock tone.
+  function catchSnd(t) {
+    tone(t, 'sine', 180, 0.12, 0.35, 90, 0.002);
+    tone(t + 0.03, 'triangle', 660, 0.12, 0.1, 990, 0.004);
+  }
+
+  // The caught puck was thrown: a whoosh scaled by speed.
+  function fling(t, s) {
+    noise(t, 0.18 + 0.1 * s, 'bandpass', 600, 1, 0.12 + 0.2 * s, 2800 + 1200 * s);
+    tone(t, 'sine', 140, 0.08, 0.2 + 0.2 * s, 60, 0.002);
+  }
+
+  // Decoys spawn: a split shimmer.
+  function decoys(t) {
+    tone(t, 'sine', 1100, 0.25, 0.08, 700, 0.004);
+    tone(t, 'sine', 1400, 0.25, 0.06, 1900, 0.004);
+    noise(t, 0.08, 'highpass', 5000, 0.7, 0.05);
+  }
+
+  // An item was stolen: a quick snatch and a pickup ding.
+  function steal(t, got) {
+    noise(t, 0.08, 'bandpass', 2000, 1.5, 0.12, 5000);
+    tone(t + 0.06, 'triangle', got ? 1318 : 988, 0.16, 0.14, null, 0.003);
+  }
+
+  // The magnet let go: a falling buzz.
+  function magnetoff(t) {
+    tone(t, 'sawtooth', 300, 0.18, 0.08, 120, 0.004, 900);
+  }
+
+  // Two pucks touched: a sharp plastic clack.
+  function clack(t, s) {
+    const v = 0.16 + 0.5 * s;
+    noise(t, 0.03, 'bandpass', 2600, 1.5, v * 0.8);
+    tone(t, 'triangle', 900 + s * 400, 0.04, v * 0.5, 500, 0.001);
+  }
+
+  // The hot potato blew: as big as a bomb, no sad tag.
+  function potato(t) {
+    tone(t, 'sine', 120, 0.9, 0.95, 26, 0.004);
+    tone(t, 'sine', 48, 0.7, 0.8, 28, 0.003);
+    tone(t, 'sawtooth', 70, 0.6, 0.25, 26, 0.004, 350);
+    noise(t, 0.9, 'lowpass', 1300, 0.8, 0.75, 90);
+    noise(t + 0.015, 0.22, 'highpass', 2200, 0.6, 0.32);
+  }
+
+  // The wind turns: an airy gust.
+  function wind(t) {
+    noise(t, 0.7, 'bandpass', 500, 0.8, 0.14, 1400);
+    noise(t + 0.2, 0.5, 'bandpass', 1400, 0.8, 0.06, 500);
+  }
+
+  // The gravity well swallows the puck: a downward gulp.
+  function swallow(t) {
+    tone(t, 'sine', 600, 0.3, 0.25, 60, 0.004);
+    noise(t, 0.25, 'lowpass', 1500, 1, 0.12, 200);
+  }
+
+  // The well spits the puck out: a rising pop.
+  function spit(t) {
+    tone(t, 'sine', 90, 0.18, 0.3, 600, 0.002);
+    noise(t, 0.1, 'bandpass', 1500, 1, 0.16, 4000);
+  }
+
+  // Turbo: a zip whose pitch climbs with the multiplier.
+  function turbo(t, s) {
+    const f = 500 + 1100 * s;
+    tone(t, 'sawtooth', f, 0.12, 0.06, f * 1.8, 0.003, 3000);
+    tone(t, 'sine', f * 2, 0.1, 0.05, f * 3, 0.003);
   }
 
   // Minimum spacing between two sounds of the same kind, in seconds.
-  const SPACING = { hit: 0.03, wall: 0.04, bumper: 0.05, mine: 0.1, bombhit: 0.05, bomb: 0.5, glitchwarn: 0.3, glitch: 0.3, goal: 0.5, countdown: 0.3, serve: 0.3, over: 1, box: 0.12, boxspawn: 0.3, use: 0.15, rocket: 0.4, shieldhit: 0.12, thaw: 0.3, minedrop: 0.15 };
+  const SPACING = { hit: 0.03, wall: 0.04, bumper: 0.05, mine: 0.1, bombhit: 0.05, bomb: 0.5, glitchwarn: 0.3, glitch: 0.3, goal: 0.5, countdown: 0.3, serve: 0.3, over: 1, box: 0.12, boxspawn: 0.3, use: 0.15, rocket: 0.4, shieldhit: 0.12, thaw: 0.3,
+    goaliehit: 0.05, catch: 0.2, fling: 0.2, decoys: 0.3, steal: 0.3, magnetoff: 0.2, clack: 0.05, potato: 0.5, wind: 0.5, swallow: 0.3, spit: 0.3, turbo: 0.08 };
 
   function play(ev, snap) {
     const kind = ev.k;
@@ -357,7 +478,7 @@ export function createAudio() {
     const last = lastPlayed[kind];
     if (last !== undefined && t - last < gap) return;
     // Voice cap: cheap sounds are dropped first.
-    const cheap = kind === 'wall' || kind === 'serve';
+    const cheap = kind === 'wall' || kind === 'serve' || kind === 'clack' || kind === 'turbo';
     if (voices >= MAX_VOICES || (cheap && voices >= MAX_VOICES - 6)) return;
     lastPlayed[kind] = t;
     const s = ev.s == null ? 0.6 : Math.min(1, Math.max(0, ev.s));
@@ -377,7 +498,18 @@ export function createAudio() {
       case 'rocket': rocket(t); dur = 0.7; break;
       case 'shieldhit': shieldhit(t, s); dur = 0.5; break;
       case 'thaw': thaw(t); dur = 0.4; break;
-      case 'minedrop': minedrop(t); dur = 0.3; break;
+      case 'goaliehit': goaliehit(t, s); dur = 0.15; break;
+      case 'catch': catchSnd(t); dur = 0.2; break;
+      case 'fling': fling(t, s); dur = 0.35; break;
+      case 'decoys': decoys(t); dur = 0.3; break;
+      case 'steal': steal(t, ev.got); dur = 0.3; break;
+      case 'magnetoff': magnetoff(t); dur = 0.2; break;
+      case 'clack': clack(t, s); dur = 0.1; break;
+      case 'potato': potato(t); dur = 1; break;
+      case 'wind': wind(t); dur = 0.75; break;
+      case 'swallow': swallow(t); dur = 0.35; break;
+      case 'spit': spit(t); dur = 0.25; break;
+      case 'turbo': turbo(t, s); dur = 0.15; break;
       case 'goal': {
         const scored = ev.by ? ev.by === perspective || (ev.by === 'host' && perspective === 'solo') : true;
         goal(t, scored);

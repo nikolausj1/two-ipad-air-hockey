@@ -112,13 +112,27 @@ the other.
   Mines (touch one and the puck blasts off; it re-arms after a few seconds),
   Glitch (every few seconds the puck flickers, then skips a short distance and
   changes direction a little; the flicker is the tell, and it never skips into
-  a goal crease or onto a mallet), Battle (item boxes on the rink; hit the puck
-  through one and you get an item: Rocket, Shield, Ghost, Shrink, Freeze or
-  Mine. Tap the corner button to use it. Rocket makes your next hit a cannon
-  shot, Shield bars your goal for a second, Ghost hides the puck on the other
-  iPad, Shrink shrinks their mallet, Freeze stops the puck dead, Mine drops a
-  mine in their half. Players who are behind draw the nastier items more
-  often).
+  a goal crease or onto a mallet), Battle (item boxes on the rink; shoot the
+  puck through a box on the other player's side and you get one of 15 items;
+  boxes on your own side are theirs to take. Tap the corner button to use it.
+  Rocket makes your next hit a cannon shot, Shield bars your goal for a
+  second, Ghost hides the puck on the other iPad, Shrink shrinks their mallet,
+  Freeze stops the puck dead, Magnet drags the puck into their goal for 2
+  seconds, Wide Goal widens their goal mouth, Goalie puts a small
+  mallet-goalie on your goal line, Giant grows your mallet, Catch grabs the
+  puck on your next touch so you can flick it away, Mirror flips their screen
+  left to right, Quake makes their mallet lag and their screen shake, Decoys
+  spawns two fake pucks on their screen, Item Steal takes their item (or rolls
+  you a new one), Tiny Puck shrinks the puck for everyone. Players who are
+  behind draw the nastier items more often),
+  Random (a surprise twist every game: each match picks a new twist and a
+  card on the rink names it before the serve. Twin Puck: two pucks, score with
+  either. Moving Goals: the goals slide side to side. Gravity Well: the centre
+  pulls the puck in, slow pucks are swallowed and spat out. Blackout: lights
+  out, the puck is the lantern. Wind: a wind pushes the puck and turns every
+  8 seconds. Hot Potato: the puck has a fuse, and if it blows in your half the
+  other player scores. Shrinking Rink: the rails creep inward during a rally.
+  Turbo: every hit makes the puck 10 percent faster until someone scores).
 - **Comeback goals** (on by default): the player who is behind gets a narrower
   goal mouth, so no lead is safe.
 - **Bot** with Easy, Medium, Hard and Impossible levels. Hard and above predict
@@ -177,6 +191,7 @@ server.js         Optional self-host: pairing (4-letter codes), reconnect grace
                   period, WebSocket relay. Never sees game state. /healthz
                   reports open tables.
 tools/            Icon generator and a headless sim smoke test.
+docs/ideas/       Review pages for proposed power-ups and modes (open index.html).
 ```
 
 **One world, two windows.** The rink is one coordinate space measured in CSS
@@ -230,6 +245,10 @@ scripts are fetched network-first; the cache is the offline fallback.
 node tools/sim-smoke.mjs   # headless physics and bot checks for every mode
 npm run icons              # regenerate the PNG icons from tools/make-icons.mjs
 ```
+
+Testing a twist: in Random mode, add `?twist=<id>` to the page URL to force
+one twist (ids: `twinpuck`, `movinggoals`, `gravity`, `blackout`, `wind`,
+`hotpotato`, `shrinking`, `turbo`). It is a dev aid with no lobby control.
 
 `public/dev/fx-test.html` exercises the renderer and the sounds with a fake
 snapshot. In the browser console, `window.__dbg()` shows the live state.

@@ -228,6 +228,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-2); 
   conic-gradient(from 30deg, #ff4d4d, #ffa63d, #ffe84d, #5dff7a, #4dc8ff, #b06bff, #ff4d4d);
   box-shadow: inset 0 0 0 2px rgba(255,255,255,.6), inset 0 -5px 8px rgba(0,0,60,.3); }
 .g-battle::after { content: "?"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font: 900 21px/1 -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; text-shadow: 0 1px 0 rgba(30,10,90,.9), 0 0 4px rgba(30,10,90,.6); }
+.g-random { border-radius: 28%; background: conic-gradient(from 0deg, var(--accent, #4dc8ff) 0 25%, var(--accent-2, #ff6b9a) 0 50%, #ffd166 0 75%, #b388ff 0 100%); box-shadow: inset 0 0 0 2px rgba(255,255,255,.6), inset 0 -5px 8px rgba(0,0,60,.3); }
+.g-random::after { content: "?"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font: 900 21px/1 -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; text-shadow: 0 1px 0 rgba(30,10,90,.9), 0 0 4px rgba(30,10,90,.6); }
 .g-mines { background: radial-gradient(circle at 50% 50%, #ff5d5d 0 30%, transparent 32%), repeating-conic-gradient(from 0deg, #ff5d5d 0 10deg, transparent 10deg 45deg); }
 
 .toggle-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 18px; }
