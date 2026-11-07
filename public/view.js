@@ -43,7 +43,8 @@ const DASH = [5, 6];
 const NO_DASH = [];
 const NO_RD = [0, 0];
 const TRAIL_N = 32;
-const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', bombs: 'Bombs', mines: 'Mines', glitch: 'Glitch', battle: 'Battle', random: 'Random' };
+const MODE_NAMES = { classic: 'Classic', bumpers: 'Bumpers', ice: 'Ice', bombs: 'Bombs', mines: 'Mines', glitch: 'Glitch', battle: 'Battle', twinpuck: 'Twin Puck', movinggoals: 'Moving Goals', gravity: 'Gravity Well', blackout: 'Blackout', wind: 'Wind', hotpotato: 'Hot Potato', shrinking: 'Shrinking Rink', turbo: 'Turbo', random: 'Random' };
+const TWIST_MODES = ['twinpuck', 'movinggoals', 'gravity', 'blackout', 'wind', 'hotpotato', 'shrinking', 'turbo'];
 const MSG_PHASES = { ready: 1, countdown: 1, goal: 1, over: 1 };
 const NO_UI = { held: false, calibrating: false };
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -130,7 +131,8 @@ export function createView(canvas, role, cfg) {
   const battle = mode === 'battle';
   const myIdx = role === 'guest' ? 1 : 0; // the side whose eyes this screen is (solo: the human host)
   const fT = W * 0.03; // frame thickness in world units
-  const random = mode === 'random';
+  const random = mode === 'random'; // rolls a twist per match; the label follows the twist
+  const twisty = random || TWIST_MODES.includes(mode); // any mode with a twist layer
   let modeLabel = `${MODE_NAMES[mode] || mode} · first to ${target}`;
   let twName = null; // twist name the mode label was last built from (random mode)
 
@@ -209,9 +211,9 @@ export function createView(canvas, role, cfg) {
   const glowRed = makeGlow('255,60,50');
   const glowGreen = makeGlow('80,255,150');
   const glowBlack = makeGlow('0,0,0');
-  const glowOrange = battle || random ? makeGlow('255,140,40') : null;
-  const glowViolet = battle || random ? makeGlow('190,150,255') : null;
-  const glowIce = battle || random ? makeGlow('150,225,255') : null;
+  const glowOrange = battle || twisty ? makeGlow('255,140,40') : null;
+  const glowViolet = battle || twisty ? makeGlow('190,150,255') : null;
+  const glowIce = battle || twisty ? makeGlow('150,225,255') : null;
   const itemGlows = {}; // item id -> glow sprite (all built up front in Battle)
   if (battle) for (const k in ITEM_RGB) itemGlows[k] = makeGlow(ITEM_RGB[k]);
   const bokehGlows = [glowWhite, glowHost, glowGuest];
@@ -2248,7 +2250,7 @@ export function createView(canvas, role, cfg) {
     }
     const ev = seenLive ? null : snap.ev;
     if (battle) trackBattle(snap, now);
-    if (random) {
+    if (twisty) {
       // A new match may roll a different twist: drop the trail and rebuild the label.
       const twId = typeof snap.tw === 'string' ? snap.tw : null;
       if (twId !== lastTw) {
@@ -4941,7 +4943,7 @@ export function createView(canvas, role, cfg) {
     latency = ms == null || Number.isNaN(ms) ? null : ms;
   }
 
-  if (random) {
+  if (twisty) {
     try {
       tw = createTwistLayer(env);
     } catch (e) {

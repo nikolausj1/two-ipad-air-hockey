@@ -22,7 +22,11 @@ export const PHASE = {
   OVER: 'over',
 };
 
-export const MODES = ['classic', 'bumpers', 'ice', 'mines', 'bombs', 'glitch', 'battle', 'random'];
+export const MODES = [
+  'classic', 'bumpers', 'ice', 'mines', 'bombs', 'glitch', 'battle',
+  'twinpuck', 'movinggoals', 'gravity', 'blackout', 'wind', 'hotpotato', 'shrinking', 'turbo',
+  'random',
+];
 
 // Per-mode physics. fric = fraction of puck speed kept after one second of
 // sliding, wall = rail restitution, mallet = mallet restitution, max = puck
@@ -36,6 +40,14 @@ export const MODE_PHYS = {
   glitch: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   battle: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
   random: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  twinpuck: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  movinggoals: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  gravity: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  blackout: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  wind: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  hotpotato: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  shrinking: { fric: 0.8, wall: 0.92, mallet: 0.85, max: 2600 },
+  turbo: { fric: 1.0, wall: 1.0, mallet: 0.85, max: 2600 }, // frictionless: only the cap k grows
   ice: { fric: 0.95, wall: 1.0, mallet: 0.85, max: 3000 },
 };
 
@@ -130,15 +142,15 @@ const WELL_SWALLOW_R = 0.03; // of W
 const WELL_SWALLOW_V = 500; // px/s
 const WELL_HOLD_S = 0.7;
 const WELL_SPIT_V = 900; // px/s
-const WIND_ACC = 0.15; // of W, px/s^2
+const WIND_ACC = 0.5; // of W, px/s^2
 const WIND_TURN_S = 8;
 const FUSE_MAX_S = 6;
 const FUSE_MIN_S = 2;
 const FUSE_PER_HIT_S = 0.5;
-const SHRINK_RATE = 0.01; // of W per second
+const SHRINK_RATE = 0.02; // of W per second
 const SHRINK_MAX = 0.25; // of W
 const TURBO_MULT = 1.1;
-const TURBO_K_MAX = 2;
+const TURBO_K_MAX = 20; // safety cap only, keeps the numbers finite
 
 // Obstacle layouts in the HOST half, as fractions: [fx of W, fv of H] where fv
 // is the distance from the seam towards the host's own goal. The guest half
@@ -301,9 +313,14 @@ function snapGeom(snap, cfg, bottom) {
 const physScratch = {}; // reused by snapPhys so the Turbo helpers do not allocate per call
 function snapPhys(snap, cfg) {
   const phys = physOf(cfg.mode);
+  const turbo = !!snap && snap.tw === 'turbo';
   const k = snap && snap.tx && snap.tx.k > 1 ? snap.tx.k : 1;
-  if (!(k > 1)) return phys;
+  if (!(k > 1) && !turbo) return phys;
   for (const key in phys) physScratch[key] = phys[key];
+  if (turbo) {
+    physScratch.fric = 1; // turbo never slows the puck
+    physScratch.wall = 1;
+  }
   physScratch.max = phys.max * k;
   return physScratch;
 }
@@ -416,6 +433,8 @@ export function createSim(cfg, opts = {}) {
   const phys = MODE_PHYS[mode];
   const battleMode = mode === 'battle';
   const randomMode = mode === 'random';
+  const twistMode = TWISTS.includes(mode); // a twist fixed for the whole match
+  const twisty = randomMode || twistMode; // the twist machinery runs
   const physRocket = { ...phys, max: ROCKET_MAX }; // puck cap while a rocket flies
   const MAX_PUCK_SPEED = phys.max;
   const seamTop = H; // where the guest half ends
@@ -492,7 +511,7 @@ export function createSim(cfg, opts = {}) {
   const decoys = []; // decoy pucks {x, y, vx, vy, t (target index), by (user index)}
   let rallyHits = 0; // mallet hits since the serve (hot potato, turbo)
   // Random mode bookkeeping.
-  const physTurbo = { ...phys }; // its max follows tx.k
+  const physTurbo = { ...phys, fric: 1, wall: 1 }; // its max follows tx.k
   let swallowed = false; // gravity: the puck sits in the well
   let windT = 0; // wind: play seconds until the next turn
   let windAng = 0;
@@ -849,7 +868,7 @@ export function createSim(cfg, opts = {}) {
     rearmAll();
     state.lastHit = null;
     rallyHits = 0;
-    if (randomMode) twistServe();
+    if (twisty) twistServe();
     if (battleMode) {
       if (!boxesStarted) {
         boxesStarted = true;
@@ -947,7 +966,7 @@ export function createSim(cfg, opts = {}) {
   /** Physics for the puck right now: rocket flight and turbo raise the cap. */
   function curPhys() {
     if (battleMode && rocketT > 0) return physRocket;
-    if (randomMode && state.twist === 'turbo') return physTurbo;
+    if (twisty && state.twist === 'turbo') return physTurbo;
     return phys;
   }
 
@@ -995,7 +1014,7 @@ export function createSim(cfg, opts = {}) {
       const s = Math.min(1, -hit.vn / 2000);
       if (s > 0.03) emit('hit', p.x - hit.nx * puckR, p.y - hit.ny * puckR, s);
       rallyHits += 1;
-      if (randomMode) twistHit(p);
+      if (twisty) twistHit(p);
     }
   }
 
@@ -1039,7 +1058,7 @@ export function createSim(cfg, opts = {}) {
       state.timer = GOAL_PAUSE_S;
     }
     if (battleMode) battleClear();
-    if (randomMode) twistGoal();
+    if (twisty) twistGoal();
     placePuckForServe();
   }
 
@@ -1062,7 +1081,7 @@ export function createSim(cfg, opts = {}) {
   function stepPuck(p, dt) {
     if (puckParked()) return; // frozen, held or swallowed: no motion, no collisions
     if (battleMode) magnetPull(p, dt);
-    else if (randomMode) {
+    else if (twisty) {
       twistForces(p, dt);
       if (swallowed) return; // the well just took it
     }
@@ -1842,6 +1861,7 @@ export function createSim(cfg, opts = {}) {
   /** A twist id for the next match: cfg.twist when forced, else uniform over
    *  the twists other than the current one. */
   function pickTwist() {
+    if (twistMode) return mode;
     if (cfg.twist) return cfg.twist;
     const pool = TWISTS.filter((t) => t !== state.twist);
     return pool[Math.floor(rng() * pool.length) % pool.length];
@@ -2056,7 +2076,7 @@ export function createSim(cfg, opts = {}) {
     if (dt > 0.05) dt = 0.05; // survive a backgrounded tab
     state.time += dt;
     decayMallets(dt);
-    if (randomMode) updateGoalOffsets(); // the goals swing in every phase
+    if (twisty) updateGoalOffsets(); // the goals swing in every phase
     if (state.phase === PHASE.READY) return; // waiting for both players: nothing moves
 
     if (bot && state.phase !== PHASE.OVER) {
@@ -2096,7 +2116,7 @@ export function createSim(cfg, opts = {}) {
         break;
       case PHASE.PLAY: {
         if (battleMode) battleTick(dt);
-        if (randomMode) twistTick(dt);
+        if (twisty) twistTick(dt);
         const h = dt / SUBSTEPS;
         for (let i = 0; i < SUBSTEPS && state.phase === PHASE.PLAY; i++) substep(h);
         if (glitchMode && state.phase === PHASE.PLAY) glitchTick();
@@ -2121,7 +2141,7 @@ export function createSim(cfg, opts = {}) {
     state.lastHit = null;
     rallyHits = 0;
     state.serveTo = rng() < 0.5 ? 'host' : 'guest';
-    if (randomMode) setTwist(pickTwist());
+    if (twisty) setTwist(pickTwist());
     for (const p of state.pucks) p.ss = 0;
     updateGoalWidths();
     if (battleMode) battleReset();
@@ -2220,7 +2240,7 @@ export function createSim(cfg, opts = {}) {
       ev: null,
     };
     const r2 = (v) => Math.round(v * 100) / 100;
-    if (randomMode) {
+    if (twisty) {
       const t = state.tx;
       const tx = {};
       if (t.w) tx.w = [r(t.w[0]), r(t.w[1])];
@@ -2279,7 +2299,7 @@ export function createSim(cfg, opts = {}) {
     }
   }
 
-  if (randomMode) setTwist(pickTwist());
+  if (twisty) setTwist(pickTwist());
   updateGoalWidths();
   placePuckForServe();
   return { state, cfg, step, setMallet, setReady, setGap, restart, snapshot, drainEvents, obstacles, useItem };

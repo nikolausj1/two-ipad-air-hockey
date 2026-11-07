@@ -25,7 +25,7 @@ const TWIST_INFO = {
   wind: { name: 'Wind', rule: 'A wind pushes the puck. It turns every 8 seconds.' },
   hotpotato: { name: 'Hot Potato', rule: 'The puck has a fuse. If it blows in your half, they score.' },
   shrinking: { name: 'Shrinking Rink', rule: 'The rails creep inward during a rally. A goal resets them.' },
-  turbo: { name: 'Turbo', rule: 'Every hit makes the puck 10 percent faster until someone scores.' },
+  turbo: { name: 'Turbo', rule: 'Every hit makes the puck 10 percent faster and nothing slows it down. No limit.' },
 };
 
 const HOST_FALLBACK = '#ff7a45';
@@ -934,7 +934,7 @@ export function createTwistLayer(env) {
     kLastNow = now;
     const show = snap.ph === 'play' || snap.ph === 'goal';
     hudA += ((show ? 1 : 0) - hudA) * (1 - Math.exp(-dt * 10));
-    const k = clamp(num(txOf(snap).k, 1), 1, 2);
+    const k = clamp(num(txOf(snap).k, 1), 1, 20); // open-ended; 20 is only a sanity bound
     kD += (k - kD) * (1 - Math.exp(-dt * 12));
     if (hudA < 0.02) return;
     const key = Math.round(k * 10);
@@ -942,7 +942,7 @@ export function createTwistLayer(env) {
       kKey = key;
       kLabel = 'TURBO x' + (key / 10).toFixed(1);
       kLabelS = -1;
-      const t = clamp((key / 10 - 1) / 1, 0, 1);
+      const t = clamp(key / 10 - 1, 0, 1); // colour ramps over 1..2, then stays hot
       let g;
       let b;
       if (t < 0.5) {
@@ -979,13 +979,15 @@ export function createTwistLayer(env) {
     c.globalAlpha = 0.22 * hudA;
     c.fillStyle = '#ffffff';
     c.fillRect(cx - bw / 2, by - bh / 2, bw, bh);
-    const fr = clamp((kD - 1) / 1, 0, 1);
+    const fr = clamp(kD - 1, 0, 1);
+    // Past x2 the bar stays full and pulses faster the higher k climbs.
+    const pulse = kD > 2 ? 0.8 + 0.2 * Math.sin(now * 0.001 * (6 + Math.min(kD, 12))) : 1;
     if (fr > 0.003) {
-      c.globalAlpha = 0.95 * hudA;
+      c.globalAlpha = 0.95 * hudA * pulse;
       c.fillStyle = kCol;
       c.fillRect(cx - bw / 2, by - bh / 2, bw * fr, bh);
       c.globalCompositeOperation = 'lighter';
-      env.drawGlow(fr > 0.5 ? 'red' : 'orange', cx - bw / 2 + bw * fr, by, 14 * u * (1 + fr), 0.5 * fr * hudA);
+      env.drawGlow(fr > 0.5 ? 'red' : 'orange', cx - bw / 2 + bw * fr, by, 14 * u * (1 + fr), 0.5 * fr * hudA * (kD > 2 ? 1 + 0.6 * Math.min(kD - 2, 4) * pulse : 1));
       c.globalCompositeOperation = 'source-over';
     }
   }

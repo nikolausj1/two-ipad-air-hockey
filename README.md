@@ -125,14 +125,17 @@ the other.
   spawns two fake pucks on their screen, Item Steal takes their item (or rolls
   you a new one), Tiny Puck shrinks the puck for everyone. Players who are
   behind draw the nastier items more often),
-  Random (a surprise twist every game: each match picks a new twist and a
-  card on the rink names it before the serve. Twin Puck: two pucks, score with
-  either. Moving Goals: the goals slide side to side. Gravity Well: the centre
-  pulls the puck in, slow pucks are swallowed and spat out. Blackout: lights
-  out, the puck is the lantern. Wind: a wind pushes the puck and turns every
-  8 seconds. Hot Potato: the puck has a fuse, and if it blows in your half the
-  other player scores. Shrinking Rink: the rails creep inward during a rally.
-  Turbo: every hit makes the puck 10 percent faster until someone scores).
+  and eight twist modes, each also playable on its own: Twin Puck (two pucks,
+  score with either), Moving Goals (the goals slide side to side), Gravity Well
+  (the centre pulls the puck in, slow pucks are swallowed and spat out),
+  Blackout (lights out, the puck is the lantern), Wind (a strong wind pushes
+  the puck and turns every 8 seconds), Hot Potato (the puck has a fuse, and if
+  it blows in your half the other player scores), Shrinking Rink (the rails
+  close in fast during a rally; a goal opens them again) and Turbo (every hit
+  makes the puck 10 percent faster, nothing slows it down and there is no
+  limit). A card on the rink names the rule before each serve. Random picks
+  one of those eight at the start of every game and never repeats it back to
+  back.
 - **Comeback goals** (on by default): the player who is behind gets a narrower
   goal mouth, so no lead is safe.
 - **Bot** with Easy, Medium, Hard and Impossible levels. Hard and above predict
@@ -248,7 +251,8 @@ npm run icons              # regenerate the PNG icons from tools/make-icons.mjs
 
 Testing a twist: in Random mode, add `?twist=<id>` to the page URL to force
 one twist (ids: `twinpuck`, `movinggoals`, `gravity`, `blackout`, `wind`,
-`hotpotato`, `shrinking`, `turbo`). It is a dev aid with no lobby control.
+`hotpotato`, `shrinking`, `turbo`). It is a dev aid with no lobby control;
+the eight twist modes are fixed, so only Random reads it.
 
 `public/dev/fx-test.html` exercises the renderer and the sounds with a fake
 snapshot. In the browser console, `window.__dbg()` shows the live state.

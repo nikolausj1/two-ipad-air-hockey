@@ -19,7 +19,7 @@
 //    page is closed, so one page load never mixes two workers' files.
 // Bump CACHE_VERSION when this list changes (it also forces a new install).
 
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 const PREFIX = 'ah-';
 const MARKER = '.complete';
 const REFRESH_EVERY_MS = 10 * 60 * 1000;

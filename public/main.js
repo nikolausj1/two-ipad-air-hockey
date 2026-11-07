@@ -45,7 +45,25 @@ const DEFAULTS = {
   diag: false, // diagnostics panel (fps, rtt, jitter...) in the pause menu
 };
 const TWIST_IDS = ['twinpuck', 'movinggoals', 'gravity', 'blackout', 'wind', 'hotpotato', 'shrinking', 'turbo'];
-const MODES = ['classic', 'bumpers', 'ice', 'bombs', 'mines', 'glitch', 'battle', 'random'];
+const MODES = ['classic', 'bumpers', 'ice', 'bombs', 'mines', 'glitch', 'battle', ...TWIST_IDS, 'random'];
+const MODE_NAMES = {
+  classic: 'Classic',
+  bumpers: 'Bumpers',
+  ice: 'Ice',
+  bombs: 'Bombs',
+  mines: 'Mines',
+  glitch: 'Glitch',
+  battle: 'Battle',
+  twinpuck: 'Twin Puck',
+  movinggoals: 'Moving Goals',
+  gravity: 'Gravity Well',
+  blackout: 'Blackout',
+  wind: 'Wind',
+  hotpotato: 'Hot Potato',
+  shrinking: 'Shrinking Rink',
+  turbo: 'Turbo',
+  random: 'Random',
+};
 const PLAYS = ['duo', 'bot', 'pass'];
 const BOT_LEVELS = ['easy', 'medium', 'hard', 'impossible'];
 const TARGETS = [5, 7, 11];
@@ -662,7 +680,7 @@ function renderNearby() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'nearby-cta' + (i === 0 ? ' nearby-first' : '');
-    btn.setAttribute('aria-label', 'Join table ' + e.code + (e.mode ? ', ' + e.mode : ''));
+    btn.setAttribute('aria-label', 'Join table ' + e.code + (e.mode ? ', ' + (MODE_NAMES[e.mode] || e.mode) : ''));
     const eyebrow = document.createElement('span');
     eyebrow.className = 'nearby-eyebrow';
     eyebrow.textContent = i === 0 ? 'An iPad near you is hosting' : 'Also nearby';
@@ -673,7 +691,7 @@ function renderNearby() {
     code.textContent = e.code;
     const mode = document.createElement('span');
     mode.className = 'nearby-mode';
-    mode.textContent = e.mode ? e.mode + ' table' : 'table';
+    mode.textContent = e.mode ? (MODE_NAMES[e.mode] || e.mode) + ' table' : 'table';
     main.append(code, mode);
     const go = document.createElement('span');
     go.className = 'nearby-go';

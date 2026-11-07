@@ -231,6 +231,37 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-2); 
 .g-random { border-radius: 28%; background: conic-gradient(from 0deg, var(--accent, #4dc8ff) 0 25%, var(--accent-2, #ff6b9a) 0 50%, #ffd166 0 75%, #b388ff 0 100%); box-shadow: inset 0 0 0 2px rgba(255,255,255,.6), inset 0 -5px 8px rgba(0,0,60,.3); }
 .g-random::after { content: "?"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font: 900 21px/1 -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; text-shadow: 0 1px 0 rgba(30,10,90,.9), 0 0 4px rgba(30,10,90,.6); }
 .g-mines { background: radial-gradient(circle at 50% 50%, #ff5d5d 0 30%, transparent 32%), repeating-conic-gradient(from 0deg, #ff5d5d 0 10deg, transparent 10deg 45deg); }
+.g-twinpuck { background:
+  radial-gradient(circle at 32% 50%, #f4f6ff 0 20%, transparent 22%),
+  radial-gradient(circle at 68% 50%, #f4f6ff 0 20%, transparent 22%),
+  radial-gradient(circle at 50% 50%, rgba(255,255,255,.18) 0 70%, transparent 72%); }
+.g-movinggoals { background:
+  linear-gradient(90deg, transparent 0 14%, var(--accent-2) 14% 52%, transparent 52%) 0 22% / 100% 14% no-repeat,
+  linear-gradient(90deg, transparent 0 46%, var(--accent) 46% 84%, transparent 84%) 0 70% / 100% 14% no-repeat,
+  radial-gradient(circle at 50% 50%, rgba(255,255,255,.14) 0 70%, transparent 72%); }
+.g-gravity { background:
+  radial-gradient(circle at 50% 50%, #1a1033 0 16%, transparent 18%),
+  repeating-conic-gradient(from 0deg, #b79bff 0 18deg, #6a42d6 18deg 40deg, transparent 40deg 60deg),
+  radial-gradient(circle at 50% 50%, #8a63f0 0 70%, transparent 72%); }
+.g-blackout { background:
+  radial-gradient(circle at 58% 42%, #fff6c8 0 9%, rgba(255,246,200,.35) 14%, transparent 30%),
+  radial-gradient(circle at 50% 50%, #0b0e1a 0 92%, transparent 94%); box-shadow: inset 0 0 0 2px rgba(255,255,255,.25); }
+.g-wind { background:
+  linear-gradient(-20deg, transparent 0 40%, #d8f3ff 40% 46%, transparent 46%) 0 14% / 100% 20% no-repeat,
+  linear-gradient(-20deg, transparent 0 20%, #bfe6ff 20% 28%, transparent 28%) 0 42% / 100% 20% no-repeat,
+  linear-gradient(-20deg, transparent 0 50%, #d8f3ff 50% 57%, transparent 57%) 0 70% / 100% 20% no-repeat,
+  radial-gradient(circle at 50% 50%, rgba(120,200,255,.28) 0 70%, transparent 72%); }
+.g-hotpotato { background:
+  radial-gradient(circle at 72% 18%, #ff3b30 0 9%, #ffd166 10% 14%, transparent 17%),
+  radial-gradient(circle at 40% 36%, #ffb066 0 14%, transparent 40%),
+  radial-gradient(circle at 50% 56%, #ff7a2f 0 40%, transparent 42%); }
+.g-shrinking { background:
+  linear-gradient(90deg, var(--accent-2) 0 14%, transparent 14% 86%, var(--accent) 86%),
+  radial-gradient(circle at 50% 50%, #f4f6ff 0 16%, transparent 18%),
+  radial-gradient(circle at 50% 50%, rgba(255,255,255,.14) 0 70%, transparent 72%); }
+.g-turbo { background:
+  repeating-linear-gradient(-90deg, rgba(255,255,255,.7) 0 2px, transparent 2px 7px) 0 0 / 100% 100%,
+  radial-gradient(circle at 60% 50%, #ffe07a 0 12%, #ff7a1a 14% 40%, #ff3d1f 42% 52%, transparent 54%); }
 
 .toggle-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 18px; }
 .toggle-text p { margin-top: 4px; color: var(--muted); font-size: 14px; line-height: 1.4; max-width: 460px; }
